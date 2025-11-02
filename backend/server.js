@@ -69,11 +69,14 @@ const corsOptions = {
       'http://localhost:3000',
       'http://localhost:5173',
       'https://automerchant.ai',
-      'https://www.automerchant.ai'
+      'https://www.automerchant.ai',
+      'https://automerchant.vercel.app',
+      'https://www.automerchant.vercel.app',
+      'https://automerchant-backend-v2.vercel.app'
     ];
 
-    // Allow Shopify domains
-    if (!origin || allowedOrigins.indexOf(origin) !== -1 || /\.myshopify\.com$/.test(origin)) {
+    // Allow Shopify domains and Vercel preview deployments
+    if (!origin || allowedOrigins.indexOf(origin) !== -1 || /\.myshopify\.com$/.test(origin) || /\.vercel\.app$/.test(origin)) {
       callback(null, true);
     } else {
       callback(null, true); // Allow all for now during development
