@@ -172,7 +172,7 @@ export function WaitlistModal({ active, onClose, onDevAccess }) {
                 🎉 Welcome to the Future!
               </Text>
               <Text variant="bodyLg" as="p" style={{ color: 'white', lineHeight: '1.6' }}>
-                You're part of the first 100 builders shaping AutoMerchant.
+                You're part of the first builders shaping AutoMerchant.
                 <br /><br />
                 Our AI is learning fast — and with your feedback, we're turning it into something truly beautiful.
                 <br /><br />
