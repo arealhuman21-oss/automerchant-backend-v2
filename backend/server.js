@@ -22,36 +22,38 @@ const authLimiter = (req, res, next) => next();
 // BULLETPROOF DATABASE CONFIGURATION
 // ============================================
 const dbUrl = process.env.DATABASE_URL;
-const isSupabase = !!dbUrl && /supabase\.co|supabase\.com/i.test(dbUrl);
 
-// Force SSL with encryption; skip cert chain verification only when needed
-const ssl =
-  isSupabase
-    ? { require: true, rejectUnauthorized: false }
-    : (dbUrl && /sslmode=(require|verify-full|verify-ca)/i.test(dbUrl))
-      ? { require: true, rejectUnauthorized: false } // covers managed DBs with strict CA
-      : false;
+if (!dbUrl) {
+  console.error('❌ FATAL: DATABASE_URL environment variable not set');
+}
+
+// Determine if SSL is required
+// Check for: Supabase, sslmode param, or production environment
+const isSupabase = dbUrl && /supabase/i.test(dbUrl);
+const hasSslMode = dbUrl && /sslmode=(require|verify-full|verify-ca)/i.test(dbUrl);
+const isProd = process.env.VERCEL_ENV === 'production' || process.env.NODE_ENV === 'production';
+
+// ALWAYS use SSL in production or when detected as needed
+// This fixes "self-signed certificate" errors from managed DB services
+const sslConfig = (isSupabase || hasSslMode || isProd)
+  ? { rejectUnauthorized: false }
+  : false;
+
+console.log('🔧 SSL Config:', {
+  isSupabase,
+  hasSslMode,
+  isProd,
+  sslEnabled: !!sslConfig
+});
 
 const pool = new Pool({
   connectionString: dbUrl,
-  ssl,
+  ssl: sslConfig,
   // Serverless-friendly pool tuning
   max: 20,
   connectionTimeoutMillis: 10000,
   idleTimeoutMillis: 30000
 });
-
-// Safe, redacted debug logging
-if (process.env.DEBUG_DB === '1') {
-  console.log('DB cfg:', {
-    hasDbUrl: !!dbUrl,
-    isSupabase,
-    ssl: !!ssl,
-    sslRejectUnauthorized: !!(ssl && ssl.rejectUnauthorized),
-    nodeEnv: process.env.NODE_ENV,
-    vercelEnv: process.env.VERCEL_ENV
-  });
-}
 
 pool.query('SELECT NOW()', (err, res) => {
   if (err) {
