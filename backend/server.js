@@ -29,27 +29,24 @@ if (!dbUrl) {
 
 // NUCLEAR OPTION: Always enable SSL with rejectUnauthorized: false
 // This is safe for managed services (Supabase, Railway, Render, etc.)
-// Only disable SSL if DISABLE_SSL=true is explicitly set
-const sslConfig = process.env.DISABLE_SSL === 'true'
-  ? false
-  : { rejectUnauthorized: false };
-
-console.log('🔧 Database Config:', {
-  hasDbUrl: !!dbUrl,
-  dbHost: dbUrl ? new URL(dbUrl).hostname : 'N/A',
-  sslEnabled: !!sslConfig,
-  sslRejectUnauthorized: sslConfig ? sslConfig.rejectUnauthorized : 'N/A',
-  nodeEnv: process.env.NODE_ENV,
-  vercelEnv: process.env.VERCEL_ENV
-});
-
+// The pg library specifically needs this exact format
 const pool = new Pool({
   connectionString: dbUrl,
-  ssl: sslConfig,
+  ssl: {
+    rejectUnauthorized: false
+  },
   // Serverless-friendly pool tuning
   max: 20,
   connectionTimeoutMillis: 10000,
   idleTimeoutMillis: 30000
+});
+
+console.log('🔧 Database Config:', {
+  hasDbUrl: !!dbUrl,
+  dbHost: dbUrl ? new URL(dbUrl).hostname : 'N/A',
+  poolSslConfig: pool.options.ssl,
+  nodeEnv: process.env.NODE_ENV,
+  vercelEnv: process.env.VERCEL_ENV
 });
 
 pool.query('SELECT NOW()', (err, res) => {
@@ -1260,14 +1257,12 @@ app.get('/api/orders', authenticateToken, async (req, res) => {
 app.get('/api/debug', (req, res) => {
   res.json({
     deployTime: new Date().toISOString(),
-    commitHash: '338aec9',
+    commitHash: '4e84ef0-HARDCODED-SSL',
     hasDbUrl: !!process.env.DATABASE_URL,
     dbHost: process.env.DATABASE_URL ? new URL(process.env.DATABASE_URL).hostname : null,
-    sslConfigType: typeof sslConfig,
-    sslConfigValue: sslConfig,
+    poolSslConfig: pool.options.ssl,
     nodeEnv: process.env.NODE_ENV,
-    vercelEnv: process.env.VERCEL_ENV,
-    disableSsl: process.env.DISABLE_SSL
+    vercelEnv: process.env.VERCEL_ENV
   });
 });
 
