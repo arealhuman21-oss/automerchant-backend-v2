@@ -18,9 +18,17 @@ const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-change-in-producti
 const analysisLimiter = (req, res, next) => next();
 const authLimiter = (req, res, next) => next();
 
+// Database configuration with proper SSL handling for Supabase
+const isProd = process.env.NODE_ENV === 'production';
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
-  ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false
+  ssl: isProd ? {
+    rejectUnauthorized: false, // Required for Supabase connection pooler
+  } : false,
+  // Supabase pooler specific settings
+  connectionTimeoutMillis: 10000,
+  idleTimeoutMillis: 30000,
+  max: 20 // Maximum pool size for serverless
 });
 
 pool.query('SELECT NOW()', (err, res) => {
