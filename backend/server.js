@@ -27,27 +27,32 @@ if (!dbUrl) {
   console.error('❌ FATAL: DATABASE_URL environment variable not set');
 }
 
-// NUCLEAR OPTION: Always enable SSL with rejectUnauthorized: false
-// This is safe for managed services (Supabase, Railway, Render, etc.)
-// The pg library specifically needs this exact format
-const pool = new Pool({
-  connectionString: dbUrl,
+// ABSOLUTE NUCLEAR OPTION: Parse the URL and reconstruct with SSL params
+// This bypasses any pg library SSL config issues
+const url = new URL(dbUrl);
+const connectionConfig = {
+  host: url.hostname,
+  port: url.port || 5432,
+  database: url.pathname.split('/')[1],
+  user: url.username,
+  password: url.password,
   ssl: {
     rejectUnauthorized: false
   },
-  // Serverless-friendly pool tuning
   max: 20,
   connectionTimeoutMillis: 10000,
   idleTimeoutMillis: 30000
-});
+};
 
 console.log('🔧 Database Config:', {
-  hasDbUrl: !!dbUrl,
-  dbHost: dbUrl ? new URL(dbUrl).hostname : 'N/A',
-  poolSslConfig: pool.options.ssl,
-  nodeEnv: process.env.NODE_ENV,
-  vercelEnv: process.env.VERCEL_ENV
+  host: connectionConfig.host,
+  port: connectionConfig.port,
+  database: connectionConfig.database,
+  sslEnabled: !!connectionConfig.ssl,
+  sslReject: connectionConfig.ssl.rejectUnauthorized
 });
+
+const pool = new Pool(connectionConfig);
 
 pool.query('SELECT NOW()', (err, res) => {
   if (err) {
@@ -1257,10 +1262,14 @@ app.get('/api/orders', authenticateToken, async (req, res) => {
 app.get('/api/debug', (req, res) => {
   res.json({
     deployTime: new Date().toISOString(),
-    commitHash: '4e84ef0-HARDCODED-SSL',
+    commitHash: 'PARSED-CONFIG',
     hasDbUrl: !!process.env.DATABASE_URL,
-    dbHost: process.env.DATABASE_URL ? new URL(process.env.DATABASE_URL).hostname : null,
-    poolSslConfig: pool.options.ssl,
+    connectionConfig: {
+      host: connectionConfig.host,
+      port: connectionConfig.port,
+      database: connectionConfig.database,
+      ssl: connectionConfig.ssl
+    },
     nodeEnv: process.env.NODE_ENV,
     vercelEnv: process.env.VERCEL_ENV
   });
