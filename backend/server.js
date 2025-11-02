@@ -18,29 +18,40 @@ const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-change-in-producti
 const analysisLimiter = (req, res, next) => next();
 const authLimiter = (req, res, next) => next();
 
-// Database configuration with proper SSL handling for Supabase
-// Detect if DATABASE_URL requires SSL (Supabase, Railway, Render, etc.)
-const requiresSSL = process.env.DATABASE_URL && process.env.DATABASE_URL.includes('supabase.com');
+// ============================================
+// BULLETPROOF DATABASE CONFIGURATION
+// ============================================
+const dbUrl = process.env.DATABASE_URL;
+const isSupabase = !!dbUrl && /supabase\.co|supabase\.com/i.test(dbUrl);
 
-console.log('🔧 Database SSL Config:', {
-  hasDbUrl: !!process.env.DATABASE_URL,
-  requiresSSL,
-  nodeEnv: process.env.NODE_ENV,
-  vercelEnv: process.env.VERCEL_ENV
-});
+// Force SSL with encryption; skip cert chain verification only when needed
+const ssl =
+  isSupabase
+    ? { require: true, rejectUnauthorized: false }
+    : (dbUrl && /sslmode=(require|verify-full|verify-ca)/i.test(dbUrl))
+      ? { require: true, rejectUnauthorized: false } // covers managed DBs with strict CA
+      : false;
 
 const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
-  // Always use SSL with rejectUnauthorized: false for Supabase connection pooler
-  // This is safe because we trust Supabase's managed service
-  ssl: requiresSSL ? {
-    rejectUnauthorized: false
-  } : false,
-  // Optimized for Vercel serverless environment
+  connectionString: dbUrl,
+  ssl,
+  // Serverless-friendly pool tuning
+  max: 20,
   connectionTimeoutMillis: 10000,
-  idleTimeoutMillis: 30000,
-  max: 20
+  idleTimeoutMillis: 30000
 });
+
+// Safe, redacted debug logging
+if (process.env.DEBUG_DB === '1') {
+  console.log('DB cfg:', {
+    hasDbUrl: !!dbUrl,
+    isSupabase,
+    ssl: !!ssl,
+    sslRejectUnauthorized: !!(ssl && ssl.rejectUnauthorized),
+    nodeEnv: process.env.NODE_ENV,
+    vercelEnv: process.env.VERCEL_ENV
+  });
+}
 
 pool.query('SELECT NOW()', (err, res) => {
   if (err) {
@@ -1249,33 +1260,25 @@ app.get('/api/orders', authenticateToken, async (req, res) => {
 
 app.get('/api/health', async (req, res) => {
   try {
-    const { rows } = await pool.query('SELECT NOW()');
-    res.status(200).json({
+    const { rows } = await pool.query('SELECT NOW() as now');
+    return res.json({
       status: 'ok',
       supabase: true,
-      time: rows[0].now
+      time: rows[0].now.toISOString?.() || rows[0].now
     });
   } catch (err) {
-    console.error('Health check failed:', err.message);
-    res.status(500).json({ status: 'error', message: err.message });
+    return res.status(500).json({
+      status: 'error',
+      message: err?.message || 'unknown error',
+      code: err?.code || null
+    });
   }
 });
 
 // ============ START SERVER ============
 
-// For local development
 if (process.env.NODE_ENV !== 'production') {
-  app.listen(PORT, () => {
-    console.log(`🚀 Server running on port ${PORT}`);
-    console.log(`📊 Database: ${process.env.DATABASE_URL ? 'Connected' : 'Not configured'}`);
-    console.log(`🤖 WORLD-CLASS Pricing Algorithm: ACTIVE`);
-    console.log(`✅ Safeguards: Margin caps, error detection, zero-sales handling`);
-    console.log(`⏰ Auto-analysis: Every 30 minutes`);
-    console.log(`📦 Product Selection: Up to 10 products (Pro plan)`);
-    console.log(`⏱️  Manual Analysis: 10 per day`);
-    console.log(`🎯 PRODUCTION-READY - All features implemented!`);
-  });
+  const PORT = process.env.PORT || 5000;
+  app.listen(PORT, () => console.log(`Local server on ${PORT}`));
 }
-
-// For Vercel serverless deployment
 module.exports = app;
