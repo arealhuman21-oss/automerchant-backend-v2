@@ -37,6 +37,7 @@ import {
   SunIcon,
   MoonIcon,
 } from '@shopify/polaris-icons';
+import { WaitlistButton } from './components/Waitlist';
 
 const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000';
 
@@ -1294,13 +1295,16 @@ function App({ colorScheme = 'light', setColorScheme = () => {} }) {
 
             <Box paddingBlockStart="400">
               <InlineStack gap="300" wrap={true} blockAlign="center" align="center">
-                <Button variant="primary" size="large" onClick={() => setView('auth')}>
-                  Go to Main App
-                </Button>
+                <WaitlistButton onDevAccess={() => setView('auth')} />
                 <Text variant="bodySm" tone="subdued">
-                  Sign in or create your account
+                  Be among the first 100 users
                 </Text>
               </InlineStack>
+              <Box paddingBlockStart="200">
+                <Button variant="plain" onClick={() => setView('auth')}>
+                  Already have an account? Sign in
+                </Button>
+              </Box>
             </Box>
 
             <Box paddingBlockStart="600">
