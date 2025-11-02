@@ -1255,6 +1255,22 @@ app.get('/api/orders', authenticateToken, async (req, res) => {
   }
 });
 
+// ============ DEBUG ENDPOINT ============
+
+app.get('/api/debug', (req, res) => {
+  res.json({
+    deployTime: new Date().toISOString(),
+    commitHash: '338aec9',
+    hasDbUrl: !!process.env.DATABASE_URL,
+    dbHost: process.env.DATABASE_URL ? new URL(process.env.DATABASE_URL).hostname : null,
+    sslConfigType: typeof sslConfig,
+    sslConfigValue: sslConfig,
+    nodeEnv: process.env.NODE_ENV,
+    vercelEnv: process.env.VERCEL_ENV,
+    disableSsl: process.env.DISABLE_SSL
+  });
+});
+
 // ============ HEALTH CHECK ============
 
 app.get('/api/health', async (req, res) => {
