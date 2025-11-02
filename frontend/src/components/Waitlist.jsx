@@ -16,8 +16,6 @@ const DEV_EMAIL = 'arealhuman21@gmail.com';
 
 export function WaitlistModal({ active, onClose, onDevAccess }) {
   const [email, setEmail] = useState('');
-  const [name, setName] = useState('');
-  const [shopUrl, setShopUrl] = useState('');
   const [loading, setLoading] = useState(false);
   const [success, setSuccess] = useState(false);
   const [error, setError] = useState('');
@@ -75,16 +73,10 @@ export function WaitlistModal({ active, onClose, onDevAccess }) {
         return;
       }
 
-      // Insert into waitlist
+      // Insert into waitlist (email only)
       const { data: insertData, error: insertError } = await supabase
         .from('waitlist_emails')
-        .insert([
-          {
-            email: email.toLowerCase(),
-            name: name || null,
-            shop_url: shopUrl || null,
-          },
-        ])
+        .insert([{ email: email.toLowerCase() }])
         .select();
 
       if (insertError) {
@@ -119,8 +111,6 @@ export function WaitlistModal({ active, onClose, onDevAccess }) {
 
   const handleClose = () => {
     setEmail('');
-    setName('');
-    setShopUrl('');
     setSuccess(false);
     setError('');
     setAlreadySignedUp(false);
@@ -206,29 +196,14 @@ export function WaitlistModal({ active, onClose, onDevAccess }) {
             <form onSubmit={handleSubmit}>
               <BlockStack gap="400">
                 <TextField
-                  label="Email"
+                  label="Email Address"
                   type="email"
                   value={email}
                   onChange={setEmail}
                   placeholder="you@example.com"
                   autoComplete="email"
                   requiredIndicator
-                />
-
-                <TextField
-                  label="Name"
-                  value={name}
-                  onChange={setName}
-                  placeholder="Your name (optional)"
-                  autoComplete="name"
-                />
-
-                <TextField
-                  label="Shopify Store URL"
-                  value={shopUrl}
-                  onChange={setShopUrl}
-                  placeholder="yourstore.myshopify.com (optional)"
-                  helpText="If you have a Shopify store, we'd love to know!"
+                  helpText="We'll notify you when AutoMerchant launches"
                 />
 
                 <Text variant="bodySm" as="p" tone="subdued">
