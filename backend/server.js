@@ -19,16 +19,27 @@ const analysisLimiter = (req, res, next) => next();
 const authLimiter = (req, res, next) => next();
 
 // Database configuration with proper SSL handling for Supabase
-const isProd = process.env.NODE_ENV === 'production';
+// Detect if DATABASE_URL requires SSL (Supabase, Railway, Render, etc.)
+const requiresSSL = process.env.DATABASE_URL && process.env.DATABASE_URL.includes('supabase.com');
+
+console.log('🔧 Database SSL Config:', {
+  hasDbUrl: !!process.env.DATABASE_URL,
+  requiresSSL,
+  nodeEnv: process.env.NODE_ENV,
+  vercelEnv: process.env.VERCEL_ENV
+});
+
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
-  ssl: isProd ? {
-    rejectUnauthorized: false, // Required for Supabase connection pooler
+  // Always use SSL with rejectUnauthorized: false for Supabase connection pooler
+  // This is safe because we trust Supabase's managed service
+  ssl: requiresSSL ? {
+    rejectUnauthorized: false
   } : false,
-  // Supabase pooler specific settings
+  // Optimized for Vercel serverless environment
   connectionTimeoutMillis: 10000,
   idleTimeoutMillis: 30000,
-  max: 20 // Maximum pool size for serverless
+  max: 20
 });
 
 pool.query('SELECT NOW()', (err, res) => {
