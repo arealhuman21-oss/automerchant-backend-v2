@@ -27,23 +27,20 @@ if (!dbUrl) {
   console.error('❌ FATAL: DATABASE_URL environment variable not set');
 }
 
-// Determine if SSL is required
-// Check for: Supabase, sslmode param, or production environment
-const isSupabase = dbUrl && /supabase/i.test(dbUrl);
-const hasSslMode = dbUrl && /sslmode=(require|verify-full|verify-ca)/i.test(dbUrl);
-const isProd = process.env.VERCEL_ENV === 'production' || process.env.NODE_ENV === 'production';
+// NUCLEAR OPTION: Always enable SSL with rejectUnauthorized: false
+// This is safe for managed services (Supabase, Railway, Render, etc.)
+// Only disable SSL if DISABLE_SSL=true is explicitly set
+const sslConfig = process.env.DISABLE_SSL === 'true'
+  ? false
+  : { rejectUnauthorized: false };
 
-// ALWAYS use SSL in production or when detected as needed
-// This fixes "self-signed certificate" errors from managed DB services
-const sslConfig = (isSupabase || hasSslMode || isProd)
-  ? { rejectUnauthorized: false }
-  : false;
-
-console.log('🔧 SSL Config:', {
-  isSupabase,
-  hasSslMode,
-  isProd,
-  sslEnabled: !!sslConfig
+console.log('🔧 Database Config:', {
+  hasDbUrl: !!dbUrl,
+  dbHost: dbUrl ? new URL(dbUrl).hostname : 'N/A',
+  sslEnabled: !!sslConfig,
+  sslRejectUnauthorized: sslConfig ? sslConfig.rejectUnauthorized : 'N/A',
+  nodeEnv: process.env.NODE_ENV,
+  vercelEnv: process.env.VERCEL_ENV
 });
 
 const pool = new Pool({
