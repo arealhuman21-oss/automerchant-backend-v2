@@ -1,0 +1,61 @@
+AutoMerchant AI - Production Build Changes Summary
+===================================================
+
+FILES CREATED:
+-------------
+- backend/.env (Supabase credentials)
+- backend/.env.example
+- backend/vercel.json
+- frontend/.env.example
+- frontend/vercel.json
+- embedded-app/ (entire new directory)
+  - public/index.html (Shopify redirect)
+  - package.json
+  - vercel.json
+  - README.md
+- DEPLOYMENT.md
+- QUICKSTART.md
+- PRODUCTION_READY.md
+- CHANGES_SUMMARY.txt
+
+FILES MODIFIED:
+--------------
+1. backend/server.js
+   - Added comprehensive CORS configuration
+   - Production URLs allowed
+
+2. frontend/src/index.js
+   - Changed to use App.old.js (Tailwind UI)
+   - Removed AppBridgeProvider wrapper
+
+3. frontend/src/App.old.js
+   - Added auto-switching API URL
+   - Added Total AI Profit display card
+
+4. frontend/src/App.js (Polaris version)
+   - Updated landing page with "Go to Main App"
+   - Enhanced welcome experience
+
+5. frontend/src/AppBridge.js
+   - Enhanced dark mode persistence
+
+KEY FEATURES ADDED:
+------------------
+- Total AI-Generated Profit card (prominent on dashboard)
+- Shopify embedded app redirect shell
+- Production-ready CORS configuration
+- Supabase PostgreSQL integration
+- Auto-switching API URLs (local/production)
+- Vercel deployment configurations
+- Comprehensive deployment documentation
+
+PRODUCTION URLs:
+---------------
+Frontend:  https://automerchant.ai
+Backend:   https://api.automerchant.ai
+Embedded:  https://embedded.automerchant.ai
+Database:  Supabase PostgreSQL
+
+STATUS: PRODUCTION READY ✅
+
+See DEPLOYMENT.md for full deployment guide

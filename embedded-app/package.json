@@ -1,0 +1,13 @@
+{
+  "name": "automerchant-embedded-app",
+  "version": "1.0.0",
+  "description": "AutoMerchant Shopify Embedded App - Redirect Shell",
+  "main": "index.html",
+  "scripts": {
+    "dev": "npx serve public",
+    "build": "echo 'No build needed - static HTML'"
+  },
+  "keywords": ["shopify", "embedded-app", "automerchant"],
+  "author": "AutoMerchant AI",
+  "license": "MIT"
+}

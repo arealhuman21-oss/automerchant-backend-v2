@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AutoMerchant AI - Redirecting...</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: white;
+    }
+    .container {
+      text-align: center;
+      max-width: 500px;
+      padding: 40px 20px;
+    }
+    .logo {
+      width: 80px;
+      height: 80px;
+      margin: 0 auto 30px;
+      background: rgba(255, 255, 255, 0.2);
+      border-radius: 20px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 40px;
+    }
+    h1 {
+      font-size: 32px;
+      margin-bottom: 16px;
+      font-weight: 700;
+    }
+    p {
+      font-size: 18px;
+      opacity: 0.9;
+      margin-bottom: 30px;
+    }
+    .spinner {
+      width: 50px;
+      height: 50px;
+      margin: 0 auto;
+      border: 4px solid rgba(255, 255, 255, 0.3);
+      border-top-color: white;
+      border-radius: 50%;
+      animation: spin 1s linear infinite;
+    }
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+    .redirect-info {
+      margin-top: 30px;
+      padding: 20px;
+      background: rgba(255, 255, 255, 0.1);
+      border-radius: 12px;
+      font-size: 14px;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="logo">⚡</div>
+    <h1>AutoMerchant AI</h1>
+    <p>Redirecting you to the main app...</p>
+    <div class="spinner"></div>
+    <div class="redirect-info">
+      <p>You're being redirected to <strong>automerchant.ai</strong></p>
+      <p style="font-size: 12px; margin-top: 10px; opacity: 0.7;">If you're not redirected automatically, <a href="https://automerchant.ai" style="color: white; text-decoration: underline;">click here</a>.</p>
+    </div>
+  </div>
+
+  <script>
+    (function() {
+      // Get shop parameter from URL
+      const urlParams = new URLSearchParams(window.location.search);
+      const shop = urlParams.get('shop') || urlParams.get('shopOrigin') || '';
+      
+      // Build redirect URL
+      let redirectUrl = 'https://automerchant.ai';
+      if (shop) {
+        redirectUrl += `?shop=${encodeURIComponent(shop)}`;
+      }
+      
+      console.log('🔄 AutoMerchant: Redirecting to main app...');
+      console.log('📍 Shop:', shop || 'none');
+      console.log('🎯 Target URL:', redirectUrl);
+      
+      // Check if we're in an iframe (Shopify embedded app)
+      if (window.top !== window.self) {
+        console.log('📱 Detected iframe - redirecting parent window');
+        // Redirect the parent window (break out of iframe)
+        window.top.location.href = redirectUrl;
+      } else {
+        console.log('🖥️ Standalone window - direct redirect');
+        // Direct redirect
+        window.location.href = redirectUrl;
+      }
+      
+      // Fallback redirect after 3 seconds
+      setTimeout(function() {
+        console.log('⏰ Fallback redirect triggered');
+        window.location.href = redirectUrl;
+      }, 3000);
+    })();
+  </script>
+</body>
+</html>
