@@ -15,19 +15,40 @@ import { supabase } from '../lib/supabaseClient';
 const DEV_EMAIL = 'arealhuman21@gmail.com';
 
 export function WaitlistModal({ active, onClose, onDevAccess }) {
-  const [email, setEmail] = useState('');
   const [loading, setLoading] = useState(false);
   const [success, setSuccess] = useState(false);
   const [error, setError] = useState('');
   const [totalSignups, setTotalSignups] = useState(null);
   const [alreadySignedUp, setAlreadySignedUp] = useState(false);
+  const [userEmail, setUserEmail] = useState(null);
 
-  // Fetch total signups on mount
+  // Fetch total signups on mount and check auth status
   useEffect(() => {
     if (active && supabase) {
       fetchTotalSignups();
+      checkAuthStatus();
     }
   }, [active]);
+
+  const checkAuthStatus = async () => {
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user?.email) {
+        setUserEmail(user.email);
+        // Check if this is the dev email
+        if (user.email.toLowerCase() === DEV_EMAIL.toLowerCase()) {
+          setTimeout(() => {
+            onClose();
+            if (onDevAccess) {
+              onDevAccess();
+            }
+          }, 500);
+        }
+      }
+    } catch (err) {
+      console.error('Error checking auth:', err);
+    }
+  };
 
   const fetchTotalSignups = async () => {
     try {
@@ -44,14 +65,7 @@ export function WaitlistModal({ active, onClose, onDevAccess }) {
     }
   };
 
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-
-    if (!email || !email.includes('@')) {
-      setError('Please enter a valid email address');
-      return;
-    }
-
+  const handleGoogleSignIn = async () => {
     if (!supabase) {
       setError('Supabase is not configured. Please contact support.');
       return;
@@ -61,18 +75,26 @@ export function WaitlistModal({ active, onClose, onDevAccess }) {
     setError('');
 
     try {
-      // Check if dev email - skip waitlist
-      if (email.toLowerCase() === DEV_EMAIL.toLowerCase()) {
-        setTimeout(() => {
-          setLoading(false);
-          onClose();
-          if (onDevAccess) {
-            onDevAccess(); // Redirect to dashboard
-          }
-        }, 500);
-        return;
-      }
+      const { data, error } = await supabase.auth.signInWithOAuth({
+        provider: 'google',
+        options: {
+          redirectTo: window.location.origin,
+        }
+      });
 
+      if (error) throw error;
+
+      // The redirect will handle the rest
+      // When user returns, checkAuthStatus will be called
+    } catch (err) {
+      console.error('Google sign-in error:', err);
+      setError(err.message || 'Failed to sign in with Google. Please try again.');
+      setLoading(false);
+    }
+  };
+
+  const handleAddToWaitlist = async (email) => {
+    try {
       // Insert into waitlist (email only)
       const { data: insertData, error: insertError } = await supabase
         .from('waitlist_emails')
@@ -83,7 +105,6 @@ export function WaitlistModal({ active, onClose, onDevAccess }) {
         if (insertError.code === '23505') {
           // Unique constraint violation - already signed up
           setAlreadySignedUp(true);
-          setLoading(false);
           return;
         }
         throw insertError;
@@ -101,19 +122,26 @@ export function WaitlistModal({ active, onClose, onDevAccess }) {
       await fetchTotalSignups();
 
       setSuccess(true);
-      setLoading(false);
     } catch (err) {
       console.error('Waitlist error:', err);
       setError(err.message || 'Something went wrong. Please try again.');
+    } finally {
       setLoading(false);
     }
   };
 
+  // When user authenticates, add them to waitlist
+  useEffect(() => {
+    if (userEmail && !success && !alreadySignedUp) {
+      handleAddToWaitlist(userEmail);
+    }
+  }, [userEmail]);
+
   const handleClose = () => {
-    setEmail('');
     setSuccess(false);
     setError('');
     setAlreadySignedUp(false);
+    setUserEmail(null);
     onClose();
   };
 
@@ -129,10 +157,9 @@ export function WaitlistModal({ active, onClose, onDevAccess }) {
               onAction: handleClose,
             }
           : {
-              content: loading ? 'Joining...' : 'Join Waitlist',
-              onAction: handleSubmit,
+              content: loading ? 'Signing in...' : 'Sign in with Google',
+              onAction: handleGoogleSignIn,
               loading,
-              disabled: !email,
             }
       }
       secondaryActions={
@@ -193,24 +220,16 @@ export function WaitlistModal({ active, onClose, onDevAccess }) {
               </Banner>
             )}
 
-            <form onSubmit={handleSubmit}>
-              <BlockStack gap="400">
-                <TextField
-                  label="Email Address"
-                  type="email"
-                  value={email}
-                  onChange={setEmail}
-                  placeholder="you@example.com"
-                  autoComplete="email"
-                  requiredIndicator
-                  helpText="We'll notify you when AutoMerchant launches"
-                />
+            <BlockStack gap="400">
+              <Text variant="bodyLg" as="p" alignment="center">
+                Sign in with your Google account to join the waitlist
+              </Text>
 
-                <Text variant="bodySm" as="p" tone="subdued">
-                  Be among the first to experience AI-powered dynamic pricing for Shopify.
-                </Text>
-              </BlockStack>
-            </form>
+              <Text variant="bodySm" as="p" tone="subdued" alignment="center">
+                Be among the first to experience AI-powered dynamic pricing for Shopify.
+                We'll notify you when AutoMerchant launches.
+              </Text>
+            </BlockStack>
           </BlockStack>
         )}
       </Modal.Section>

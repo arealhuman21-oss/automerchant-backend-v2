@@ -432,9 +432,15 @@ function App({ colorScheme = 'light', setColorScheme = () => {} }) {
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
-        padding: '16px',
+        padding: '20px',
+        boxSizing: 'border-box',
+        overflow: 'hidden',
       }}>
-        <div style={{ maxWidth: '500px', width: '100%' }}>
+        <div style={{
+          maxWidth: '500px',
+          width: '100%',
+          boxSizing: 'border-box',
+        }}>
           <Box paddingBlockEnd="600">
             <BlockStack gap="400" align="center">
               <div style={{
@@ -1266,10 +1272,16 @@ function App({ colorScheme = 'light', setColorScheme = () => {} }) {
         flexDirection: 'column',
         alignItems: 'center',
         justifyContent: 'center',
-        padding: '16px',
+        padding: '20px',
         textAlign: 'center',
+        overflow: 'hidden',
+        boxSizing: 'border-box',
       }}>
-        <div style={{ maxWidth: '800px', width: '100%' }}>
+        <div style={{
+          maxWidth: '800px',
+          width: '100%',
+          boxSizing: 'border-box',
+        }}>
           <BlockStack gap="600" align="center">
             <div style={{
               ...gradientStyles.purplePink,
@@ -1280,36 +1292,66 @@ function App({ colorScheme = 'light', setColorScheme = () => {} }) {
             </div>
 
             <BlockStack gap="400" align="center">
-              <Text variant="heading4xl" as="h1" alignment="center">
-                Welcome to AutoMerchant
-              </Text>
-              <Text variant="heading2xl" as="h2" alignment="center" tone="subdued">
-                AI-Powered Pricing Optimization
-              </Text>
-              <Box paddingBlockStart="400">
-                <Text variant="bodyLg" as="p" alignment="center" tone="subdued">
-                  Thank you for installing AutoMerchant! Get ready to optimize your product pricing with advanced AI algorithms that analyze sales velocity, inventory levels, and market conditions to maximize your revenue.
+              <div style={{
+                maxWidth: '100%',
+                wordWrap: 'break-word',
+                overflowWrap: 'break-word',
+              }}>
+                <Text variant="heading4xl" as="h1" alignment="center">
+                  Welcome to AutoMerchant
                 </Text>
+              </div>
+              <div style={{
+                maxWidth: '100%',
+                wordWrap: 'break-word',
+                overflowWrap: 'break-word',
+              }}>
+                <Text variant="heading2xl" as="h2" alignment="center" tone="subdued">
+                  AI-Powered Pricing Optimization
+                </Text>
+              </div>
+              <Box paddingBlockStart="400">
+                <div style={{
+                  maxWidth: '100%',
+                  wordWrap: 'break-word',
+                  overflowWrap: 'break-word',
+                  padding: '0 16px',
+                }}>
+                  <Text variant="bodyLg" as="p" alignment="center" tone="subdued">
+                    Thank you for installing AutoMerchant! Get ready to optimize your product pricing with advanced AI algorithms that analyze sales velocity, inventory levels, and market conditions to maximize your revenue.
+                  </Text>
+                </div>
               </Box>
             </BlockStack>
 
             <Box paddingBlockStart="400">
-              <InlineStack gap="300" wrap={true} blockAlign="center" align="center">
-                <WaitlistButton onDevAccess={() => setView('auth')} />
-                <Text variant="bodySm" tone="subdued">
-                  Be among the first 100 users
-                </Text>
-              </InlineStack>
-              <Box paddingBlockStart="200">
-                <Button variant="plain" onClick={() => setView('auth')}>
-                  Already have an account? Sign in
-                </Button>
-              </Box>
+              <div style={{
+                maxWidth: '100%',
+                boxSizing: 'border-box',
+                padding: '0 16px',
+              }}>
+                <InlineStack gap="300" wrap={true} blockAlign="center" align="center">
+                  <WaitlistButton onDevAccess={() => setView('auth')} />
+                  <Text variant="bodySm" tone="subdued">
+                    Be among the first 100 users
+                  </Text>
+                </InlineStack>
+                <Box paddingBlockStart="200">
+                  <Button variant="plain" onClick={() => setView('auth')}>
+                    Already have an account? Sign in
+                  </Button>
+                </Box>
+              </div>
             </Box>
 
             <Box paddingBlockStart="600">
-              <Card>
-                <BlockStack gap="300">
+              <div style={{
+                maxWidth: '100%',
+                boxSizing: 'border-box',
+                padding: '0 16px',
+              }}>
+                <Card>
+                  <BlockStack gap="300">
                   <Text variant="headingMd" fontWeight="bold" alignment="center">
                     What you'll get:
                   </Text>
@@ -1338,6 +1380,7 @@ function App({ colorScheme = 'light', setColorScheme = () => {} }) {
                   </InlineGrid>
                 </BlockStack>
               </Card>
+              </div>
             </Box>
           </BlockStack>
         </div>
