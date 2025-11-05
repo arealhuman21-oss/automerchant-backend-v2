@@ -186,11 +186,17 @@ function App() {
       if (event === 'SIGNED_IN' && session && !isProcessing) {
         console.log('User signed in:', session.user.email);
 
-        // Check if this is an OAuth callback
+        // Check if this is a fresh OAuth callback (not just a page reload with existing session)
         const urlParams = new URLSearchParams(window.location.search);
-        if (urlParams.get('code') || document.referrer.includes('accounts.google.com')) {
+        const isOAuthCallback = urlParams.get('code') || document.referrer.includes('accounts.google.com');
+
+        if (isOAuthCallback) {
           setIsProcessing(true);
           await handleWaitlistSignup(session.user.email);
+        } else {
+          // Not an OAuth callback - just a returning user
+          // checkIfUserSignedUp() will handle showing the success page
+          console.log('Returning user detected, checking waitlist status...');
         }
       }
     });
@@ -238,7 +244,7 @@ function App() {
         // Check if user is already in waitlist
         const { data, error } = await supabase
           .from('waitlist_emails')
-          .select('email')
+          .select('email, created_at')
           .eq('email', user.email.toLowerCase())
           .single();
 
@@ -249,7 +255,7 @@ function App() {
           const { count } = await supabase
             .from('waitlist_emails')
             .select('*', { count: 'exact', head: true })
-            .lte('created_at', data.created_at || new Date().toISOString());
+            .lte('created_at', data.created_at);
 
           setSignupNumber(count);
           setView('success'); // Show success page for returning users
