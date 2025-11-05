@@ -176,19 +176,13 @@ function App() {
   useEffect(() => {
     fetchWaitlistCount();
 
-    // Handle OAuth callback from hash
-    if (window.location.hash) {
-      console.log('OAuth hash detected, letting Supabase process it...');
-      // Supabase will automatically process the hash and trigger onAuthStateChange
-      // After processing, clean up the URL
-      setTimeout(() => {
-        if (window.location.hash.includes('access_token')) {
-          window.history.replaceState({}, document.title, window.location.pathname);
-        }
-      }, 1000);
+    // DON'T check user status if we have an OAuth hash - let the callback handle it
+    const hasOAuthHash = window.location.hash.includes('access_token');
+    if (!hasOAuthHash) {
+      checkIfUserSignedUp();
+    } else {
+      console.log('OAuth hash detected, waiting for Supabase to process...');
     }
-
-    checkIfUserSignedUp();
   }, []);
 
   // Listen for OAuth callback
@@ -196,26 +190,31 @@ function App() {
     if (!supabase) return;
 
     const { data: authListener } = supabase.auth.onAuthStateChange(async (event, session) => {
-      if (event === 'SIGNED_IN' && session && !isProcessing) {
-        console.log('Auth event SIGNED_IN:', session.user.email);
+      console.log('Auth state changed:', event, session?.user?.email);
 
+      if (event === 'SIGNED_IN' && session) {
         // Check if this is a fresh OAuth callback
-        // Hash-based flow: access_token in hash
-        // Query-based flow: code in query params
         const hasHashToken = window.location.hash.includes('access_token');
         const urlParams = new URLSearchParams(window.location.search);
         const hasCodeParam = urlParams.get('code');
-        const isOAuthCallback = hasHashToken || hasCodeParam || document.referrer.includes('accounts.google.com');
+        const isOAuthCallback = hasHashToken || hasCodeParam;
 
-        console.log('OAuth callback check:', { hasHashToken, hasCodeParam, isOAuthCallback });
+        console.log('OAuth callback detection:', {
+          hasHashToken,
+          hasCodeParam,
+          isOAuthCallback,
+          isProcessing,
+          currentHash: window.location.hash.substring(0, 50) + '...'
+        });
 
-        if (isOAuthCallback) {
+        if (isOAuthCallback && !isProcessing) {
+          console.log('Processing OAuth signup for:', session.user.email);
           setIsProcessing(true);
           await handleWaitlistSignup(session.user.email);
-        } else {
-          // Not an OAuth callback - just a returning user
-          // checkIfUserSignedUp() will handle showing the success page
-          console.log('Returning user detected, checking waitlist status...');
+        } else if (!isOAuthCallback && !isProcessing) {
+          // Returning user - check their status
+          console.log('Returning user, checking waitlist status...');
+          await checkIfUserSignedUp();
         }
       }
     });
