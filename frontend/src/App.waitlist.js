@@ -28,7 +28,7 @@ const api = {
 };
 
 // Waitlist Modal Component
-function WaitlistModal({ isOpen, onClose }) {
+function WaitlistModal({ isOpen, onClose, onSuccess }) {
   const [loading, setLoading] = useState(false);
   const [success, setSuccess] = useState(false);
   const [error, setError] = useState('');
@@ -117,6 +117,11 @@ function WaitlistModal({ isOpen, onClose }) {
 
       await fetchTotalSignups();
       setSuccess(true);
+
+      // Notify parent component of success
+      if (onSuccess) {
+        onSuccess();
+      }
     } catch (err) {
       console.error('Waitlist error:', err);
       setError(err.message || 'Something went wrong. Please try again.');
@@ -229,19 +234,93 @@ function WaitlistModal({ isOpen, onClose }) {
 
 function App() {
   const [showWaitlist, setShowWaitlist] = useState(false);
+  const [waitlistCount, setWaitlistCount] = useState(null);
+  const [userStatus, setUserStatus] = useState(null); // null | 'signed_up' | 'checking'
+  const [hasHandledAuth, setHasHandledAuth] = useState(false);
 
-  // Check for OAuth callback on mount
+  // Fetch waitlist count on mount
   useEffect(() => {
-    if (supabase) {
-      supabase.auth.onAuthStateChange((event, session) => {
-        if (event === 'SIGNED_IN' && session) {
-          console.log('User signed in:', session.user.email);
-          // Show waitlist modal to complete the signup
+    fetchWaitlistCount();
+    checkIfUserSignedUp();
+  }, []);
+
+  // Listen for OAuth callback - only trigger modal if user clicked the button
+  useEffect(() => {
+    if (!supabase) return;
+
+    const { data: authListener } = supabase.auth.onAuthStateChange((event, session) => {
+      if (event === 'SIGNED_IN' && session && !hasHandledAuth) {
+        console.log('User signed in:', session.user.email);
+        setHasHandledAuth(true);
+        // Only auto-open modal if this is a fresh OAuth callback
+        // Check if user came from OAuth redirect
+        const urlParams = new URLSearchParams(window.location.search);
+        if (urlParams.get('code') || document.referrer.includes('accounts.google.com')) {
           setShowWaitlist(true);
         }
-      });
+      }
+    });
+
+    return () => {
+      authListener?.subscription?.unsubscribe();
+    };
+  }, [hasHandledAuth]);
+
+  const fetchWaitlistCount = async () => {
+    if (!supabase) return;
+
+    try {
+      // Use direct count query for real-time accuracy
+      const { count, error } = await supabase
+        .from('waitlist_emails')
+        .select('*', { count: 'exact', head: true });
+
+      if (error) throw error;
+      setWaitlistCount(count || 0);
+    } catch (err) {
+      console.error('Error fetching waitlist count:', err);
+      // Fallback to metrics table
+      try {
+        const { data } = await supabase
+          .from('waitlist_metrics')
+          .select('total_signups')
+          .eq('id', 1)
+          .single();
+        setWaitlistCount(data?.total_signups || 0);
+      } catch (fallbackErr) {
+        console.error('Fallback count also failed:', fallbackErr);
+      }
     }
-  }, []);
+  };
+
+  const checkIfUserSignedUp = async () => {
+    if (!supabase) return;
+
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user?.email) {
+        // Check if user is already in waitlist
+        const { data, error } = await supabase
+          .from('waitlist_emails')
+          .select('email')
+          .eq('email', user.email.toLowerCase())
+          .single();
+
+        if (data) {
+          setUserStatus('signed_up');
+        }
+      }
+    } catch (err) {
+      // User not signed up or not authenticated - that's fine
+      console.log('User check:', err.message);
+    }
+  };
+
+  const handleWaitlistSuccess = () => {
+    // Refresh count after successful signup
+    fetchWaitlistCount();
+    setUserStatus('signed_up');
+  };
 
   return (
     <>
@@ -254,16 +333,38 @@ function App() {
             AutoMerchant <span className="text-transparent bg-clip-text bg-gradient-to-r from-purple-400 to-pink-400">Pricing AI</span>
           </h1>
           <p className="text-2xl text-gray-300 mb-4">AI-powered pricing optimization for your Shopify store</p>
-          <p className="text-lg text-gray-400 mb-12">Be the first to experience intelligent pricing — join the waitlist today.</p>
+          <p className="text-lg text-gray-400 mb-8">Be the first to experience intelligent pricing — join the waitlist today.</p>
 
-          <div className="flex items-center justify-center space-x-4">
-            <button
-              onClick={() => setShowWaitlist(true)}
-              className="px-8 py-4 bg-gradient-to-r from-purple-600 to-pink-600 text-white rounded-lg font-bold text-lg hover:from-purple-700 hover:to-pink-700 transition transform hover:scale-105"
-            >
-              Join Waitlist
-            </button>
-          </div>
+          {/* Waitlist Count Display */}
+          {waitlistCount !== null && (
+            <div className="mb-8 inline-block">
+              <div className="px-6 py-3 bg-purple-500/10 border border-purple-500/30 rounded-full">
+                <p className="text-purple-300 font-medium">
+                  🚀 {waitlistCount} {waitlistCount === 1 ? 'person has' : 'people have'} already joined!
+                </p>
+              </div>
+            </div>
+          )}
+
+          {/* Show different message if user already signed up */}
+          {userStatus === 'signed_up' ? (
+            <div className="mb-8">
+              <div className="inline-block px-6 py-4 bg-green-500/10 border border-green-500/30 rounded-lg">
+                <p className="text-green-300 font-medium text-lg">
+                  🎉 You're already on the waitlist! We'll reach out soon.
+                </p>
+              </div>
+            </div>
+          ) : (
+            <div className="flex items-center justify-center space-x-4 mb-8">
+              <button
+                onClick={() => setShowWaitlist(true)}
+                className="px-8 py-4 bg-gradient-to-r from-purple-600 to-pink-600 text-white rounded-lg font-bold text-lg hover:from-purple-700 hover:to-pink-700 transition transform hover:scale-105"
+              >
+                Join Waitlist
+              </button>
+            </div>
+          )}
 
           <div className="mt-16 grid grid-cols-1 md:grid-cols-3 gap-8">
             <div className="p-6 bg-slate-800/50 border border-slate-700 rounded-xl">
@@ -293,7 +394,11 @@ function App() {
         </div>
       </div>
 
-      <WaitlistModal isOpen={showWaitlist} onClose={() => setShowWaitlist(false)} />
+      <WaitlistModal
+        isOpen={showWaitlist}
+        onClose={() => setShowWaitlist(false)}
+        onSuccess={handleWaitlistSuccess}
+      />
     </>
   );
 }
