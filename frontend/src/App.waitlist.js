@@ -175,6 +175,19 @@ function App() {
   // Fetch waitlist count on mount
   useEffect(() => {
     fetchWaitlistCount();
+
+    // Handle OAuth callback from hash
+    if (window.location.hash) {
+      console.log('OAuth hash detected, letting Supabase process it...');
+      // Supabase will automatically process the hash and trigger onAuthStateChange
+      // After processing, clean up the URL
+      setTimeout(() => {
+        if (window.location.hash.includes('access_token')) {
+          window.history.replaceState({}, document.title, window.location.pathname);
+        }
+      }, 1000);
+    }
+
     checkIfUserSignedUp();
   }, []);
 
@@ -184,11 +197,17 @@ function App() {
 
     const { data: authListener } = supabase.auth.onAuthStateChange(async (event, session) => {
       if (event === 'SIGNED_IN' && session && !isProcessing) {
-        console.log('User signed in:', session.user.email);
+        console.log('Auth event SIGNED_IN:', session.user.email);
 
-        // Check if this is a fresh OAuth callback (not just a page reload with existing session)
+        // Check if this is a fresh OAuth callback
+        // Hash-based flow: access_token in hash
+        // Query-based flow: code in query params
+        const hasHashToken = window.location.hash.includes('access_token');
         const urlParams = new URLSearchParams(window.location.search);
-        const isOAuthCallback = urlParams.get('code') || document.referrer.includes('accounts.google.com');
+        const hasCodeParam = urlParams.get('code');
+        const isOAuthCallback = hasHashToken || hasCodeParam || document.referrer.includes('accounts.google.com');
+
+        console.log('OAuth callback check:', { hasHashToken, hasCodeParam, isOAuthCallback });
 
         if (isOAuthCallback) {
           setIsProcessing(true);
