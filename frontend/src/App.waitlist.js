@@ -1,12 +1,32 @@
 import { useState, useEffect } from 'react';
-import { Zap, Check, RefreshCw, BarChart3 } from 'lucide-react';
+import { Zap, Check, RefreshCw, BarChart3, LogOut } from 'lucide-react';
 import { supabase } from './lib/supabaseClient';
 
 // Success Page Component
-function SuccessPage({ signupNumber }) {
+function SuccessPage({ signupNumber, onLogout, userEmail }) {
+  const handleLogout = async () => {
+    if (!supabase) return;
+
+    try {
+      await supabase.auth.signOut();
+      onLogout();
+    } catch (err) {
+      console.error('Logout error:', err);
+    }
+  };
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 flex flex-col items-center justify-center p-4">
-      <div className="text-center max-w-2xl">
+      <div className="text-center max-w-2xl relative">
+        {/* Logout button in top right corner */}
+        <button
+          onClick={handleLogout}
+          className="absolute top-0 right-0 px-4 py-2 bg-slate-700/50 hover:bg-slate-600 text-white rounded-lg font-medium transition flex items-center space-x-2 border border-slate-600"
+        >
+          <LogOut className="w-4 h-4" />
+          <span>Log Out</span>
+        </button>
+
         <div className="inline-block p-8 bg-gradient-to-r from-purple-600 to-pink-600 rounded-3xl mb-8 animate-bounce">
           <Check className="w-20 h-20 text-white" />
         </div>
@@ -24,6 +44,12 @@ function SuccessPage({ signupNumber }) {
             <p className="text-3xl font-bold text-purple-300">
               🚀 You're signup #{signupNumber}
             </p>
+          </div>
+        )}
+
+        {userEmail && (
+          <div className="mb-6">
+            <p className="text-gray-400 text-sm">Signed in as: <span className="text-purple-300 font-medium">{userEmail}</span></p>
           </div>
         )}
 
@@ -144,6 +170,7 @@ function App() {
   const [signupNumber, setSignupNumber] = useState(null);
   const [userAlreadySignedUp, setUserAlreadySignedUp] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
+  const [userEmail, setUserEmail] = useState(null);
 
   // Fetch waitlist count on mount
   useEffect(() => {
@@ -206,6 +233,8 @@ function App() {
     try {
       const { data: { user } } = await supabase.auth.getUser();
       if (user?.email) {
+        setUserEmail(user.email); // Store user email
+
         // Check if user is already in waitlist
         const { data, error } = await supabase
           .from('waitlist_emails')
@@ -215,6 +244,15 @@ function App() {
 
         if (data) {
           setUserAlreadySignedUp(true);
+
+          // Get their signup number if they're already on the list
+          const { count } = await supabase
+            .from('waitlist_emails')
+            .select('*', { count: 'exact', head: true })
+            .lte('created_at', data.created_at || new Date().toISOString());
+
+          setSignupNumber(count);
+          setView('success'); // Show success page for returning users
         }
       }
     } catch (err) {
@@ -248,44 +286,86 @@ function App() {
 
   const handleWaitlistSignup = async (email) => {
     try {
-      // Check if already signed up
-      const { data: existing } = await supabase
-        .from('waitlist_emails')
-        .select('email')
-        .eq('email', email.toLowerCase())
-        .single();
+      setUserEmail(email); // Store user email
 
-      if (existing) {
-        // Already signed up
-        setUserAlreadySignedUp(true);
-        setView('landing');
-        setIsProcessing(false);
-        return;
+      // AIRTIGHT CHECK 1: Query database for existing email
+      const { data: existing, error: checkError } = await supabase
+        .from('waitlist_emails')
+        .select('email, created_at')
+        .eq('email', email.toLowerCase())
+        .maybeSingle(); // Use maybeSingle to avoid errors if not found
+
+      if (checkError) {
+        console.error('Error checking existing signup:', checkError);
       }
 
-      // Insert into waitlist
+      if (existing) {
+        // Already signed up - DO NOT increment count
+        console.log('User already on waitlist:', email);
+        setUserAlreadySignedUp(true);
+
+        // Get their signup number (how many signed up before them)
+        const { count } = await supabase
+          .from('waitlist_emails')
+          .select('*', { count: 'exact', head: true })
+          .lte('created_at', existing.created_at);
+
+        setSignupNumber(count);
+        setView('success');
+        setIsProcessing(false);
+
+        // Clean up URL
+        window.history.replaceState({}, document.title, window.location.pathname);
+        return; // EXIT - DO NOT PROCEED TO INSERT
+      }
+
+      // AIRTIGHT CHECK 2: Insert with database-level unique constraint
+      // If another request inserted this email between our check and insert,
+      // the database will reject it with error code 23505
       const { error: insertError } = await supabase
         .from('waitlist_emails')
         .insert([{ email: email.toLowerCase() }]);
 
       if (insertError) {
         if (insertError.code === '23505') {
-          // Duplicate - already signed up
+          // DUPLICATE DETECTED - Database rejected duplicate
+          console.log('Duplicate prevented by database constraint:', email);
           setUserAlreadySignedUp(true);
-          setView('landing');
+
+          // Fetch their existing record to get signup number
+          const { data: existingRecord } = await supabase
+            .from('waitlist_emails')
+            .select('created_at')
+            .eq('email', email.toLowerCase())
+            .single();
+
+          if (existingRecord) {
+            const { count } = await supabase
+              .from('waitlist_emails')
+              .select('*', { count: 'exact', head: true })
+              .lte('created_at', existingRecord.created_at);
+
+            setSignupNumber(count);
+          }
+
+          setView('success');
           setIsProcessing(false);
-          return;
+          window.history.replaceState({}, document.title, window.location.pathname);
+          return; // EXIT - DO NOT INCREMENT COUNT
         }
         throw insertError;
       }
 
-      // Increment counter
+      // SUCCESS - New signup, increment counter ONLY once
+      console.log('New signup successful:', email);
+
+      // Increment counter (only happens for new signups)
       await supabase.rpc('increment_waitlist');
 
       // Fetch updated count
       await fetchWaitlistCount();
 
-      // Get the user's signup number (total count)
+      // Get the user's signup number (total count at time of signup)
       const { count } = await supabase
         .from('waitlist_emails')
         .select('*', { count: 'exact', head: true });
@@ -304,8 +384,16 @@ function App() {
     }
   };
 
+  const handleLogout = () => {
+    setView('landing');
+    setUserAlreadySignedUp(false);
+    setSignupNumber(null);
+    setUserEmail(null);
+    setIsProcessing(false);
+  };
+
   if (view === 'success') {
-    return <SuccessPage signupNumber={signupNumber} />;
+    return <SuccessPage signupNumber={signupNumber} onLogout={handleLogout} userEmail={userEmail} />;
   }
 
   if (view === 'oauth') {
