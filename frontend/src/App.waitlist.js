@@ -391,31 +391,24 @@ function App() {
       console.log('📊 Fetching waitlist count from waitlist_emails table...');
 
       // Use direct count query for real-time accuracy
-      const response = await supabase
+      const { count, error } = await supabase
         .from('waitlist_emails')
         .select('*', { count: 'exact', head: true });
 
-      console.log('📦 Supabase response:', response);
+      console.log('📦 Supabase response:', { count, error });
 
-      if (response.error) {
-        console.error('❌ Error from Supabase:', response.error);
-
-        // If it's an RLS policy error, use a fallback number
-        if (response.error.code === 'PGRST116' || response.error.message?.includes('policy')) {
-          console.warn('⚠️ RLS policy blocking access - using fallback count');
-          setWaitlistCount(25); // Fallback number
-          return;
-        }
-
-        throw response.error;
+      if (error) {
+        console.error('❌ Error from Supabase:', error);
+        // Use fallback only if we truly can't access the table
+        setWaitlistCount(25);
+        return;
       }
 
-      const count = response.count;
+      // SUCCESS: Show real count
       console.log('✅ Waitlist count retrieved:', count);
-      setWaitlistCount(count || 0);
+      setWaitlistCount(count ?? 0);
     } catch (err) {
       console.error('❌ Caught error fetching waitlist count:', err);
-      // Set to a fallback number so it's not stuck on "Loading..."
       setWaitlistCount(25);
     }
   };
@@ -474,15 +467,27 @@ function App() {
     }
 
     try {
-      // Trigger Google OAuth
+      // Trigger Google OAuth with explicit production URL
+      const redirectUrl = process.env.NODE_ENV === 'production'
+        ? 'https://automerchant.vercel.app'
+        : window.location.origin;
+
+      console.log('🔐 Starting OAuth with redirectTo:', redirectUrl);
+
       const { error } = await supabase.auth.signInWithOAuth({
         provider: 'google',
         options: {
-          redirectTo: window.location.origin,
+          redirectTo: redirectUrl,
+          skipBrowserRedirect: false
         }
       });
 
-      if (error) throw error;
+      if (error) {
+        console.error('OAuth error:', error);
+        throw error;
+      }
+
+      console.log('✅ OAuth initiated successfully');
       setView('oauth'); // Show loading state
     } catch (err) {
       console.error('Google sign-in error:', err);
