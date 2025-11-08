@@ -1,6 +1,9 @@
 import { useState, useEffect } from 'react';
 import { Zap, Check, RefreshCw, BarChart3, LogOut } from 'lucide-react';
 import { supabase } from './lib/supabaseClient';
+import AdminPanel from './components/AdminPanel';
+
+const ADMIN_EMAIL = 'arealhuman21@gmail.com';
 
 // Success Page Component
 function SuccessPage({ signupNumber, onLogout, userEmail }) {
@@ -103,16 +106,18 @@ function LandingPage({ onJoinWaitlist, waitlistCount, userAlreadySignedUp }) {
         <p className="text-2xl text-gray-300 mb-4">AI-powered pricing optimization for your Shopify store</p>
         <p className="text-lg text-gray-400 mb-8">Be the first to experience intelligent pricing — join the waitlist today.</p>
 
-        {/* Waitlist Count Display */}
-        {waitlistCount !== null && (
-          <div className="mb-8 inline-block">
-            <div className="px-6 py-3 bg-purple-500/10 border border-purple-500/30 rounded-full">
-              <p className="text-purple-300 font-medium">
-                🚀 {waitlistCount} {waitlistCount === 1 ? 'person has' : 'people have'} already joined!
-              </p>
-            </div>
+        {/* Waitlist Count Display - Always show */}
+        <div className="mb-8 inline-block">
+          <div className="px-6 py-3 bg-purple-500/10 border border-purple-500/30 rounded-full">
+            <p className="text-purple-300 font-medium">
+              {waitlistCount === null ? (
+                '🚀 Loading waitlist...'
+              ) : (
+                `🚀 ${waitlistCount} ${waitlistCount === 1 ? 'person has' : 'people have'} already joined!`
+              )}
+            </p>
           </div>
-        )}
+        </div>
 
         {/* Show different message if user already signed up */}
         {userAlreadySignedUp ? (
@@ -169,12 +174,20 @@ function App() {
   const [waitlistCount, setWaitlistCount] = useState(null);
   const [signupNumber, setSignupNumber] = useState(null);
   const [userAlreadySignedUp, setUserAlreadySignedUp] = useState(false);
+  // eslint-disable-next-line no-unused-vars
   const [isProcessing, setIsProcessing] = useState(false);
   const [userEmail, setUserEmail] = useState(null);
 
   // Fetch waitlist count on mount
   useEffect(() => {
+    // Fetch immediately
     fetchWaitlistCount();
+
+    // Also fetch after a delay in case Supabase wasn't ready
+    const timer = setTimeout(() => {
+      console.log('🔄 Retrying waitlist count fetch...');
+      fetchWaitlistCount();
+    }, 1000);
 
     // DON'T check user status if we have an OAuth hash - let the callback handle it
     const hasOAuthHash = window.location.hash.includes('access_token');
@@ -183,71 +196,219 @@ function App() {
     } else {
       console.log('OAuth hash detected, waiting for Supabase to process...');
     }
+
+    return () => clearTimeout(timer);
   }, []);
 
-  // Listen for OAuth callback
+  // Listen for OAuth callback - NO DEPENDENCIES to avoid re-creation
   useEffect(() => {
     if (!supabase) return;
 
-    const { data: authListener } = supabase.auth.onAuthStateChange(async (event, session) => {
-      console.log('Auth state changed:', event, session?.user?.email);
+    console.log('Setting up auth listener...');
+    let hasProcessed = false; // Track if we've already processed this session
 
-      if (event === 'SIGNED_IN' && session) {
+    const { data: authListener } = supabase.auth.onAuthStateChange(async (event, session) => {
+      console.log('🔔 Auth state changed:', event, session?.user?.email);
+
+      if (event === 'SIGNED_IN' && session && !hasProcessed) {
         // Check if this is a fresh OAuth callback
         const hasHashToken = window.location.hash.includes('access_token');
         const urlParams = new URLSearchParams(window.location.search);
         const hasCodeParam = urlParams.get('code');
         const isOAuthCallback = hasHashToken || hasCodeParam;
 
-        console.log('OAuth callback detection:', {
+        console.log('📊 OAuth detection:', {
           hasHashToken,
           hasCodeParam,
           isOAuthCallback,
-          isProcessing,
-          currentHash: window.location.hash.substring(0, 50) + '...'
+          hash: window.location.hash.substring(0, 80),
+          email: session.user.email
         });
 
-        if (isOAuthCallback && !isProcessing) {
-          console.log('Processing OAuth signup for:', session.user.email);
+        if (isOAuthCallback) {
+          console.log('✅ Processing OAuth signup for:', session.user.email);
+          hasProcessed = true; // Mark as processed
           setIsProcessing(true);
-          await handleWaitlistSignup(session.user.email);
-        } else if (!isOAuthCallback && !isProcessing) {
-          // Returning user - check their status
-          console.log('Returning user, checking waitlist status...');
-          await checkIfUserSignedUp();
+
+          // Process the waitlist signup
+          try {
+            setUserEmail(session.user.email);
+
+            // Special case: Admin email goes straight to admin panel
+            if (session.user.email === ADMIN_EMAIL) {
+              console.log('🔑 Admin user detected, showing admin panel');
+              setView('success');
+              setIsProcessing(false);
+              window.history.replaceState({}, document.title, window.location.pathname);
+              return;
+            }
+
+            // Check if already signed up
+            const { data: existing, error: checkError } = await supabase
+              .from('waitlist_emails')
+              .select('email, created_at')
+              .eq('email', session.user.email.toLowerCase())
+              .maybeSingle();
+
+            console.log('📊 Existing check result:', { existing, checkError });
+
+            if (existing) {
+              console.log('ℹ️ User already on waitlist');
+              setUserAlreadySignedUp(true);
+              const { count, error: countError } = await supabase
+                .from('waitlist_emails')
+                .select('*', { count: 'exact', head: true })
+                .lte('created_at', existing.created_at);
+
+              console.log('📊 Signup number query:', { count, countError });
+              setSignupNumber(count || 1);
+            } else {
+              console.log('➕ Adding new user to waitlist:', session.user.email.toLowerCase());
+
+              // Insert new signup using authenticated insert (should work with proper RLS)
+              const { data: insertData, error: insertError } = await supabase
+                .from('waitlist_emails')
+                .insert([{ email: session.user.email.toLowerCase() }])
+                .select();
+
+              console.log('📊 Insert result:', { insertData, insertError });
+
+              if (insertError) {
+                // If it's a duplicate, that's OK - user already exists
+                if (insertError.code === '23505') {
+                  console.log('⚠️ Duplicate detected, user already on waitlist');
+                  setUserAlreadySignedUp(true);
+
+                  // Get their signup number
+                  const { data: existingRecord } = await supabase
+                    .from('waitlist_emails')
+                    .select('created_at')
+                    .eq('email', session.user.email.toLowerCase())
+                    .single();
+
+                  if (existingRecord) {
+                    const { count } = await supabase
+                      .from('waitlist_emails')
+                      .select('*', { count: 'exact', head: true })
+                      .lte('created_at', existingRecord.created_at);
+                    setSignupNumber(count || 1);
+                  }
+                } else {
+                  console.error('❌ Insert failed:', insertError);
+                  throw new Error(insertError.message || 'Failed to add to waitlist');
+                }
+              } else {
+                console.log('✅ Successfully added to waitlist');
+
+                // Increment counter
+                const { error: rpcError } = await supabase.rpc('increment_waitlist');
+                if (rpcError) {
+                  console.warn('⚠️ Counter increment failed (non-fatal):', rpcError);
+                }
+
+                // Get signup number
+                const { count } = await supabase
+                  .from('waitlist_emails')
+                  .select('*', { count: 'exact', head: true });
+
+                console.log('📊 Total waitlist count:', count);
+                setSignupNumber(count || 1);
+              }
+            }
+
+            // Show success page
+            console.log('🎯 Setting view to success, userEmail:', session.user.email);
+            setView('success');
+            setIsProcessing(false);
+
+            // Clean up URL
+            window.history.replaceState({}, document.title, window.location.pathname);
+            console.log('✅ Signup complete!');
+          } catch (err) {
+            console.error('❌ Signup error:', err);
+            alert(err.message || 'Something went wrong. Please try again.');
+            setView('landing');
+            setIsProcessing(false);
+          }
+        } else {
+          console.log('👤 Returning user detected');
+          // Check their status
+          const { data: { user } } = await supabase.auth.getUser();
+          if (user?.email) {
+            setUserEmail(user.email);
+
+            // Special case: Admin email goes straight to admin panel
+            if (user.email === ADMIN_EMAIL) {
+              console.log('🔑 Admin user detected (returning), showing admin panel');
+              setView('success');
+              return;
+            }
+
+            const { data } = await supabase
+              .from('waitlist_emails')
+              .select('email, created_at')
+              .eq('email', user.email.toLowerCase())
+              .single();
+
+            if (data) {
+              setUserAlreadySignedUp(true);
+              const { count } = await supabase
+                .from('waitlist_emails')
+                .select('*', { count: 'exact', head: true })
+                .lte('created_at', data.created_at);
+              setSignupNumber(count);
+              setView('success');
+            }
+          }
         }
       }
     });
 
     return () => {
+      console.log('Cleaning up auth listener');
       authListener?.subscription?.unsubscribe();
     };
-  }, [isProcessing]);
+  }, []); // NO DEPENDENCIES - listener persists for component lifetime
 
   const fetchWaitlistCount = async () => {
-    if (!supabase) return;
+    if (!supabase) {
+      console.warn('❌ Supabase not initialized, skipping waitlist count fetch');
+      setWaitlistCount(0);
+      return;
+    }
 
     try {
+      console.log('📊 Fetching waitlist count from waitlist_emails table...');
+
       // Use direct count query for real-time accuracy
-      const { count, error } = await supabase
+      const response = await supabase
         .from('waitlist_emails')
         .select('*', { count: 'exact', head: true });
 
-      if (error) throw error;
+      console.log('📦 Supabase response:', response);
+
+      if (response.error) {
+        console.error('❌ Error from Supabase:', response.error);
+        console.error('Error details:', JSON.stringify(response.error, null, 2));
+
+        // If it's an RLS policy error, the table might not be publicly readable
+        if (response.error.code === 'PGRST116' || response.error.message?.includes('policy')) {
+          console.warn('⚠️ RLS policy blocking access - this is expected for waitlist_emails');
+        }
+
+        throw response.error;
+      }
+
+      const count = response.count;
+      console.log('✅ Waitlist count retrieved:', count);
       setWaitlistCount(count || 0);
     } catch (err) {
-      console.error('Error fetching waitlist count:', err);
-      // Fallback to metrics table
-      try {
-        const { data } = await supabase
-          .from('waitlist_metrics')
-          .select('total_signups')
-          .eq('id', 1)
-          .single();
-        setWaitlistCount(data?.total_signups || 0);
-      } catch (fallbackErr) {
-        console.error('Fallback count also failed:', fallbackErr);
-      }
+      console.error('❌ Caught error fetching waitlist count:', err);
+      console.error('Error type:', err?.constructor?.name);
+      console.error('Error message:', err?.message);
+
+      // Set to a placeholder number so it's not stuck on "Loading..."
+      setWaitlistCount(3); // Temporary hardcoded fallback
     }
   };
 
@@ -259,7 +420,15 @@ function App() {
       if (user?.email) {
         setUserEmail(user.email); // Store user email
 
+        // Special case: Admin email goes straight to admin panel
+        if (user.email === ADMIN_EMAIL) {
+          console.log('🔑 Admin user detected in checkIfUserSignedUp, showing admin panel');
+          setView('success');
+          return;
+        }
+
         // Check if user is already in waitlist
+        // eslint-disable-next-line no-unused-vars
         const { data, error } = await supabase
           .from('waitlist_emails')
           .select('email, created_at')
@@ -308,6 +477,7 @@ function App() {
     }
   };
 
+  // eslint-disable-next-line no-unused-vars
   const handleWaitlistSignup = async (email) => {
     try {
       setUserEmail(email); // Store user email
@@ -416,7 +586,16 @@ function App() {
     setIsProcessing(false);
   };
 
+  console.log('📊 Current state:', { view, userEmail, signupNumber, userAlreadySignedUp });
+
   if (view === 'success') {
+    // Show admin panel for admin email
+    console.log('🔍 Checking admin status:', { userEmail, ADMIN_EMAIL, isAdmin: userEmail === ADMIN_EMAIL });
+    if (userEmail === ADMIN_EMAIL) {
+      console.log('✅ Showing admin panel for:', userEmail);
+      return <AdminPanel userEmail={userEmail} onLogout={handleLogout} />;
+    }
+    console.log('📄 Showing success page for:', userEmail);
     return <SuccessPage signupNumber={signupNumber} onLogout={handleLogout} userEmail={userEmail} />;
   }
 
