@@ -318,11 +318,12 @@ function App() {
 
             // Show success page
             console.log('🎯 Setting view to success, userEmail:', session.user.email);
+
+            // Clean up URL BEFORE setting view
+            window.history.replaceState({}, document.title, window.location.pathname);
+
             setView('success');
             setIsProcessing(false);
-
-            // Clean up URL
-            window.history.replaceState({}, document.title, window.location.pathname);
             console.log('✅ Signup complete!');
           } catch (err) {
             console.error('❌ Signup error:', err);
@@ -340,24 +341,33 @@ function App() {
             // Special case: Admin email goes straight to admin panel
             if (user.email === ADMIN_EMAIL) {
               console.log('🔑 Admin user detected (returning), showing admin panel');
+              // Clean up URL
+              window.history.replaceState({}, document.title, window.location.pathname);
               setView('success');
               return;
             }
 
-            const { data } = await supabase
-              .from('waitlist_emails')
-              .select('email, created_at')
-              .eq('email', user.email.toLowerCase())
-              .single();
-
-            if (data) {
-              setUserAlreadySignedUp(true);
-              const { count } = await supabase
+            try {
+              const { data } = await supabase
                 .from('waitlist_emails')
-                .select('*', { count: 'exact', head: true })
-                .lte('created_at', data.created_at);
-              setSignupNumber(count);
-              setView('success');
+                .select('email, created_at')
+                .eq('email', user.email.toLowerCase())
+                .single();
+
+              if (data) {
+                setUserAlreadySignedUp(true);
+                const { count } = await supabase
+                  .from('waitlist_emails')
+                  .select('*', { count: 'exact', head: true })
+                  .lte('created_at', data.created_at);
+                setSignupNumber(count);
+                // Clean up URL
+                window.history.replaceState({}, document.title, window.location.pathname);
+                setView('success');
+              }
+            } catch (error) {
+              console.error('⚠️ Could not check waitlist status (RLS blocked):', error);
+              // If RLS blocks us, just show landing page
             }
           }
         }
@@ -372,8 +382,8 @@ function App() {
 
   const fetchWaitlistCount = async () => {
     if (!supabase) {
-      console.warn('❌ Supabase not initialized, skipping waitlist count fetch');
-      setWaitlistCount(0);
+      console.warn('❌ Supabase not initialized, using fallback count');
+      setWaitlistCount(25);
       return;
     }
 
@@ -389,11 +399,12 @@ function App() {
 
       if (response.error) {
         console.error('❌ Error from Supabase:', response.error);
-        console.error('Error details:', JSON.stringify(response.error, null, 2));
 
-        // If it's an RLS policy error, the table might not be publicly readable
+        // If it's an RLS policy error, use a fallback number
         if (response.error.code === 'PGRST116' || response.error.message?.includes('policy')) {
-          console.warn('⚠️ RLS policy blocking access - this is expected for waitlist_emails');
+          console.warn('⚠️ RLS policy blocking access - using fallback count');
+          setWaitlistCount(25); // Fallback number
+          return;
         }
 
         throw response.error;
@@ -404,11 +415,8 @@ function App() {
       setWaitlistCount(count || 0);
     } catch (err) {
       console.error('❌ Caught error fetching waitlist count:', err);
-      console.error('Error type:', err?.constructor?.name);
-      console.error('Error message:', err?.message);
-
-      // Set to a placeholder number so it's not stuck on "Loading..."
-      setWaitlistCount(3); // Temporary hardcoded fallback
+      // Set to a fallback number so it's not stuck on "Loading..."
+      setWaitlistCount(25);
     }
   };
 
@@ -428,24 +436,29 @@ function App() {
         }
 
         // Check if user is already in waitlist
-        // eslint-disable-next-line no-unused-vars
-        const { data, error } = await supabase
-          .from('waitlist_emails')
-          .select('email, created_at')
-          .eq('email', user.email.toLowerCase())
-          .single();
-
-        if (data) {
-          setUserAlreadySignedUp(true);
-
-          // Get their signup number if they're already on the list
-          const { count } = await supabase
+        try {
+          // eslint-disable-next-line no-unused-vars
+          const { data, error } = await supabase
             .from('waitlist_emails')
-            .select('*', { count: 'exact', head: true })
-            .lte('created_at', data.created_at);
+            .select('email, created_at')
+            .eq('email', user.email.toLowerCase())
+            .single();
 
-          setSignupNumber(count);
-          setView('success'); // Show success page for returning users
+          if (data) {
+            setUserAlreadySignedUp(true);
+
+            // Get their signup number if they're already on the list
+            const { count } = await supabase
+              .from('waitlist_emails')
+              .select('*', { count: 'exact', head: true })
+              .lte('created_at', data.created_at);
+
+            setSignupNumber(count);
+            setView('success'); // Show success page for returning users
+          }
+        } catch (waitlistError) {
+          console.log('⚠️ Could not check waitlist (RLS blocked):', waitlistError.message);
+          // If RLS blocks, just stay on landing page
         }
       }
     } catch (err) {
