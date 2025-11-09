@@ -10,6 +10,12 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const { Pool } = require('pg');
 const axios = require('axios');
+const crypto = require('crypto');
+
+// ============================================
+// SHOPIFY DUAL-MODE AUTHENTICATION
+// ============================================
+const { getShopifyCredentials, AUTH_MODE } = require('./shopify-auth');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -62,6 +68,37 @@ pool.query('SELECT NOW()', (err, res) => {
   }
 });
 
+// ============================================
+// SHOPIFY AUTH MODE STARTUP LOGGING
+// ============================================
+console.log('\n🔐 ============================================');
+console.log('   SHOPIFY AUTHENTICATION MODE');
+console.log('============================================');
+
+if (AUTH_MODE === 'manual') {
+  console.log('📍 Mode: MANUAL (Development)');
+  console.log('📋 Config:');
+  console.log(`   - Shop: ${process.env.SHOP || '❌ NOT SET'}`);
+  console.log(`   - Token: ${process.env.SHOPIFY_ACCESS_TOKEN ? '✅ Set (shpat_...)' : '❌ NOT SET'}`);
+  console.log('💡 Using hardcoded credentials from .env file');
+
+  if (!process.env.SHOP || !process.env.SHOPIFY_ACCESS_TOKEN) {
+    console.log('\n⚠️  WARNING: SHOP and SHOPIFY_ACCESS_TOKEN must be set in .env');
+    console.log('   Add these lines to backend/.env:');
+    console.log('   SHOP=myteststore.myshopify.com');
+    console.log('   SHOPIFY_ACCESS_TOKEN=shpat_xxxxxxxxxxxxx\n');
+  }
+} else if (AUTH_MODE === 'oauth') {
+  console.log('📍 Mode: OAUTH (Production)');
+  console.log('💡 Using dynamic tokens from shops table in database');
+  console.log('📋 Tokens fetched per-request based on shop domain');
+} else {
+  console.log(`❌ INVALID MODE: "${AUTH_MODE}"`);
+  console.log('   Set AUTH_MODE=manual or AUTH_MODE=oauth in .env');
+}
+
+console.log('============================================\n');
+
 // CORS configuration for production
 const corsOptions = {
   origin: function (origin, callback) {
@@ -89,6 +126,9 @@ const corsOptions = {
 
 app.use(cors(corsOptions));
 app.use(express.json());
+
+// Handle preflight requests explicitly
+app.options('*', cors(corsOptions));
 
 const authenticateToken = (req, res, next) => {
   const authHeader = req.headers['authorization'];
@@ -514,14 +554,288 @@ app.get('/api/shopify/check', authenticateToken, async (req, res) => {
       'SELECT shopify_shop, shopify_access_token FROM users WHERE id = $1',
       [req.user.id]
     );
-    
+
     const user = result.rows[0];
     const connected = !!(user.shopify_shop && user.shopify_access_token);
-    
+
     res.json({ connected, shop: user.shopify_shop });
   } catch (error) {
     console.error('Shopify check error:', error);
     res.status(500).json({ error: 'Failed to check Shopify connection' });
+  }
+});
+
+// ============ SHOPIFY OAUTH FLOW ============
+
+app.get('/api/shopify/install', async (req, res) => {
+  try {
+    const { shop, app_id } = req.query;
+
+    // Validate shop parameter
+    if (!shop) {
+      return res.status(400).json({
+        error: 'Missing shop parameter',
+        message: 'Please provide shop domain as query parameter: ?shop=yourstore.myshopify.com'
+      });
+    }
+
+    // Validate shop domain format
+    const shopDomain = shop.trim();
+    if (!shopDomain.endsWith('.myshopify.com')) {
+      return res.status(400).json({
+        error: 'Invalid shop domain',
+        message: 'Shop domain must be in format: yourstore.myshopify.com'
+      });
+    }
+
+    let SHOPIFY_API_KEY, SHOPIFY_SCOPES;
+    const SHOPIFY_REDIRECT_URI = process.env.SHOPIFY_REDIRECT_URI || 'https://automerchant.vercel.app/api/shopify/callback';
+
+    // ============================================
+    // MULTI-APP SUPPORT: Look up credentials from database
+    // ============================================
+    if (app_id) {
+      console.log(`🔐 [OAuth Install] Using app_id ${app_id} from database`);
+
+      const appResult = await pool.query(
+        'SELECT client_id, shop_domain FROM shopify_apps WHERE id = $1 AND status = $2',
+        [app_id, 'active']
+      );
+
+      if (appResult.rows.length === 0) {
+        return res.status(404).json({
+          error: 'App not found',
+          message: `No active Shopify app found with ID ${app_id}`
+        });
+      }
+
+      const app = appResult.rows[0];
+      SHOPIFY_API_KEY = app.client_id;
+      SHOPIFY_SCOPES = process.env.SHOPIFY_SCOPES || 'read_products,write_products,read_orders,write_inventory';
+
+      console.log(`   Using app for shop: ${app.shop_domain}`);
+
+    } else {
+      // Fall back to environment variables for backward compatibility
+      console.log(`🔐 [OAuth Install] Using credentials from environment variables`);
+      SHOPIFY_API_KEY = process.env.SHOPIFY_API_KEY;
+      SHOPIFY_SCOPES = process.env.SHOPIFY_SCOPES || 'read_products,write_products,read_orders,write_inventory';
+    }
+
+    if (!SHOPIFY_API_KEY) {
+      console.error('❌ SHOPIFY_API_KEY not found');
+      return res.status(500).json({
+        error: 'Configuration error',
+        message: 'Shopify API credentials not configured. Please contact support.'
+      });
+    }
+
+    // Generate random nonce for security (encode app_id and user_email in state for callback)
+    const nonce = crypto.randomBytes(16).toString('hex');
+    const user_email = req.query.user_email || '';
+    const stateData = app_id || user_email ? `${nonce}:${app_id || ''}:${user_email}` : nonce;
+
+    // Build Shopify OAuth authorization URL
+    const authUrl = `https://${shopDomain}/admin/oauth/authorize?` +
+      `client_id=${SHOPIFY_API_KEY}&` +
+      `scope=${SHOPIFY_SCOPES}&` +
+      `redirect_uri=${encodeURIComponent(SHOPIFY_REDIRECT_URI)}&` +
+      `state=${stateData}`;
+
+    console.log(`🔐 [OAuth Install] Redirecting shop ${shopDomain} to Shopify authorization`);
+    console.log(`   Scopes: ${SHOPIFY_SCOPES}`);
+    console.log(`   Redirect URI: ${SHOPIFY_REDIRECT_URI}`);
+
+    // Redirect merchant to Shopify's grant screen
+    res.redirect(authUrl);
+
+  } catch (error) {
+    console.error('❌ Install route error:', error);
+    res.status(500).json({
+      error: 'Failed to initiate OAuth flow',
+      message: error.message
+    });
+  }
+});
+
+app.get('/api/shopify/callback', async (req, res) => {
+  try {
+    const { shop, code, hmac, state } = req.query;
+
+    // Validate required parameters
+    if (!shop || !code || !hmac) {
+      return res.status(400).json({
+        error: 'Missing required parameters',
+        message: 'OAuth callback requires shop, code, and hmac parameters'
+      });
+    }
+
+    // ============================================
+    // MULTI-APP SUPPORT: Extract app_id and user_email from state
+    // ============================================
+    let app_id = null;
+    let user_email = null;
+    if (state && state.includes(':')) {
+      const parts = state.split(':');
+      app_id = parts[1] || null;
+      user_email = parts[2] || null;
+      console.log(`🔐 [OAuth Callback] Using app_id ${app_id} and user_email ${user_email} from state`);
+    }
+
+    let SHOPIFY_API_KEY, SHOPIFY_API_SECRET, SHOPIFY_SCOPES;
+
+    // Look up credentials from database if app_id is present
+    if (app_id) {
+      const appResult = await pool.query(
+        'SELECT client_id, client_secret FROM shopify_apps WHERE id = $1 AND status = $2',
+        [app_id, 'active']
+      );
+
+      if (appResult.rows.length === 0) {
+        console.error(`❌ App not found with ID ${app_id}`);
+        return res.status(404).json({
+          error: 'App not found',
+          message: 'Shopify app credentials not found'
+        });
+      }
+
+      const app = appResult.rows[0];
+      SHOPIFY_API_KEY = app.client_id;
+      SHOPIFY_API_SECRET = app.client_secret;
+      SHOPIFY_SCOPES = process.env.SHOPIFY_SCOPES || 'read_products,write_products,read_orders,write_inventory';
+
+      console.log(`✅ Using credentials from database for app ${app_id}`);
+
+    } else {
+      // Fall back to environment variables for backward compatibility
+      console.log(`🔐 [OAuth Callback] Using credentials from environment variables`);
+      SHOPIFY_API_KEY = process.env.SHOPIFY_API_KEY;
+      SHOPIFY_API_SECRET = process.env.SHOPIFY_API_SECRET;
+      SHOPIFY_SCOPES = process.env.SHOPIFY_SCOPES || 'read_products,write_products,read_orders,write_inventory';
+    }
+
+    if (!SHOPIFY_API_KEY || !SHOPIFY_API_SECRET) {
+      console.error('❌ SHOPIFY_API_KEY or SHOPIFY_API_SECRET not found');
+      return res.status(500).json({
+        error: 'Configuration error',
+        message: 'Shopify API credentials not configured'
+      });
+    }
+
+    // ============================================
+    // SECURITY: Verify HMAC signature
+    // ============================================
+    const queryParams = { ...req.query };
+    delete queryParams.hmac; // Remove hmac from params before verification
+
+    // Sort params alphabetically and build query string
+    const sortedParams = Object.keys(queryParams)
+      .sort()
+      .map(key => `${key}=${queryParams[key]}`)
+      .join('&');
+
+    // Generate HMAC hash
+    const calculatedHmac = crypto
+      .createHmac('sha256', SHOPIFY_API_SECRET)
+      .update(sortedParams)
+      .digest('hex');
+
+    // Compare HMACs (constant-time comparison to prevent timing attacks)
+    if (calculatedHmac !== hmac) {
+      console.error('❌ HMAC verification failed!');
+      console.error(`   Received: ${hmac}`);
+      console.error(`   Calculated: ${calculatedHmac}`);
+      return res.status(403).json({
+        error: 'Security verification failed',
+        message: 'Invalid HMAC signature. Possible tampering detected.'
+      });
+    }
+
+    console.log('✅ HMAC verified successfully');
+
+    // ============================================
+    // EXCHANGE CODE FOR ACCESS TOKEN
+    // ============================================
+    console.log(`🔐 [OAuth Callback] Exchanging code for access token for shop: ${shop}`);
+
+    const tokenResponse = await axios.post(
+      `https://${shop}/admin/oauth/access_token`,
+      {
+        client_id: SHOPIFY_API_KEY,
+        client_secret: SHOPIFY_API_SECRET,
+        code
+      },
+      {
+        headers: { 'Content-Type': 'application/json' }
+      }
+    );
+
+    const { access_token, scope } = tokenResponse.data;
+
+    console.log('✅ Access token received from Shopify');
+    console.log(`   Scope: ${scope}`);
+
+    // ============================================
+    // STORE TOKEN IN DATABASE
+    // ============================================
+    // Look up user_id if user_email provided
+    let user_id = null;
+    if (user_email) {
+      try {
+        const userResult = await pool.query(
+          'SELECT id FROM users WHERE email = $1',
+          [user_email]
+        );
+        if (userResult.rows.length > 0) {
+          user_id = userResult.rows[0].id;
+          console.log(`✅ Linked shop to user: ${user_email} (ID: ${user_id})`);
+
+          // CRITICAL: Also update the users table so existing code works
+          await pool.query(
+            'UPDATE users SET shopify_shop = $1, shopify_access_token = $2 WHERE id = $3',
+            [shop, access_token, user_id]
+          );
+          console.log(`✅ Updated users table for user ID ${user_id}`);
+        }
+      } catch (err) {
+        console.error('Error looking up user:', err);
+      }
+    }
+
+    // Store in shops table for multi-shop support
+    await pool.query(
+      `INSERT INTO shops (shop_domain, access_token, scope, user_id, installed_at, updated_at)
+       VALUES ($1, $2, $3, $4, NOW(), NOW())
+       ON CONFLICT (shop_domain)
+       DO UPDATE SET
+         access_token = EXCLUDED.access_token,
+         scope = EXCLUDED.scope,
+         user_id = EXCLUDED.user_id,
+         updated_at = NOW(),
+         is_active = true`,
+      [shop, access_token, scope, user_id]
+    );
+
+    console.log(`✅ Token stored in shops table for shop: ${shop}`);
+
+    // ============================================
+    // REDIRECT TO APP WITH SUCCESS MESSAGE
+    // ============================================
+    // Encode user email in redirect so frontend can auto-login
+    const appUrl = user_email
+      ? `https://automerchant.vercel.app?oauth_success=true&email=${encodeURIComponent(user_email)}`
+      : `https://automerchant.vercel.app?oauth_success=true`;
+
+    console.log(`🎉 OAuth installation complete! Redirecting to: ${appUrl}`);
+
+    res.redirect(appUrl);
+
+  } catch (error) {
+    console.error('❌ OAuth callback error:', error.response?.data || error.message);
+
+    // Redirect to dashboard with error
+    const errorUrl = `https://automerchant.vercel.app/dashboard?error=oauth_failed&message=${encodeURIComponent(error.message)}`;
+    res.redirect(errorUrl);
   }
 });
 
@@ -542,26 +856,22 @@ app.get('/api/products', authenticateToken, async (req, res) => {
 
 app.post('/api/products/sync', authenticateToken, async (req, res) => {
   try {
-    const userResult = await pool.query(
-      'SELECT shopify_shop, shopify_access_token FROM users WHERE id = $1',
-      [req.user.id]
-    );
-    const user = userResult.rows[0];
-    if (!user.shopify_shop || !user.shopify_access_token) {
-      return res.status(400).json({ error: 'Shopify not connected' });
-    }
+    // ============================================
+    // DUAL-MODE AUTH: Get credentials based on AUTH_MODE
+    // ============================================
+    const { shop, accessToken } = await getShopifyCredentials(req, pool);
 
     const response = await axios.get(
-      `https://${user.shopify_shop}/admin/api/2024-01/products.json?limit=250`,
-      { headers: { 'X-Shopify-Access-Token': user.shopify_access_token } }
+      `https://${shop}/admin/api/2024-01/products.json?limit=250`,
+      { headers: { 'X-Shopify-Access-Token': accessToken } }
     );
 
     const thirtyDaysAgo = new Date();
     thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-    
+
     const ordersResponse = await axios.get(
-      `https://${user.shopify_shop}/admin/api/2024-01/orders.json?status=any&created_at_min=${thirtyDaysAgo.toISOString()}&limit=250`,
-      { headers: { 'X-Shopify-Access-Token': user.shopify_access_token } }
+      `https://${shop}/admin/api/2024-01/orders.json?status=any&created_at_min=${thirtyDaysAgo.toISOString()}&limit=250`,
+      { headers: { 'X-Shopify-Access-Token': accessToken } }
     );
 
     const orders = ordersResponse.data.orders || [];
@@ -644,15 +954,46 @@ app.post('/api/products/:id/cost-price', authenticateToken, async (req, res) => 
 async function runAnalysisForUser(userId) {
   console.log(`🤖 Running analysis for user ${userId}`);
 
-  const userResult = await pool.query(
-    'SELECT shopify_shop, shopify_access_token FROM users WHERE id = $1',
-    [userId]
-  );
+  // ============================================
+  // DUAL-MODE AUTH: Get credentials based on AUTH_MODE
+  // For background jobs, we create a mock req with user ID
+  // ============================================
+  let shop, accessToken;
 
-  const user = userResult.rows[0];
-  if (!user.shopify_shop || !user.shopify_access_token) {
-    console.log(`⚠️ User ${userId}: Shopify not connected`);
-    return;
+  if (AUTH_MODE === 'manual') {
+    // Manual mode: use env variables
+    shop = process.env.SHOP;
+    accessToken = process.env.SHOPIFY_ACCESS_TOKEN;
+
+    if (!shop || !accessToken) {
+      console.log(`⚠️ User ${userId}: MANUAL MODE - SHOP and SHOPIFY_ACCESS_TOKEN not set in .env`);
+      return;
+    }
+  } else {
+    // OAuth mode: fetch from database
+    const userResult = await pool.query(
+      'SELECT shopify_shop FROM users WHERE id = $1',
+      [userId]
+    );
+
+    const user = userResult.rows[0];
+    if (!user || !user.shopify_shop) {
+      console.log(`⚠️ User ${userId}: No shop domain found in users table`);
+      return;
+    }
+
+    const shopResult = await pool.query(
+      'SELECT access_token FROM shops WHERE shop_domain = $1 AND is_active = true',
+      [user.shopify_shop]
+    );
+
+    if (shopResult.rows.length === 0) {
+      console.log(`⚠️ User ${userId}: No OAuth token found for shop ${user.shopify_shop}`);
+      return;
+    }
+
+    shop = user.shopify_shop;
+    accessToken = shopResult.rows[0].access_token;
   }
 
   const productsResult = await pool.query(
@@ -697,8 +1038,8 @@ async function runAnalysisForUser(userId) {
   let recentOrderData = {};
   try {
     const ordersResponse = await axios.get(
-      `https://${user.shopify_shop}/admin/api/2024-01/orders.json?status=any&created_at_min=${sevenDaysAgo.toISOString()}&limit=250`,
-      { headers: { 'X-Shopify-Access-Token': user.shopify_access_token } }
+      `https://${shop}/admin/api/2024-01/orders.json?status=any&created_at_min=${sevenDaysAgo.toISOString()}&limit=250`,
+      { headers: { 'X-Shopify-Access-Token': accessToken } }
     );
     
     const orders = ordersResponse.data.orders || [];
@@ -1037,16 +1378,16 @@ app.post('/api/price-changes/apply', authenticateToken, async (req, res) => {
     }
 
     const product = productResult.rows[0];
-    const userResult = await pool.query(
-      'SELECT shopify_shop, shopify_access_token FROM users WHERE id = $1',
-      [req.user.id]
-    );
 
-    const user = userResult.rows[0];
+    // ============================================
+    // DUAL-MODE AUTH: Get credentials based on AUTH_MODE
+    // ============================================
+    const { shop, accessToken } = await getShopifyCredentials(req, pool);
+
     await axios.put(
-      `https://${user.shopify_shop}/admin/api/2024-01/variants/${product.shopify_variant_id}.json`,
+      `https://${shop}/admin/api/2024-01/variants/${product.shopify_variant_id}.json`,
       { variant: { id: product.shopify_variant_id, price: newPrice.toString() } },
-      { headers: { 'X-Shopify-Access-Token': user.shopify_access_token, 'Content-Type': 'application/json' } }
+      { headers: { 'X-Shopify-Access-Token': accessToken, 'Content-Type': 'application/json' } }
     );
 
     await pool.query(
@@ -1218,22 +1559,17 @@ app.get('/api/analytics/projected-growth', authenticateToken, async (req, res) =
 
 app.get('/api/orders', authenticateToken, async (req, res) => {
   try {
-    const userResult = await pool.query(
-      'SELECT shopify_shop, shopify_access_token FROM users WHERE id = $1',
-      [req.user.id]
-    );
-
-    const user = userResult.rows[0];
-    if (!user.shopify_shop || !user.shopify_access_token) {
-      return res.json({ orders: [] });
-    }
+    // ============================================
+    // DUAL-MODE AUTH: Get credentials based on AUTH_MODE
+    // ============================================
+    const { shop, accessToken } = await getShopifyCredentials(req, pool);
 
     const thirtyDaysAgo = new Date();
     thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-    
+
     const response = await axios.get(
-      `https://${user.shopify_shop}/admin/api/2024-01/orders.json?status=any&created_at_min=${thirtyDaysAgo.toISOString()}&limit=50`,
-      { headers: { 'X-Shopify-Access-Token': user.shopify_access_token } }
+      `https://${shop}/admin/api/2024-01/orders.json?status=any&created_at_min=${thirtyDaysAgo.toISOString()}&limit=50`,
+      { headers: { 'X-Shopify-Access-Token': accessToken } }
     );
 
     const orders = response.data.orders.map(order => ({
@@ -1276,6 +1612,194 @@ app.get('/api/debug', (req, res) => {
     nodeEnv: process.env.NODE_ENV,
     vercelEnv: process.env.VERCEL_ENV
   });
+});
+
+// ============ SHOPIFY AUTH TEST ============
+
+app.get('/api/test-auth', authenticateToken, async (req, res) => {
+  try {
+    // ============================================
+    // DUAL-MODE AUTH: Get credentials and test connection
+    // ============================================
+    const { shop, accessToken } = await getShopifyCredentials(req, pool);
+
+    // Test the Shopify connection by fetching shop info
+    const shopifyResponse = await axios.get(
+      `https://${shop}/admin/api/2024-01/shop.json`,
+      { headers: { 'X-Shopify-Access-Token': accessToken } }
+    );
+
+    const shopData = shopifyResponse.data.shop;
+
+    return res.json({
+      status: 'success',
+      mode: AUTH_MODE,
+      message: `✅ Connected to Shopify successfully in ${AUTH_MODE.toUpperCase()} mode`,
+      shop: {
+        domain: shop,
+        name: shopData.name,
+        email: shopData.email,
+        currency: shopData.currency,
+        plan: shopData.plan_name
+      },
+      config: AUTH_MODE === 'manual'
+        ? { source: 'environment variables (.env)' }
+        : { source: 'shops table (OAuth)' }
+    });
+  } catch (error) {
+    console.error('❌ Test auth error:', error.response?.data || error.message);
+
+    return res.status(500).json({
+      status: 'error',
+      mode: AUTH_MODE,
+      message: 'Failed to connect to Shopify',
+      error: error.response?.data?.errors || error.message,
+      hint: AUTH_MODE === 'manual'
+        ? 'Check that SHOP and SHOPIFY_ACCESS_TOKEN are set correctly in .env'
+        : 'Check that shop domain exists in shops table with valid OAuth token'
+    });
+  }
+});
+
+// ============ ADMIN PANEL - MULTI-APP MANAGEMENT ============
+
+// Admin authentication middleware
+const authenticateAdmin = (req, res, next) => {
+  const authHeader = req.headers['authorization'];
+  const token = authHeader && authHeader.split(' ')[1];
+  if (!token) return res.status(401).json({ error: 'Access token required' });
+
+  try {
+    // Decode Supabase JWT token (contains email in payload)
+    const decoded = jwt.decode(token);
+
+    if (!decoded || !decoded.email) {
+      return res.status(403).json({ error: 'Invalid token format' });
+    }
+
+    // Check if user is admin email
+    if (decoded.email !== 'arealhuman21@gmail.com') {
+      return res.status(403).json({ error: 'Admin access required' });
+    }
+
+    req.user = decoded;
+    next();
+  } catch (error) {
+    console.error('Admin authentication error:', error);
+    return res.status(500).json({ error: 'Authentication failed' });
+  }
+};
+
+// Get all Shopify apps
+app.get('/api/admin/apps', authenticateAdmin, async (req, res) => {
+  try {
+    const result = await pool.query(
+      'SELECT id, app_name, client_id, shop_domain, status, created_at FROM shopify_apps ORDER BY created_at DESC'
+    );
+    res.json({ apps: result.rows });
+  } catch (error) {
+    console.error('Admin apps fetch error:', error);
+    res.status(500).json({ error: 'Failed to fetch apps' });
+  }
+});
+
+// Add new Shopify app
+app.post('/api/admin/apps', authenticateAdmin, async (req, res) => {
+  const { appName, clientId, clientSecret, shopDomain } = req.body;
+
+  try {
+    const result = await pool.query(
+      `INSERT INTO shopify_apps (app_name, client_id, client_secret, shop_domain, status)
+       VALUES ($1, $2, $3, $4, 'active')
+       RETURNING id, app_name, client_id, shop_domain, status, created_at`,
+      [appName, clientId, clientSecret, shopDomain]
+    );
+
+    const app = result.rows[0];
+    const installLink = `https://automerchant.vercel.app/api/shopify/install?shop=${shopDomain}&app_id=${app.id}`;
+
+    res.json({
+      success: true,
+      app: app,
+      installLink: installLink
+    });
+  } catch (error) {
+    console.error('Admin app create error:', error);
+    res.status(500).json({ error: 'Failed to create app' });
+  }
+});
+
+// Delete Shopify app
+app.delete('/api/admin/apps/:id', authenticateAdmin, async (req, res) => {
+  try {
+    await pool.query('DELETE FROM shopify_apps WHERE id = $1', [req.params.id]);
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Admin app delete error:', error);
+    res.status(500).json({ error: 'Failed to delete app' });
+  }
+});
+
+// Get all waitlist users
+app.get('/api/admin/users', authenticateAdmin, async (req, res) => {
+  try {
+    const result = await pool.query(
+      'SELECT id, email, created_at FROM waitlist_emails ORDER BY created_at DESC'
+    );
+
+    // Add approved status (for now, all waitlist users are considered pending)
+    const usersWithStatus = result.rows.map(row => ({
+      ...row,
+      approved: false,
+      name: row.email.split('@')[0] // Extract name from email
+    }));
+
+    res.json({ users: usersWithStatus });
+  } catch (error) {
+    console.error('Admin users fetch error:', error);
+    res.status(500).json({ error: 'Failed to fetch users' });
+  }
+});
+
+// Approve user (create them in users table with approved=true)
+app.post('/api/admin/users/:id/approve', authenticateAdmin, async (req, res) => {
+  try {
+    // Get user email from waitlist_emails
+    const waitlistUser = await pool.query(
+      'SELECT email FROM waitlist_emails WHERE id = $1',
+      [req.params.id]
+    );
+
+    if (waitlistUser.rows.length === 0) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    const email = waitlistUser.rows[0].email;
+
+    // Create user in users table with approved=true
+    await pool.query(
+      `INSERT INTO users (email, password_hash, approved, created_at)
+       VALUES ($1, 'oauth_user', true, NOW())
+       ON CONFLICT (email) DO UPDATE SET approved = true`,
+      [email]
+    );
+
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Admin user approve error:', error);
+    res.status(500).json({ error: 'Failed to approve user' });
+  }
+});
+
+// Remove user from waitlist
+app.delete('/api/admin/users/:id', authenticateAdmin, async (req, res) => {
+  try {
+    await pool.query('DELETE FROM waitlist_emails WHERE id = $1', [req.params.id]);
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Admin user delete error:', error);
+    res.status(500).json({ error: 'Failed to delete user' });
+  }
 });
 
 // ============ HEALTH CHECK ============
