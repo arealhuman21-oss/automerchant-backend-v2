@@ -1718,6 +1718,10 @@ const authenticateAdmin = (req, res, next) => {
 
 // Get all Shopify apps
 app.get('/api/admin/apps', authenticateAdmin, async (req, res) => {
+  // Ensure CORS headers are set
+  res.header('Access-Control-Allow-Origin', 'https://automerchant.vercel.app');
+  res.header('Access-Control-Allow-Credentials', 'true');
+
   try {
     const result = await pool.query(
       'SELECT id, app_name, client_id, shop_domain, status, created_at, install_url FROM shopify_apps ORDER BY created_at DESC'
@@ -1774,6 +1778,10 @@ app.delete('/api/admin/apps/:id', authenticateAdmin, async (req, res) => {
 
 // Get all waitlist users
 app.get('/api/admin/users', authenticateAdmin, async (req, res) => {
+  // Ensure CORS headers are set
+  res.header('Access-Control-Allow-Origin', 'https://automerchant.vercel.app');
+  res.header('Access-Control-Allow-Credentials', 'true');
+
   try {
     const result = await pool.query(
       'SELECT id, email, created_at FROM waitlist_emails ORDER BY created_at DESC'
