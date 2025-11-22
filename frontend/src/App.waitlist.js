@@ -284,7 +284,7 @@ function App() {
                     .from('waitlist_emails')
                     .select('created_at')
                     .eq('email', session.user.email.toLowerCase())
-                    .single();
+                    .maybeSingle();
 
                   if (existingRecord) {
                     const { count } = await supabase
@@ -557,7 +557,7 @@ function App() {
             .from('waitlist_emails')
             .select('created_at')
             .eq('email', email.toLowerCase())
-            .single();
+            .maybeSingle();
 
           if (existingRecord) {
             const { count } = await supabase

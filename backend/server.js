@@ -130,14 +130,16 @@ app.use(express.json());
 // Handle preflight requests explicitly
 app.options('*', cors(corsOptions));
 
-// Additional CORS middleware for admin routes
-app.use('/api/admin/*', (req, res, next) => {
-  res.header('Access-Control-Allow-Origin', req.headers.origin || '*');
+// Additional CORS middleware for admin routes - must come BEFORE authenticateAdmin
+app.use('/api/admin', (req, res, next) => {
+  console.log('🌐 Admin CORS middleware - Method:', req.method, 'Path:', req.path);
+  res.header('Access-Control-Allow-Origin', 'https://automerchant.vercel.app');
   res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
   res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization');
   res.header('Access-Control-Allow-Credentials', 'true');
 
   if (req.method === 'OPTIONS') {
+    console.log('✅ Returning 200 for OPTIONS preflight');
     return res.status(200).end();
   }
   next();
