@@ -348,13 +348,14 @@ function App() {
             }
 
             try {
-              const { data } = await supabase
+              const { data, error: fetchError } = await supabase
                 .from('waitlist_emails')
                 .select('email, created_at')
                 .eq('email', user.email.toLowerCase())
-                .single();
+                .maybeSingle();
 
               if (data) {
+                console.log('👤 Confirmed: User is in waitlist');
                 setUserAlreadySignedUp(true);
                 const { count } = await supabase
                   .from('waitlist_emails')
@@ -364,10 +365,13 @@ function App() {
                 // Clean up URL
                 window.history.replaceState({}, document.title, window.location.pathname);
                 setView('success');
+              } else {
+                console.log('👤 Returning user NOT in waitlist - showing landing page');
+                // User is signed in but not in waitlist - show landing page
               }
             } catch (error) {
-              console.error('⚠️ Could not check waitlist status (RLS blocked):', error);
-              // If RLS blocks us, just show landing page
+              console.error('⚠️ Could not check waitlist status:', error);
+              // If there's an error, just show landing page
             }
           }
         }

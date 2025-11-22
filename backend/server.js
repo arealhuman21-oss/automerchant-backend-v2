@@ -1667,26 +1667,37 @@ app.get('/api/test-auth', authenticateToken, async (req, res) => {
 const authenticateAdmin = (req, res, next) => {
   const authHeader = req.headers['authorization'];
   const token = authHeader && authHeader.split(' ')[1];
-  if (!token) return res.status(401).json({ error: 'Access token required' });
+
+  console.log('🔐 Admin auth check - Token present:', !!token);
+
+  if (!token) {
+    console.log('❌ No token provided');
+    return res.status(401).json({ error: 'Access token required' });
+  }
 
   try {
-    // Decode Supabase JWT token (contains email in payload)
+    // Decode JWT token (contains email in payload)
     const decoded = jwt.decode(token);
 
+    console.log('🔓 Decoded token:', decoded ? { email: decoded.email } : 'null');
+
     if (!decoded || !decoded.email) {
+      console.log('❌ Invalid token format - missing email');
       return res.status(403).json({ error: 'Invalid token format' });
     }
 
     // Check if user is admin email
-    if (decoded.email !== 'arealhuman21@gmail.com') {
+    if (decoded.email.toLowerCase() !== 'arealhuman21@gmail.com') {
+      console.log('❌ Not admin email:', decoded.email);
       return res.status(403).json({ error: 'Admin access required' });
     }
 
+    console.log('✅ Admin authenticated:', decoded.email);
     req.user = decoded;
     next();
   } catch (error) {
-    console.error('Admin authentication error:', error);
-    return res.status(500).json({ error: 'Authentication failed' });
+    console.error('❌ Admin authentication error:', error);
+    return res.status(500).json({ error: 'Authentication failed', details: error.message });
   }
 };
 
@@ -1694,7 +1705,7 @@ const authenticateAdmin = (req, res, next) => {
 app.get('/api/admin/apps', authenticateAdmin, async (req, res) => {
   try {
     const result = await pool.query(
-      'SELECT id, app_name, client_id, shop_domain, status, created_at FROM shopify_apps ORDER BY created_at DESC'
+      'SELECT id, app_name, client_id, shop_domain, status, created_at, install_url FROM shopify_apps ORDER BY created_at DESC'
     );
     res.json({ apps: result.rows });
   } catch (error) {
@@ -1705,23 +1716,29 @@ app.get('/api/admin/apps', authenticateAdmin, async (req, res) => {
 
 // Add new Shopify app
 app.post('/api/admin/apps', authenticateAdmin, async (req, res) => {
-  const { appName, clientId, clientSecret, shopDomain } = req.body;
+  const { appName, clientId, clientSecret, shopDomain, installUrl } = req.body;
+
+  if (!appName || !clientId || !clientSecret || !shopDomain) {
+    return res.status(400).json({ error: 'Missing required app fields' });
+  }
+
+  if (!installUrl) {
+    return res.status(400).json({ error: 'Install URL is required' });
+  }
 
   try {
     const result = await pool.query(
-      `INSERT INTO shopify_apps (app_name, client_id, client_secret, shop_domain, status)
-       VALUES ($1, $2, $3, $4, 'active')
-       RETURNING id, app_name, client_id, shop_domain, status, created_at`,
-      [appName, clientId, clientSecret, shopDomain]
+      `INSERT INTO shopify_apps (app_name, client_id, client_secret, shop_domain, status, install_url)
+       VALUES ($1, $2, $3, $4, 'active', $5)
+       RETURNING id, app_name, client_id, shop_domain, status, created_at, install_url`,
+      [appName, clientId, clientSecret, shopDomain, installUrl]
     );
 
     const app = result.rows[0];
-    const installLink = `https://automerchant.vercel.app/api/shopify/install?shop=${shopDomain}&app_id=${app.id}`;
 
     res.json({
       success: true,
-      app: app,
-      installLink: installLink
+      app
     });
   } catch (error) {
     console.error('Admin app create error:', error);
