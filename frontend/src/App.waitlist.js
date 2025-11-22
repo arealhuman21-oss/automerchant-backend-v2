@@ -433,29 +433,33 @@ function App() {
         }
 
         // Check if user is already in waitlist
-        try {
-          // eslint-disable-next-line no-unused-vars
-          const { data, error } = await supabase
+        const { data, error: fetchError } = await supabase
+          .from('waitlist_emails')
+          .select('email, created_at')
+          .eq('email', user.email.toLowerCase())
+          .maybeSingle();
+
+        if (fetchError) {
+          console.log('⚠️ Could not check waitlist:', fetchError.message);
+          // If there's an error, just stay on landing page
+          return;
+        }
+
+        if (data) {
+          console.log('✅ User is in waitlist, showing success page');
+          setUserAlreadySignedUp(true);
+
+          // Get their signup number if they're already on the list
+          const { count } = await supabase
             .from('waitlist_emails')
-            .select('email, created_at')
-            .eq('email', user.email.toLowerCase())
-            .single();
+            .select('*', { count: 'exact', head: true })
+            .lte('created_at', data.created_at);
 
-          if (data) {
-            setUserAlreadySignedUp(true);
-
-            // Get their signup number if they're already on the list
-            const { count } = await supabase
-              .from('waitlist_emails')
-              .select('*', { count: 'exact', head: true })
-              .lte('created_at', data.created_at);
-
-            setSignupNumber(count);
-            setView('success'); // Show success page for returning users
-          }
-        } catch (waitlistError) {
-          console.log('⚠️ Could not check waitlist (RLS blocked):', waitlistError.message);
-          // If RLS blocks, just stay on landing page
+          setSignupNumber(count);
+          setView('success'); // Show success page for returning users
+        } else {
+          console.log('ℹ️ User not in waitlist, staying on landing page');
+          // User is signed in but not in waitlist - stay on landing page
         }
       }
     } catch (err) {
