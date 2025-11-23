@@ -124,17 +124,8 @@ const corsOptions = {
   allowedHeaders: ['Content-Type', 'Authorization']
 };
 
-app.use(cors(corsOptions));
-app.use(express.json());
-
-// Handle preflight requests explicitly
-app.options('*', cors(corsOptions));
-
-// Additional CORS middleware for admin routes - must come BEFORE authenticateAdmin
-app.use('/api/admin', (req, res, next) => {
-  console.log('🌐 Admin CORS middleware - Method:', req.method, 'Path:', req.path);
-
-  // Set CORS headers for all requests
+// CRITICAL: Handle ALL OPTIONS requests FIRST before any other middleware
+app.use((req, res, next) => {
   const origin = req.headers.origin;
   const allowedOrigins = [
     'https://automerchant.vercel.app',
@@ -145,6 +136,7 @@ app.use('/api/admin', (req, res, next) => {
     'http://localhost:5173'
   ];
 
+  // Always set CORS headers
   if (allowedOrigins.includes(origin)) {
     res.setHeader('Access-Control-Allow-Origin', origin);
   } else {
@@ -155,12 +147,17 @@ app.use('/api/admin', (req, res, next) => {
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
   res.setHeader('Access-Control-Allow-Credentials', 'true');
 
+  // Handle OPTIONS preflight immediately
   if (req.method === 'OPTIONS') {
-    console.log('✅ Returning 200 for OPTIONS preflight');
+    console.log('✅ [PREFLIGHT] Handling OPTIONS for:', req.path, 'from origin:', origin);
     return res.status(200).end();
   }
+
   next();
 });
+
+app.use(cors(corsOptions));
+app.use(express.json());
 
 const authenticateToken = (req, res, next) => {
   const authHeader = req.headers['authorization'];
