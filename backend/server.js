@@ -133,10 +133,27 @@ app.options('*', cors(corsOptions));
 // Additional CORS middleware for admin routes - must come BEFORE authenticateAdmin
 app.use('/api/admin', (req, res, next) => {
   console.log('🌐 Admin CORS middleware - Method:', req.method, 'Path:', req.path);
-  res.header('Access-Control-Allow-Origin', 'https://automerchant.vercel.app');
-  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization');
-  res.header('Access-Control-Allow-Credentials', 'true');
+
+  // Set CORS headers for all requests
+  const origin = req.headers.origin;
+  const allowedOrigins = [
+    'https://automerchant.vercel.app',
+    'https://www.automerchant.vercel.app',
+    'https://automerchant.ai',
+    'https://www.automerchant.ai',
+    'http://localhost:3000',
+    'http://localhost:5173'
+  ];
+
+  if (allowedOrigins.includes(origin)) {
+    res.setHeader('Access-Control-Allow-Origin', origin);
+  } else {
+    res.setHeader('Access-Control-Allow-Origin', 'https://automerchant.vercel.app');
+  }
+
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+  res.setHeader('Access-Control-Allow-Credentials', 'true');
 
   if (req.method === 'OPTIONS') {
     console.log('✅ Returning 200 for OPTIONS preflight');
@@ -1897,10 +1914,6 @@ const authenticateAdmin = (req, res, next) => {
 
 // Get all Shopify apps
 app.get('/api/admin/apps', authenticateAdmin, async (req, res) => {
-  // Ensure CORS headers are set
-  res.header('Access-Control-Allow-Origin', 'https://automerchant.vercel.app');
-  res.header('Access-Control-Allow-Credentials', 'true');
-
   try {
     const result = await pool.query(
       'SELECT id, app_name, client_id, shop_domain, status, created_at, install_url FROM shopify_apps ORDER BY created_at DESC'
@@ -1914,10 +1927,6 @@ app.get('/api/admin/apps', authenticateAdmin, async (req, res) => {
 
 // Add new Shopify app
 app.post('/api/admin/apps', authenticateAdmin, async (req, res) => {
-  // Ensure CORS headers are set
-  res.header('Access-Control-Allow-Origin', 'https://automerchant.vercel.app');
-  res.header('Access-Control-Allow-Credentials', 'true');
-
   const { appName, clientId, clientSecret, shopDomain, installUrl } = req.body;
 
   console.log('📝 [ADMIN] Creating app:', { appName, shopDomain, hasInstallUrl: !!installUrl });
@@ -1975,10 +1984,6 @@ app.delete('/api/admin/apps/:id', authenticateAdmin, async (req, res) => {
 
 // Get all waitlist users with approval status
 app.get('/api/admin/users', authenticateAdmin, async (req, res) => {
-  // Ensure CORS headers are set
-  res.header('Access-Control-Allow-Origin', 'https://automerchant.vercel.app');
-  res.header('Access-Control-Allow-Credentials', 'true');
-
   try {
     console.log('📊 [ADMIN] Fetching all users with approval status');
 
