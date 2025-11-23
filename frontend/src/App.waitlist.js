@@ -200,6 +200,50 @@ function App() {
     return () => clearTimeout(timer);
   }, []);
 
+  // Check backend approval status
+  const checkBackendApprovalStatus = async (email) => {
+    try {
+      console.log('🔍 Checking backend approval for:', email);
+      const API_URL = process.env.REACT_APP_API_URL || '';
+
+      const response = await fetch(`${API_URL}/check-approval`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email })
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to check approval');
+      }
+
+      const data = await response.json();
+      console.log('📋 Backend approval response:', data);
+
+      if (data.approved && data.token) {
+        // User is approved! Store token and show success
+        localStorage.setItem('authToken', data.token);
+        setView('success');
+        console.log('✅ User approved, showing success screen');
+      } else if (data.suspended) {
+        // User is suspended
+        setUserAlreadySignedUp(true);
+        setView('success'); // Show message about being suspended
+        console.log('🚫 User suspended');
+      } else {
+        // User is pending approval
+        setUserAlreadySignedUp(true);
+        setView('success'); // Show "awaiting approval" message
+        console.log('⏳ User pending approval');
+      }
+
+      // Clean up URL
+      window.history.replaceState({}, document.title, window.location.pathname);
+    } catch (error) {
+      console.error('❌ Backend approval check failed:', error);
+      // Fall back to showing landing page
+    }
+  };
+
   // Listen for OAuth callback - NO DEPENDENCIES to avoid re-creation
   useEffect(() => {
     if (!supabase) return;
@@ -355,19 +399,37 @@ function App() {
                 .maybeSingle();
 
               if (data) {
-                console.log('👤 Confirmed: User is in waitlist');
-                setUserAlreadySignedUp(true);
-                const { count } = await supabase
-                  .from('waitlist_emails')
-                  .select('*', { count: 'exact', head: true })
-                  .lte('created_at', data.created_at);
-                setSignupNumber(count);
-                // Clean up URL
-                window.history.replaceState({}, document.title, window.location.pathname);
-                setView('success');
+                console.log('👤 Confirmed: User is in waitlist (Supabase)');
+                // Check backend approval status
+                await checkBackendApprovalStatus(user.email);
               } else {
-                console.log('👤 Returning user NOT in waitlist - showing landing page');
-                // User is signed in but not in waitlist - show landing page
+                console.log('👤 Returning user NOT in Supabase waitlist - adding now...');
+
+                // Add to Supabase waitlist table
+                try {
+                  const { error: insertError } = await supabase
+                    .from('waitlist_emails')
+                    .insert([{ email: user.email.toLowerCase() }]);
+
+                  if (insertError) {
+                    console.error('Failed to insert into waitlist:', insertError);
+                  } else {
+                    console.log('✅ Added to Supabase waitlist');
+
+                    // Increment counter
+                    const { error: rpcError } = await supabase.rpc('increment_waitlist');
+                    if (rpcError) {
+                      console.error('Failed to increment counter:', rpcError);
+                    } else {
+                      console.log('✅ Counter incremented');
+                    }
+                  }
+                } catch (err) {
+                  console.error('Supabase insert error:', err);
+                }
+
+                // Check backend approval status
+                await checkBackendApprovalStatus(user.email);
               }
             } catch (error) {
               console.error('⚠️ Could not check waitlist status:', error);

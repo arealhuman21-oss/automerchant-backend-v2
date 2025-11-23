@@ -95,38 +95,83 @@ export function WaitlistModal({ active, onClose, onDevAccess }) {
 
   const handleAddToWaitlist = async (email) => {
     try {
-      // Insert into waitlist (email only)
-      const { data: insertData, error: insertError } = await supabase
-        .from('waitlist_emails')
-        .insert([{ email: email.toLowerCase() }])
-        .select();
+      console.log('📝 Adding to waitlist:', email);
 
-      if (insertError) {
-        if (insertError.code === '23505') {
-          // Unique constraint violation - already signed up
-          setAlreadySignedUp(true);
-          return;
+      // Try to insert into Supabase waitlist table FIRST (for counter)
+      try {
+        const { data: insertData, error: insertError } = await supabase
+          .from('waitlist_emails')
+          .insert([{ email: email.toLowerCase() }])
+          .select();
+
+        if (insertError) {
+          if (insertError.code === '23505') {
+            console.log('User already in Supabase waitlist (duplicate)');
+          } else {
+            console.error('Waitlist insert error:', insertError);
+          }
+        } else {
+          console.log('✅ Successfully added to Supabase waitlist');
+
+          // Increment counter only if insert was successful
+          const { error: updateError } = await supabase.rpc('increment_waitlist');
+          if (updateError) {
+            console.error('Error incrementing counter:', updateError);
+          } else {
+            console.log('✅ Counter incremented');
+          }
         }
-        throw insertError;
+
+        // Fetch updated count
+        await fetchTotalSignups();
+      } catch (supabaseErr) {
+        console.warn('Supabase operations failed (non-critical):', supabaseErr);
       }
 
-      // Increment counter
-      const { error: updateError } = await supabase.rpc('increment_waitlist');
+      // Now check backend approval status (creates user in PostgreSQL)
+      await checkUserApproval(email);
 
-      if (updateError) {
-        console.error('Error incrementing counter:', updateError);
-        // Don't fail the signup if counter increment fails
-      }
-
-      // Fetch updated count
-      await fetchTotalSignups();
-
-      setSuccess(true);
     } catch (err) {
       console.error('Waitlist error:', err);
       setError(err.message || 'Something went wrong. Please try again.');
-    } finally {
       setLoading(false);
+    }
+  };
+
+  const checkUserApproval = async (email) => {
+    try {
+      const API_URL = process.env.REACT_APP_API_URL || '';
+      const response = await fetch(`${API_URL}/check-approval`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ email })
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to check approval status');
+      }
+
+      const data = await response.json();
+
+      if (data.approved && data.token) {
+        // User is approved! Store token and redirect to dashboard
+        localStorage.setItem('authToken', data.token);
+        setSuccess(true);
+        setTimeout(() => {
+          window.location.href = '/'; // Refresh to show dashboard
+        }, 1500);
+      } else if (data.suspended) {
+        setError(data.message || 'Your account has been suspended. Please contact support.');
+      } else {
+        // User is pending approval
+        setAlreadySignedUp(true);
+      }
+    } catch (err) {
+      console.error('Approval check error:', err);
+      // If check fails, just show as already signed up
+      setAlreadySignedUp(true);
     }
   };
 
