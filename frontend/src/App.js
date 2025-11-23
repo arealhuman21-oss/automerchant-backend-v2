@@ -393,6 +393,53 @@ function App({ colorScheme = 'light', setColorScheme = () => {} }) {
   const [error, setError] = useState(null);
 
   useEffect(() => {
+    // Check for OAuth success redirect
+    const urlParams = new URLSearchParams(window.location.search);
+    const oauthSuccess = urlParams.get('oauth_success');
+    const email = urlParams.get('email');
+    const waitlist = urlParams.get('waitlist');
+
+    // Handle waitlist redirect (user installed but not approved)
+    if (waitlist) {
+      console.log('⏳ User on waitlist, showing waitlist view');
+      setView('landing');
+      const message = urlParams.get('message') || 'Your account is pending approval.';
+      setError(message);
+      // Clean URL
+      window.history.replaceState({}, document.title, window.location.pathname);
+      return;
+    }
+
+    if (oauthSuccess && email) {
+      // OAuth completed! Auto-login the user
+      console.log('✅ OAuth success! Auto-logging in user:', email);
+
+      // Try to login or create account automatically
+      const autoLogin = async () => {
+        try {
+          // First try to login
+          const loginData = await api.call('/api/login', {
+            method: 'POST',
+            body: JSON.stringify({ email, password: 'oauth_user' })
+          });
+          localStorage.setItem('authToken', loginData.token);
+          localStorage.setItem('user', JSON.stringify(loginData.user));
+          setUser(loginData.user);
+          setView('dashboard');
+
+          // Clean URL
+          window.history.replaceState({}, document.title, window.location.pathname);
+        } catch (err) {
+          console.error('Auto-login failed, user needs to login manually:', err);
+          setView('auth');
+          setError('OAuth successful! Please login with your account.');
+        }
+      };
+      autoLogin();
+      return;
+    }
+
+    // Normal login check
     const token = localStorage.getItem('authToken');
     const savedUser = localStorage.getItem('user');
     if (token && savedUser) {
@@ -555,6 +602,15 @@ function App({ colorScheme = 'light', setColorScheme = () => {} }) {
       checkShopifyConnection();
       loadOrders();
       loadAnalysisStatus();
+
+      // Check for OAuth success parameter
+      const urlParams = new URLSearchParams(window.location.search);
+      if (urlParams.get('oauth_success')) {
+        // Show success banner for a few seconds
+        setTimeout(() => {
+          checkShopifyConnection(); // Re-check connection after OAuth
+        }, 1000);
+      }
     }, []);
 
     const loadAnalysisStatus = async () => {
@@ -1119,6 +1175,126 @@ function App({ colorScheme = 'light', setColorScheme = () => {} }) {
                           tone="magic"
                         />
                       </BlockStack>
+                    </BlockStack>
+                  </Card>
+
+                  {/* ROI CALCULATOR */}
+                  <Card>
+                    <BlockStack gap="400">
+                      <Text variant="headingLg" as="h2">💰 ROI Calculator</Text>
+                      <Text variant="bodyMd" tone="subdued">
+                        Calculate your return on investment from using AutoMerchant's AI pricing
+                      </Text>
+                      <Divider />
+
+                      <InlineGrid columns={{ xs: 1, md: 2 }} gap="600">
+                        {/* Input Section */}
+                        <BlockStack gap="300">
+                          <Text variant="headingMd" fontWeight="semibold">Your Metrics</Text>
+                          <BlockStack gap="400">
+                            <div>
+                              <Text variant="bodyMd" fontWeight="semibold">Current Monthly Revenue</Text>
+                              <Text variant="bodySm" tone="subdued" as="p">
+                                ${stats ? parseFloat(stats.totalRevenue || 0).toFixed(2) : '0.00'} (from last 30 days)
+                              </Text>
+                            </div>
+                            <div>
+                              <Text variant="bodyMd" fontWeight="semibold">Total Products</Text>
+                              <Text variant="bodySm" tone="subdued" as="p">
+                                {products.length} active products
+                              </Text>
+                            </div>
+                            <div>
+                              <Text variant="bodyMd" fontWeight="semibold">AI Recommendations Applied</Text>
+                              <Text variant="bodySm" tone="subdued" as="p">
+                                {stats ? stats.productsAnalyzed || 0 : 0} products optimized
+                              </Text>
+                            </div>
+                          </BlockStack>
+                        </BlockStack>
+
+                        {/* Results Section */}
+                        <BlockStack gap="300">
+                          <Text variant="headingMd" fontWeight="semibold">Projected Impact</Text>
+                          <div style={{...gradientStyles.successGlow}}>
+                            <BlockStack gap="300">
+                              <BlockStack gap="100">
+                                <Text variant="bodySm" tone="subdued" as="p" style={{color: 'rgba(255,255,255,0.8)'}}>
+                                  Revenue Increase (Conservative 5%)
+                                </Text>
+                                <Text variant="heading2xl" fontWeight="bold" style={{color: 'white'}}>
+                                  +${stats ? (parseFloat(stats.totalRevenue || 0) * 0.05).toFixed(2) : '0.00'}/mo
+                                </Text>
+                              </BlockStack>
+
+                              <Divider borderColor="transparent" />
+
+                              <BlockStack gap="100">
+                                <Text variant="bodySm" tone="subdued" as="p" style={{color: 'rgba(255,255,255,0.8)'}}>
+                                  Actual AI Profit Increase
+                                </Text>
+                                <Text variant="headingXl" fontWeight="bold" style={{color: 'white'}}>
+                                  ${calculateAIProfit()}/mo
+                                </Text>
+                              </BlockStack>
+
+                              <Divider borderColor="transparent" />
+
+                              <BlockStack gap="100">
+                                <Text variant="bodySm" tone="subdued" as="p" style={{color: 'rgba(255,255,255,0.8)'}}>
+                                  Annual Projected Revenue
+                                </Text>
+                                <Text variant="headingLg" fontWeight="bold" style={{color: 'white'}}>
+                                  ${stats ? (parseFloat(stats.totalRevenue || 0) * 12 * 1.05).toFixed(2) : '0.00'}/yr
+                                </Text>
+                              </BlockStack>
+                            </BlockStack>
+                          </div>
+                        </BlockStack>
+                      </InlineGrid>
+
+                      <Divider />
+
+                      {/* ROI Breakdown */}
+                      <BlockStack gap="300">
+                        <Text variant="headingMd" fontWeight="semibold">How We Calculate ROI</Text>
+                        <InlineGrid columns={{ xs: 1, md: 3 }} gap="400">
+                          <div>
+                            <Text variant="bodyMd" fontWeight="semibold">📊 Data-Driven Pricing</Text>
+                            <Text variant="bodySm" tone="subdued" as="p">
+                              AI analyzes market trends, competitor pricing, and demand patterns to optimize your prices
+                            </Text>
+                          </div>
+                          <div>
+                            <Text variant="bodyMd" fontWeight="semibold">💹 Profit Optimization</Text>
+                            <Text variant="bodySm" tone="subdued" as="p">
+                              Increase margins by 3-8% without losing sales through smart price positioning
+                            </Text>
+                          </div>
+                          <div>
+                            <Text variant="bodyMd" fontWeight="semibold">⚡ Real-Time Updates</Text>
+                            <Text variant="bodySm" tone="subdued" as="p">
+                              Automatic analysis every 30 minutes ensures your prices stay competitive 24/7
+                            </Text>
+                          </div>
+                        </InlineGrid>
+                      </BlockStack>
+
+                      <div style={{background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)', padding: '16px', borderRadius: '12px'}}>
+                        <InlineStack align="space-between" blockAlign="center">
+                          <BlockStack gap="100">
+                            <Text variant="headingMd" fontWeight="bold" style={{color: 'white'}}>
+                              Your Estimated Monthly Savings
+                            </Text>
+                            <Text variant="bodySm" style={{color: 'rgba(255,255,255,0.9)'}}>
+                              Time saved from manual pricing + revenue increase
+                            </Text>
+                          </BlockStack>
+                          <Text variant="heading2xl" fontWeight="bold" style={{color: 'white'}}>
+                            ${stats ? ((parseFloat(stats.totalRevenue || 0) * 0.05) + 200).toFixed(2) : '200.00'}
+                          </Text>
+                        </InlineStack>
+                      </div>
                     </BlockStack>
                   </Card>
 

@@ -524,20 +524,160 @@ app.post('/api/register', authLimiter, async (req, res) => {
 app.post('/api/login', authLimiter, async (req, res) => {
   const { email, password } = req.body;
   try {
+    console.log(`🔐 [LOGIN] Attempt for email: ${email}`);
+
     const result = await pool.query('SELECT * FROM users WHERE email = $1', [email]);
     if (result.rows.length === 0) {
+      console.log(`❌ [LOGIN] User not found: ${email}`);
       return res.status(401).json({ error: 'Invalid credentials' });
     }
+
     const user = result.rows[0];
+
+    // Check if user is suspended
+    if (user.suspended) {
+      console.log(`🚫 [LOGIN] User suspended: ${email}`);
+      return res.status(403).json({
+        error: 'Account suspended',
+        message: 'Your account has been suspended. Please contact support.'
+      });
+    }
+
+    // Check if user is approved
+    if (!user.approved) {
+      console.log(`⏳ [LOGIN] User not approved yet: ${email}`);
+      return res.status(403).json({
+        error: 'Account pending approval',
+        message: 'Your account is awaiting approval. We\'ll notify you when you\'re approved!',
+        pending: true
+      });
+    }
+
     const validPassword = await bcrypt.compare(password, user.password_hash);
     if (!validPassword) {
+      console.log(`❌ [LOGIN] Invalid password for: ${email}`);
       return res.status(401).json({ error: 'Invalid credentials' });
     }
+
     const token = jwt.sign({ id: user.id, email: user.email }, JWT_SECRET, { expiresIn: '7d' });
-    res.json({ token, user: { id: user.id, email: user.email, name: user.name, shopifyConnected: !!user.shopify_shop } });
+
+    console.log(`✅ [LOGIN] Success for: ${email}`);
+
+    res.json({
+      token,
+      user: {
+        id: user.id,
+        email: user.email,
+        name: user.name,
+        shopifyConnected: !!user.shopify_shop,
+        approved: user.approved,
+        suspended: user.suspended
+      }
+    });
   } catch (error) {
-    console.error('Login error:', error);
+    console.error('❌ [LOGIN] Error:', error);
     res.status(500).json({ error: 'Login failed' });
+  }
+});
+
+// Check user approval status (for waitlist OAuth flow)
+app.post('/api/check-approval', async (req, res) => {
+  const { email } = req.body;
+
+  if (!email) {
+    return res.status(400).json({ error: 'Email required' });
+  }
+
+  try {
+    console.log(`🔍 [CHECK-APPROVAL] Checking status for: ${email}`);
+
+    const result = await pool.query(
+      'SELECT id, email, approved, suspended FROM users WHERE email = $1',
+      [email.toLowerCase()]
+    );
+
+    if (result.rows.length === 0) {
+      console.log(`📝 [CHECK-APPROVAL] User not found, creating pending user: ${email}`);
+
+      // Create user with approved=false (pending)
+      const createResult = await pool.query(
+        `INSERT INTO users (email, password_hash, approved, created_at)
+         VALUES ($1, 'oauth_user', false, NOW())
+         RETURNING id, email, approved, suspended`,
+        [email.toLowerCase()]
+      );
+
+      const newUser = createResult.rows[0];
+
+      console.log(`✅ [CHECK-APPROVAL] Created pending user: ${email}`);
+
+      return res.json({
+        approved: false,
+        suspended: false,
+        pending: true,
+        message: 'Your account is awaiting approval. We\'ll notify you when you\'re approved!'
+      });
+    }
+
+    const user = result.rows[0];
+
+    if (user.suspended) {
+      console.log(`🚫 [CHECK-APPROVAL] User suspended: ${email}`);
+      return res.json({
+        approved: false,
+        suspended: true,
+        message: 'Your account has been suspended. Please contact support.'
+      });
+    }
+
+    if (!user.approved) {
+      console.log(`⏳ [CHECK-APPROVAL] User pending approval: ${email}`);
+      return res.json({
+        approved: false,
+        suspended: false,
+        pending: true,
+        message: 'Your account is awaiting approval. We\'ll notify you when you\'re approved!'
+      });
+    }
+
+    // User is approved - check if they have an assigned app
+    const token = jwt.sign({ id: user.id, email: user.email }, JWT_SECRET, { expiresIn: '7d' });
+
+    console.log(`✅ [CHECK-APPROVAL] User approved, generating token: ${email}`);
+
+    // Check if user has an assigned app
+    const appCheckResult = await pool.query(
+      `SELECT s.id, s.app_name, s.install_url, s.shop_domain
+       FROM shopify_apps s
+       WHERE s.id = $1 AND s.status = 'active'`,
+      [user.assigned_app_id]
+    );
+
+    const assignedApp = appCheckResult.rows.length > 0 ? appCheckResult.rows[0] : null;
+
+    return res.json({
+      approved: true,
+      suspended: false,
+      token,
+      user: {
+        id: user.id,
+        email: user.email,
+        approved: user.approved
+      },
+      assignedApp: assignedApp ? {
+        id: assignedApp.id,
+        name: assignedApp.app_name,
+        installUrl: assignedApp.install_url,
+        shopDomain: assignedApp.shop_domain
+      } : null,
+      message: assignedApp
+        ? `Welcome! You've been assigned to ${assignedApp.app_name}. Install the app to get started.`
+        : 'Welcome back! Your account is active.'
+    });
+
+  } catch (error) {
+    console.error('❌ [CHECK-APPROVAL] Error:', error);
+    res.status(500).json({ error: 'Failed to check approval status' });
   }
 });
 
@@ -836,10 +976,30 @@ app.get('/api/shopify/callback', async (req, res) => {
     // ============================================
     // REDIRECT TO APP WITH SUCCESS MESSAGE
     // ============================================
-    // Encode user email in redirect so frontend can auto-login
-    const appUrl = user_email
-      ? `https://automerchant.vercel.app?oauth_success=true&email=${encodeURIComponent(user_email)}`
-      : `https://automerchant.vercel.app?oauth_success=true`;
+    // Check if user is approved - redirect to product if yes, waitlist if no
+    let appUrl = 'https://automerchant.vercel.app?oauth_success=true';
+
+    if (user_email) {
+      try {
+        const userCheckResult = await pool.query(
+          'SELECT approved FROM users WHERE email = $1',
+          [user_email]
+        );
+
+        if (userCheckResult.rows.length > 0 && userCheckResult.rows[0].approved) {
+          // User is approved - redirect to product with auto-login
+          appUrl = `https://automerchant.vercel.app?oauth_success=true&email=${encodeURIComponent(user_email)}`;
+          console.log(`✅ Approved user ${user_email} - redirecting to product dashboard`);
+        } else {
+          // User is NOT approved - redirect to waitlist
+          appUrl = `https://automerchant.vercel.app?waitlist=true&message=${encodeURIComponent('Thanks for installing! Your account is pending approval.')}`;
+          console.log(`⏳ Pending user ${user_email} - redirecting to waitlist`);
+        }
+      } catch (err) {
+        console.error('Error checking user approval:', err);
+        appUrl = `https://automerchant.vercel.app?oauth_success=true&email=${encodeURIComponent(user_email)}`;
+      }
+    }
 
     console.log(`🎉 OAuth installation complete! Redirecting to: ${appUrl}`);
 
@@ -1680,6 +1840,12 @@ app.get('/api/test-auth', authenticateToken, async (req, res) => {
 
 // Admin authentication middleware
 const authenticateAdmin = (req, res, next) => {
+  // Skip authentication for OPTIONS requests (CORS preflight)
+  if (req.method === 'OPTIONS') {
+    console.log('✅ Skipping auth for OPTIONS preflight request');
+    return next();
+  }
+
   const authHeader = req.headers['authorization'];
   const token = authHeader && authHeader.split(' ')[1];
 
@@ -1691,7 +1857,20 @@ const authenticateAdmin = (req, res, next) => {
   }
 
   try {
-    // Decode JWT token (contains email in payload)
+    // Try to verify as our JWT token first
+    try {
+      const verified = jwt.verify(token, JWT_SECRET);
+      if (verified && verified.email && verified.email.toLowerCase() === 'arealhuman21@gmail.com') {
+        console.log('✅ Admin authenticated via JWT:', verified.email);
+        req.user = verified;
+        return next();
+      }
+    } catch (jwtError) {
+      // Not our JWT, try Supabase token
+      console.log('🔄 Not a JWT token, trying Supabase token decode...');
+    }
+
+    // Decode token (works for both JWT and Supabase tokens)
     const decoded = jwt.decode(token);
 
     console.log('🔓 Decoded token:', decoded ? { email: decoded.email } : 'null');
@@ -1735,13 +1914,21 @@ app.get('/api/admin/apps', authenticateAdmin, async (req, res) => {
 
 // Add new Shopify app
 app.post('/api/admin/apps', authenticateAdmin, async (req, res) => {
+  // Ensure CORS headers are set
+  res.header('Access-Control-Allow-Origin', 'https://automerchant.vercel.app');
+  res.header('Access-Control-Allow-Credentials', 'true');
+
   const { appName, clientId, clientSecret, shopDomain, installUrl } = req.body;
 
+  console.log('📝 [ADMIN] Creating app:', { appName, shopDomain, hasInstallUrl: !!installUrl });
+
   if (!appName || !clientId || !clientSecret || !shopDomain) {
+    console.log('❌ [ADMIN] Missing required fields');
     return res.status(400).json({ error: 'Missing required app fields' });
   }
 
   if (!installUrl) {
+    console.log('❌ [ADMIN] Missing install URL');
     return res.status(400).json({ error: 'Install URL is required' });
   }
 
@@ -1755,13 +1942,23 @@ app.post('/api/admin/apps', authenticateAdmin, async (req, res) => {
 
     const app = result.rows[0];
 
+    console.log(`✅ [ADMIN] App created successfully: ${app.app_name} (ID: ${app.id})`);
+
     res.json({
       success: true,
       app
     });
   } catch (error) {
-    console.error('Admin app create error:', error);
-    res.status(500).json({ error: 'Failed to create app' });
+    console.error('❌ [ADMIN] App create error:', error);
+
+    // Check for unique constraint violation
+    if (error.code === '23505') {
+      return res.status(400).json({
+        error: 'An app with this name already exists. Please use a different name.'
+      });
+    }
+
+    res.status(500).json({ error: 'Failed to create app', details: error.message });
   }
 });
 
@@ -1776,58 +1973,185 @@ app.delete('/api/admin/apps/:id', authenticateAdmin, async (req, res) => {
   }
 });
 
-// Get all waitlist users
+// Get all waitlist users with approval status
 app.get('/api/admin/users', authenticateAdmin, async (req, res) => {
   // Ensure CORS headers are set
   res.header('Access-Control-Allow-Origin', 'https://automerchant.vercel.app');
   res.header('Access-Control-Allow-Credentials', 'true');
 
   try {
-    const result = await pool.query(
-      'SELECT id, email, created_at FROM waitlist_emails ORDER BY created_at DESC'
+    console.log('📊 [ADMIN] Fetching all users with approval status');
+
+    // Get all users from users table (includes approved status)
+    const usersResult = await pool.query(
+      `SELECT
+        u.id,
+        u.email,
+        u.approved,
+        u.suspended,
+        u.approved_at,
+        u.suspended_at,
+        u.assigned_app_id,
+        u.created_at,
+        s.app_name as assigned_app_name
+       FROM users u
+       LEFT JOIN shopify_apps s ON u.assigned_app_id = s.id
+       ORDER BY u.created_at DESC`
     );
 
-    // Add approved status (for now, all waitlist users are considered pending)
-    const usersWithStatus = result.rows.map(row => ({
+    const usersWithStatus = usersResult.rows.map(row => ({
       ...row,
-      approved: false,
       name: row.email.split('@')[0] // Extract name from email
     }));
 
+    console.log(`📊 [ADMIN] Returned ${usersWithStatus.length} users`);
+
     res.json({ users: usersWithStatus });
   } catch (error) {
-    console.error('Admin users fetch error:', error);
+    console.error('❌ [ADMIN] Users fetch error:', error);
     res.status(500).json({ error: 'Failed to fetch users' });
   }
 });
 
-// Approve user (create them in users table with approved=true)
+// Approve user
 app.post('/api/admin/users/:id/approve', authenticateAdmin, async (req, res) => {
   try {
-    // Get user email from waitlist_emails
-    const waitlistUser = await pool.query(
-      'SELECT email FROM waitlist_emails WHERE id = $1',
+    console.log(`✅ [ADMIN] Approving user ${req.params.id}`);
+
+    const result = await pool.query(
+      `UPDATE users
+       SET approved = true,
+           suspended = false,
+           approved_at = NOW()
+       WHERE id = $1
+       RETURNING id, email, approved, approved_at`,
       [req.params.id]
     );
 
-    if (waitlistUser.rows.length === 0) {
+    if (result.rows.length === 0) {
+      console.log(`❌ [ADMIN] User ${req.params.id} not found`);
       return res.status(404).json({ error: 'User not found' });
     }
 
-    const email = waitlistUser.rows[0].email;
+    console.log(`✅ [ADMIN] User ${result.rows[0].email} approved successfully`);
 
-    // Create user in users table with approved=true
-    await pool.query(
-      `INSERT INTO users (email, password_hash, approved, created_at)
-       VALUES ($1, 'oauth_user', true, NOW())
-       ON CONFLICT (email) DO UPDATE SET approved = true`,
-      [email]
+    res.json({ success: true, user: result.rows[0] });
+  } catch (error) {
+    console.error('❌ [ADMIN] User approve error:', error);
+    res.status(500).json({ error: 'Failed to approve user' });
+  }
+});
+
+// Suspend user
+app.post('/api/admin/users/:id/suspend', authenticateAdmin, async (req, res) => {
+  try {
+    console.log(`🚫 [ADMIN] Suspending user ${req.params.id}`);
+
+    const result = await pool.query(
+      `UPDATE users
+       SET suspended = true,
+           suspended_at = NOW()
+       WHERE id = $1
+       RETURNING id, email, suspended, suspended_at`,
+      [req.params.id]
     );
 
-    res.json({ success: true });
+    if (result.rows.length === 0) {
+      console.log(`❌ [ADMIN] User ${req.params.id} not found`);
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    console.log(`🚫 [ADMIN] User ${result.rows[0].email} suspended successfully`);
+
+    res.json({ success: true, user: result.rows[0] });
   } catch (error) {
-    console.error('Admin user approve error:', error);
-    res.status(500).json({ error: 'Failed to approve user' });
+    console.error('❌ [ADMIN] User suspend error:', error);
+    res.status(500).json({ error: 'Failed to suspend user' });
+  }
+});
+
+// Unsuspend user
+app.post('/api/admin/users/:id/unsuspend', authenticateAdmin, async (req, res) => {
+  try {
+    console.log(`✅ [ADMIN] Unsuspending user ${req.params.id}`);
+
+    const result = await pool.query(
+      `UPDATE users
+       SET suspended = false,
+           suspended_at = NULL
+       WHERE id = $1
+       RETURNING id, email, suspended`,
+      [req.params.id]
+    );
+
+    if (result.rows.length === 0) {
+      console.log(`❌ [ADMIN] User ${req.params.id} not found`);
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    console.log(`✅ [ADMIN] User ${result.rows[0].email} unsuspended successfully`);
+
+    res.json({ success: true, user: result.rows[0] });
+  } catch (error) {
+    console.error('❌ [ADMIN] User unsuspend error:', error);
+    res.status(500).json({ error: 'Failed to unsuspend user' });
+  }
+});
+
+// Assign app to user
+app.post('/api/admin/users/:id/assign-app', authenticateAdmin, async (req, res) => {
+  const { appId } = req.body;
+
+  try {
+    console.log(`🔗 [ADMIN] Assigning app ${appId} to user ${req.params.id}`);
+
+    const result = await pool.query(
+      `UPDATE users
+       SET assigned_app_id = $1
+       WHERE id = $2
+       RETURNING id, email, assigned_app_id`,
+      [appId, req.params.id]
+    );
+
+    if (result.rows.length === 0) {
+      console.log(`❌ [ADMIN] User ${req.params.id} not found`);
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    console.log(`🔗 [ADMIN] App ${appId} assigned to user ${result.rows[0].email}`);
+
+    res.json({ success: true, user: result.rows[0] });
+  } catch (error) {
+    console.error('❌ [ADMIN] App assignment error:', error);
+    res.status(500).json({ error: 'Failed to assign app' });
+  }
+});
+
+// Get admin stats
+app.get('/api/admin/stats', authenticateAdmin, async (req, res) => {
+  try {
+    console.log('📊 [ADMIN] Fetching admin stats');
+
+    const totalUsersResult = await pool.query('SELECT COUNT(*) as count FROM users');
+    const approvedUsersResult = await pool.query('SELECT COUNT(*) as count FROM users WHERE approved = true');
+    const suspendedUsersResult = await pool.query('SELECT COUNT(*) as count FROM users WHERE suspended = true');
+    const pendingUsersResult = await pool.query('SELECT COUNT(*) as count FROM users WHERE approved = false AND suspended = false');
+    const totalAppsResult = await pool.query('SELECT COUNT(*) as count FROM shopify_apps WHERE status = $1', ['active']);
+
+    const stats = {
+      totalUsers: parseInt(totalUsersResult.rows[0].count) || 0,
+      approvedUsers: parseInt(approvedUsersResult.rows[0].count) || 0,
+      suspendedUsers: parseInt(suspendedUsersResult.rows[0].count) || 0,
+      pendingUsers: parseInt(pendingUsersResult.rows[0].count) || 0,
+      totalApps: parseInt(totalAppsResult.rows[0].count) || 0
+    };
+
+    console.log('📊 [ADMIN] Stats:', stats);
+
+    res.json(stats);
+  } catch (error) {
+    console.error('❌ [ADMIN] Stats fetch error:', error);
+    res.status(500).json({ error: 'Failed to fetch stats' });
   }
 });
 
