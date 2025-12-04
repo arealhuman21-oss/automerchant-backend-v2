@@ -1,5 +1,7 @@
 # 🎯 AutoMerchant - Complete Manual Onboarding Guide
 
+**Last Updated:** December 3, 2025
+
 ## ✅ EVERYTHING VERIFIED & WORKING
 
 All systems have been double-checked and are functioning correctly:
@@ -7,6 +9,9 @@ All systems have been double-checked and are functioning correctly:
 - ✅ Admin panel "Copy Link" button includes user email
 - ✅ ROI Calculator added to Analytics tab
 - ✅ All deployments complete
+- ✅ CORS issues fixed - admin panel fully functional
+- ✅ Auto-generated OAuth install links working
+- ✅ OAuth redirect URI properly configured
 
 ---
 
@@ -44,7 +49,11 @@ All systems have been double-checked and are functioning correctly:
    - Fill in:
      - **App name**: "AutoMerchant for [Customer Name]"
      - **App URL**: `https://automerchant.vercel.app`
-     - **Allowed redirection URLs**: `https://automerchant-backend-v2.vercel.app/api/shopify/callback`
+     - **Allowed redirection URLs**: ⚠️ **CRITICAL** - Must be:
+       ```
+       https://automerchant-backend-v2.vercel.app/api/shopify/callback
+       ```
+       (Note: It's the BACKEND URL, not frontend!)
    - Click "Create App"
    - Go to "Configuration" → "Build"
    - Set required scopes:
@@ -55,9 +64,8 @@ All systems have been double-checked and are functioning correctly:
    - Click "Save"
    - Go to "Distribution" → Set to "Custom distribution"
    - Enter customer's shop domain (e.g., `customershop.myshopify.com`)
-   - Click "Generate install link"
-   - **Copy this install link** (looks like: `https://partners.shopify.com/...`)
    - **Copy Client ID** and **Client Secret** from "Client credentials"
+   - ⚠️ **DO NOT** use Shopify's generated install link - we auto-generate our own!
 
 4. **Add App to Admin Panel**
    - Back in Admin Panel → "Shopify Apps" tab
@@ -67,9 +75,13 @@ All systems have been double-checked and are functioning correctly:
      - **Shop Domain**: `customershop.myshopify.com`
      - **Client ID**: (paste from Shopify)
      - **Client Secret**: (paste from Shopify)
-     - **Shopify Install Link**: (paste the generated link)
+     - **Shopify Install Link**: (optional - for your reference only)
    - Click "Add App"
-   - App is now saved!
+   - ✨ **System auto-generates the OAuth install link!**
+     ```
+     https://automerchant-backend-v2.vercel.app/api/shopify/install?shop=customershop.myshopify.com&app_id=X
+     ```
+   - App is now saved with the correct install link!
 
 5. **Approve User**
    - Go back to "User Management" tab
@@ -244,7 +256,59 @@ The ROI calculator (added to Analytics tab) shows:
 
 ## 🔧 Troubleshooting
 
+### ⚠️ CRITICAL: "The installation link for this app is invalid"
+
+**Error Message:**
+```
+The installation link for this app is invalid
+The link for installing AutoMerchant cannot be used. Contact the app developer for more information.
+```
+
+**Root Cause:** The OAuth redirect URI in Shopify Partner app settings doesn't match what the backend is using.
+
+**Solution:**
+1. Go to **Shopify Partners** → Your App → **Configuration** → **URLs**
+2. Verify **"Allowed redirection URL(s)"** is EXACTLY:
+   ```
+   https://automerchant-backend-v2.vercel.app/api/shopify/callback
+   ```
+3. Common mistakes:
+   - ❌ `https://automerchant.vercel.app/api/shopify/callback` (wrong - frontend URL)
+   - ❌ `https://automerchant-backend-v2.vercel.app/api/callback` (wrong - missing /shopify)
+   - ❌ `automerchant-backend-v2.vercel.app/api/shopify/callback` (wrong - missing https://)
+   - ✅ `https://automerchant-backend-v2.vercel.app/api/shopify/callback` (CORRECT!)
+4. Click **Save**
+5. Try the install link again - should work now!
+
+---
+
+### Issue: Admin Panel Can't Add Apps (Times Out)
+
+**Symptoms:**
+- Click "Add App" button
+- Form submits but hangs
+- Times out after 30 seconds
+- Browser console shows CORS error
+
+**Root Cause:** Browser has cached a failed CORS preflight response
+
+**Solution:**
+1. **Use Incognito/Private window** (fastest fix)
+   - Open incognito window
+   - Go to `https://automerchant.vercel.app`
+   - Login and try adding app
+   - Should work immediately
+
+2. **OR clear browser cache:**
+   - Press Ctrl+Shift+Delete (Windows) or Cmd+Shift+Delete (Mac)
+   - Select "Cached images and files"
+   - Clear data
+   - Hard refresh page (Ctrl+F5)
+
+---
+
 ### Issue: Shop not linked after OAuth
+
 **Check:**
 1. Was `user_email` in the install link?
 2. Check backend logs for OAuth callback
@@ -253,7 +317,10 @@ The ROI calculator (added to Analytics tab) shows:
 **Fix:**
 - Use the "Copy Link" button in admin panel (includes email automatically)
 
+---
+
 ### Issue: User can't access dashboard
+
 **Check:**
 1. Is user approved? (should show "✓ Approved")
 2. Is user suspended? (should NOT show "🚫 Suspended")
@@ -263,7 +330,10 @@ The ROI calculator (added to Analytics tab) shows:
 - Check admin panel → verify approval status
 - Resend install link if OAuth failed
 
+---
+
 ### Issue: Products not syncing
+
 **Check:**
 1. Is shopify_shop and shopify_access_token set for user?
 2. Run this query:
@@ -274,6 +344,23 @@ The ROI calculator (added to Analytics tab) shows:
 
 **Fix:**
 - Have customer reinstall using the install link
+
+---
+
+### Issue: Wrong Install Link Generated
+
+**Symptoms:**
+- Install link shows wrong shop domain
+- Install link missing `app_id` parameter
+- Link goes to wrong URL
+
+**Root Cause:** App was created before auto-generation was implemented, or shop domain was entered incorrectly
+
+**Solution:**
+1. Delete the broken app from Admin Panel
+2. Re-add the app with correct shop domain
+3. System will auto-generate correct link
+4. Copy the new link and send to customer
 
 ---
 
