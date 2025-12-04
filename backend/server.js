@@ -2118,10 +2118,8 @@ app.post('/api/admin/apps', authenticateAdmin, async (req, res) => {
     return res.status(400).json({ error: 'Missing required app fields' });
   }
 
-  if (!installUrl) {
-    console.log('❌ [ADMIN] Missing install URL');
-    return res.status(400).json({ error: 'Install URL is required' });
-  }
+  // installUrl is now optional - we'll generate it after getting the app ID
+  // The Shopify Partner link provided by user is just for reference, not used
 
   const startTime = Date.now();
   try {
@@ -2133,15 +2131,32 @@ app.post('/api/admin/apps', authenticateAdmin, async (req, res) => {
     });
 
     console.log('⏱️  [ADMIN] Starting database INSERT...');
+
+    // First insert without install_url to get the app ID
     const result = await pool.query(
-      `INSERT INTO shopify_apps (app_name, client_id, client_secret, shop_domain, status, install_url)
-       VALUES ($1, $2, $3, $4, 'active', $5)
-       RETURNING id, app_name, client_id, shop_domain, status, created_at, install_url`,
-      [appName, clientId, clientSecret, shopDomain, installUrl]
+      `INSERT INTO shopify_apps (app_name, client_id, client_secret, shop_domain, status)
+       VALUES ($1, $2, $3, $4, 'active')
+       RETURNING id, app_name, client_id, shop_domain, status, created_at`,
+      [appName, clientId, clientSecret, shopDomain]
     );
-    console.log('⏱️  [ADMIN] Database INSERT completed');
 
     const app = result.rows[0];
+
+    // Generate the correct OAuth install link using our backend
+    const backendUrl = process.env.BACKEND_URL || 'https://automerchant-backend-v2.vercel.app';
+    const generatedInstallUrl = `${backendUrl}/api/shopify/install?shop=${shopDomain}&app_id=${app.id}`;
+
+    // Update the app with the generated install URL
+    await pool.query(
+      `UPDATE shopify_apps SET install_url = $1 WHERE id = $2`,
+      [generatedInstallUrl, app.id]
+    );
+
+    app.install_url = generatedInstallUrl;
+
+    console.log('⏱️  [ADMIN] Database INSERT completed');
+    console.log('🔗 [ADMIN] Generated install URL:', generatedInstallUrl);
+
     const duration = Date.now() - startTime;
 
     console.log(`✅ [ADMIN] App created successfully in ${duration}ms: ${app.app_name} (ID: ${app.id})`);
