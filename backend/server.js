@@ -60,6 +60,12 @@ console.log('🔧 Database Config:', {
 
 const pool = new Pool(connectionConfig);
 
+// Add pool error handler
+pool.on('error', (err, client) => {
+  console.error('❌ Unexpected database pool error:', err);
+});
+
+// Test connection
 pool.query('SELECT NOW()', (err, res) => {
   if (err) {
     console.error('❌ Database connection failed:', err);
@@ -698,22 +704,49 @@ app.post('/api/check-approval', async (req, res) => {
 // ============ SHOPIFY CONNECTION ============
 
 app.post('/api/shopify/connect', authenticateToken, async (req, res) => {
-  const { shopifyShop, accessToken } = req.body;
-  if (!shopifyShop || !accessToken) {
+  // Accept both 'shop' (from frontend) and 'shopifyShop' (legacy) parameter names
+  const { shop, shopifyShop, accessToken } = req.body;
+  const shopDomain = shop || shopifyShop;
+
+  if (!shopDomain || !accessToken) {
     return res.status(400).json({ error: 'Shop name and access token required' });
   }
+
   try {
-    await axios.get(`https://${shopifyShop}/admin/api/2024-01/shop.json`, {
+    console.log(`🔗 [MANUAL CONNECT] Attempting to connect shop: ${shopDomain}`);
+
+    // Verify the access token works
+    await axios.get(`https://${shopDomain}/admin/api/2024-01/shop.json`, {
       headers: { 'X-Shopify-Access-Token': accessToken }
     });
+
+    console.log(`✅ [MANUAL CONNECT] Token verified for ${shopDomain}`);
+
+    // Update users table
     await pool.query(
       'UPDATE users SET shopify_shop = $1, shopify_access_token = $2 WHERE id = $3',
-      [shopifyShop, accessToken, req.user.id]
+      [shopDomain, accessToken, req.user.id]
     );
+
+    // Also update/insert in shops table for consistency
+    await pool.query(
+      `INSERT INTO shops (shop_domain, access_token, user_id, installed_at, updated_at, is_active)
+       VALUES ($1, $2, $3, NOW(), NOW(), true)
+       ON CONFLICT (shop_domain)
+       DO UPDATE SET
+         access_token = EXCLUDED.access_token,
+         user_id = EXCLUDED.user_id,
+         updated_at = NOW(),
+         is_active = true`,
+      [shopDomain, accessToken, req.user.id]
+    );
+
+    console.log(`✅ [MANUAL CONNECT] Connected ${shopDomain} to user ${req.user.id}`);
+
     res.json({ success: true, message: 'Shopify connected successfully' });
   } catch (error) {
-    console.error('Shopify connection error:', error.response?.data || error);
-    res.status(400).json({ error: 'Invalid Shopify credentials' });
+    console.error('❌ [MANUAL CONNECT] Error:', error.response?.data || error.message);
+    res.status(400).json({ error: 'Invalid Shopify credentials or shop not accessible' });
   }
 });
 
@@ -731,6 +764,67 @@ app.get('/api/shopify/check', authenticateToken, async (req, res) => {
   } catch (error) {
     console.error('Shopify check error:', error);
     res.status(500).json({ error: 'Failed to check Shopify connection' });
+  }
+});
+
+// Get user's assigned Shopify app
+app.get('/api/user/assigned-app', authenticateToken, async (req, res) => {
+  try {
+    const result = await pool.query(
+      `SELECT s.id, s.app_name, s.shop_domain, s.client_id, s.client_secret, s.install_url
+       FROM users u
+       LEFT JOIN shopify_apps s ON u.assigned_app_id = s.id
+       WHERE u.id = $1 AND s.status = 'active'`,
+      [req.user.id]
+    );
+
+    if (result.rows.length === 0 || !result.rows[0].id) {
+      return res.json({ app: null });
+    }
+
+    res.json({ app: result.rows[0] });
+  } catch (error) {
+    console.error('Error fetching assigned app:', error);
+    res.status(500).json({ error: 'Failed to fetch assigned app' });
+  }
+});
+
+app.get('/api/shopify/status', authenticateToken, async (req, res) => {
+  try {
+    // Check both users table AND shops table for maximum compatibility
+    const userResult = await pool.query(
+      'SELECT shopify_shop, shopify_access_token FROM users WHERE id = $1',
+      [req.user.id]
+    );
+
+    const user = userResult.rows[0];
+
+    // First check: users table (legacy and current approach)
+    let connected = !!(user && user.shopify_shop && user.shopify_access_token);
+    let shop = user ? user.shopify_shop : null;
+
+    // Second check: shops table (if not found in users table)
+    if (!connected) {
+      const shopsResult = await pool.query(
+        'SELECT shop_domain, access_token FROM shops WHERE user_id = $1 AND is_active = true LIMIT 1',
+        [req.user.id]
+      );
+
+      if (shopsResult.rows.length > 0) {
+        const shopData = shopsResult.rows[0];
+        connected = !!(shopData.shop_domain && shopData.access_token);
+        shop = shopData.shop_domain;
+
+        console.log(`✅ Found Shopify connection in shops table for user ${req.user.id}: ${shop}`);
+      }
+    } else {
+      console.log(`✅ Found Shopify connection in users table for user ${req.user.id}: ${shop}`);
+    }
+
+    res.json({ connected, shop });
+  } catch (error) {
+    console.error('Shopify status error:', error);
+    res.status(500).json({ error: 'Failed to check Shopify status' });
   }
 });
 
@@ -973,19 +1067,20 @@ app.get('/api/shopify/callback', async (req, res) => {
 
     // Store in shops table for multi-shop support
     await pool.query(
-      `INSERT INTO shops (shop_domain, access_token, scope, user_id, installed_at, updated_at)
-       VALUES ($1, $2, $3, $4, NOW(), NOW())
+      `INSERT INTO shops (shop_domain, access_token, scope, user_id, app_id, installed_at, updated_at, is_active)
+       VALUES ($1, $2, $3, $4, $5, NOW(), NOW(), true)
        ON CONFLICT (shop_domain)
        DO UPDATE SET
          access_token = EXCLUDED.access_token,
          scope = EXCLUDED.scope,
          user_id = EXCLUDED.user_id,
+         app_id = EXCLUDED.app_id,
          updated_at = NOW(),
          is_active = true`,
-      [shop, access_token, scope, user_id]
+      [shop, access_token, scope, user_id, app_id]
     );
 
-    console.log(`✅ Token stored in shops table for shop: ${shop}`);
+    console.log(`✅ Token stored in shops table for shop: ${shop} with app_id: ${app_id}`);
 
     // ============================================
     // REDIRECT TO APP WITH SUCCESS MESSAGE
@@ -1909,21 +2004,97 @@ const authenticateAdmin = (req, res, next) => {
   }
 };
 
+// Admin endpoint: Manually set Shopify connection for any user
+app.post('/api/admin/users/:id/set-shopify', authenticateAdmin, async (req, res) => {
+  try {
+    const userId = parseInt(req.params.id);
+    const { shopDomain, accessToken } = req.body;
+
+    if (!shopDomain || !accessToken) {
+      return res.status(400).json({ error: 'Shop domain and access token required' });
+    }
+
+    console.log(`🔧 [ADMIN] Setting Shopify connection for user ${userId}: ${shopDomain}`);
+
+    // Verify the token works
+    try {
+      await axios.get(`https://${shopDomain}/admin/api/2024-01/shop.json`, {
+        headers: { 'X-Shopify-Access-Token': accessToken }
+      });
+      console.log(`✅ [ADMIN] Token verified for ${shopDomain}`);
+    } catch (err) {
+      console.error(`❌ [ADMIN] Invalid token for ${shopDomain}:`, err.message);
+      return res.status(400).json({ error: 'Invalid Shopify credentials or shop not accessible' });
+    }
+
+    // Update users table
+    await pool.query(
+      'UPDATE users SET shopify_shop = $1, shopify_access_token = $2 WHERE id = $3',
+      [shopDomain, accessToken, userId]
+    );
+
+    // Also update/insert in shops table
+    await pool.query(
+      `INSERT INTO shops (shop_domain, access_token, user_id, installed_at, updated_at, is_active)
+       VALUES ($1, $2, $3, NOW(), NOW(), true)
+       ON CONFLICT (shop_domain)
+       DO UPDATE SET
+         access_token = EXCLUDED.access_token,
+         user_id = EXCLUDED.user_id,
+         updated_at = NOW(),
+         is_active = true`,
+      [shopDomain, accessToken, userId]
+    );
+
+    console.log(`✅ [ADMIN] Manually connected ${shopDomain} to user ${userId}`);
+
+    res.json({
+      success: true,
+      message: `Successfully connected ${shopDomain} to user`,
+      shop: shopDomain
+    });
+
+  } catch (error) {
+    console.error('❌ [ADMIN] Error setting Shopify connection:', error);
+    res.status(500).json({ error: 'Failed to set Shopify connection' });
+  }
+});
+
 // Get all Shopify apps
 app.get('/api/admin/apps', authenticateAdmin, async (req, res) => {
+  const startTime = Date.now();
   try {
+    console.log('📋 [ADMIN] Fetching all apps...');
+    console.log('📊 [ADMIN] Pool status before query:', {
+      total: pool.totalCount,
+      idle: pool.idleCount,
+      waiting: pool.waitingCount
+    });
+
     const result = await pool.query(
       'SELECT id, app_name, client_id, shop_domain, status, created_at, install_url FROM shopify_apps ORDER BY created_at DESC'
     );
+
+    const duration = Date.now() - startTime;
+    console.log(`✅ [ADMIN] Found ${result.rows.length} apps in ${duration}ms`);
     res.json({ apps: result.rows });
   } catch (error) {
-    console.error('Admin apps fetch error:', error);
-    res.status(500).json({ error: 'Failed to fetch apps' });
+    const duration = Date.now() - startTime;
+    console.error(`❌ [ADMIN] Apps fetch error after ${duration}ms:`, error.message);
+    console.error('Full error:', error);
+    res.status(500).json({ error: 'Failed to fetch apps', details: error.message });
   }
 });
 
 // Add new Shopify app
 app.post('/api/admin/apps', authenticateAdmin, async (req, res) => {
+  console.log('\n========================================');
+  console.log('🚀 [ADMIN] POST /api/admin/apps - REQUEST RECEIVED');
+  console.log('========================================');
+  console.log('📋 Request body:', req.body);
+  console.log('🔑 Auth header present:', !!req.headers['authorization']);
+  console.log('🌐 Origin:', req.headers['origin']);
+
   const { appName, clientId, clientSecret, shopDomain, installUrl } = req.body;
 
   console.log('📝 [ADMIN] Creating app:', { appName, shopDomain, hasInstallUrl: !!installUrl });
@@ -1938,24 +2109,41 @@ app.post('/api/admin/apps', authenticateAdmin, async (req, res) => {
     return res.status(400).json({ error: 'Install URL is required' });
   }
 
+  const startTime = Date.now();
   try {
+    console.log('💾 [ADMIN] Inserting app into database...');
+    console.log('📊 [ADMIN] Pool status:', {
+      total: pool.totalCount,
+      idle: pool.idleCount,
+      waiting: pool.waitingCount
+    });
+
+    console.log('⏱️  [ADMIN] Starting database INSERT...');
     const result = await pool.query(
       `INSERT INTO shopify_apps (app_name, client_id, client_secret, shop_domain, status, install_url)
        VALUES ($1, $2, $3, $4, 'active', $5)
        RETURNING id, app_name, client_id, shop_domain, status, created_at, install_url`,
       [appName, clientId, clientSecret, shopDomain, installUrl]
     );
+    console.log('⏱️  [ADMIN] Database INSERT completed');
 
     const app = result.rows[0];
+    const duration = Date.now() - startTime;
 
-    console.log(`✅ [ADMIN] App created successfully: ${app.app_name} (ID: ${app.id})`);
+    console.log(`✅ [ADMIN] App created successfully in ${duration}ms: ${app.app_name} (ID: ${app.id})`);
+    console.log('📤 [ADMIN] Sending response to frontend...');
 
     res.json({
       success: true,
       app
     });
+
+    console.log('✅ [ADMIN] Response sent successfully');
+    console.log('========================================\n');
   } catch (error) {
-    console.error('❌ [ADMIN] App create error:', error);
+    const duration = Date.now() - startTime;
+    console.error(`❌ [ADMIN] App create error after ${duration}ms:`, error.message);
+    console.error('Full error:', error);
 
     // Check for unique constraint violation
     if (error.code === '23505') {
@@ -1965,17 +2153,28 @@ app.post('/api/admin/apps', authenticateAdmin, async (req, res) => {
     }
 
     res.status(500).json({ error: 'Failed to create app', details: error.message });
+    console.log('========================================\n');
   }
 });
 
 // Delete Shopify app
 app.delete('/api/admin/apps/:id', authenticateAdmin, async (req, res) => {
   try {
-    await pool.query('DELETE FROM shopify_apps WHERE id = $1', [req.params.id]);
+    console.log(`🗑️  [ADMIN] Deleting app ID: ${req.params.id}`);
+
+    const timeoutPromise = new Promise((_, reject) =>
+      setTimeout(() => reject(new Error('Query timeout')), 10000)
+    );
+
+    const queryPromise = pool.query('DELETE FROM shopify_apps WHERE id = $1', [req.params.id]);
+
+    await Promise.race([queryPromise, timeoutPromise]);
+
+    console.log(`✅ [ADMIN] App ${req.params.id} deleted`);
     res.json({ success: true });
   } catch (error) {
-    console.error('Admin app delete error:', error);
-    res.status(500).json({ error: 'Failed to delete app' });
+    console.error('❌ [ADMIN] App delete error:', error.message);
+    res.status(500).json({ error: 'Failed to delete app', details: error.message });
   }
 });
 
