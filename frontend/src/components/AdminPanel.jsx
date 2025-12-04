@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Plus, Trash2, Check, LogOut, Copy, CheckCircle } from 'lucide-react';
 import { supabase } from '../lib/supabaseClient';
 
@@ -72,6 +72,8 @@ function AdminPanel({ userEmail, onLogout }) {
 
   const authorizedFetch = async (url, options = {}) => {
     const token = await getAuthToken();
+    console.log('🔑 Got auth token:', token ? `${token.substring(0, 20)}...` : 'null');
+
     if (!token) {
       throw new Error('Unable to authenticate admin request');
     }
@@ -80,6 +82,9 @@ function AdminPanel({ userEmail, onLogout }) {
       ...(options.headers || {}),
       Authorization: `Bearer ${token}`
     };
+
+    console.log('📡 Making request to:', url);
+    console.log('📋 Headers:', { ...headers, Authorization: headers.Authorization ? 'Bearer ...' : 'none' });
 
     return fetch(url, { ...options, headers });
   };
@@ -109,31 +114,66 @@ function AdminPanel({ userEmail, onLogout }) {
     }
   };
 
+  const submitLockRef = useRef(false);
+
   const handleAddApp = async (e) => {
     e.preventDefault();
+    e.stopPropagation();
 
     console.log('📝 Adding new app:', newApp);
 
+    // Use ref for immediate, synchronous lock
+    if (submitLockRef.current) {
+      console.log('⚠️ Already submitting, ignoring duplicate request');
+      return;
+    }
+
+    submitLockRef.current = true;
+    setLoadingApps(true);
+
     try {
+      // Clean and validate input
+      const cleanShopDomain = newApp.shopDomain
+        .trim()
+        .replace(/\s+Store information$/i, '') // Remove "Store information" suffix
+        .replace(/\s+/g, '') // Remove any remaining whitespace
+        .toLowerCase();
+
       const payload = {
         appName: newApp.appName.trim(),
         clientId: newApp.clientId.trim(),
         clientSecret: newApp.clientSecret.trim(),
-        shopDomain: newApp.shopDomain.trim(),
+        shopDomain: cleanShopDomain,
         installUrl: newApp.installUrl.trim()
       };
 
-      console.log('📤 Sending payload to backend');
+      // Validate shop domain format
+      if (!cleanShopDomain.endsWith('.myshopify.com')) {
+        throw new Error('Shop domain must be in format: yourstore.myshopify.com');
+      }
 
-      const response = await authorizedFetch(`${API_URL}/admin/apps`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify(payload)
-      });
+      console.log('📤 Sending payload to backend');
+      console.log('🌐 API URL:', API_URL);
+      console.log('🔗 Full URL:', `${API_URL}/admin/apps`);
+      console.log('📦 Payload:', payload);
+
+      const response = await Promise.race([
+        authorizedFetch(`${API_URL}/admin/apps`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify(payload)
+        }),
+        new Promise((_, reject) =>
+          setTimeout(() => reject(new Error('Request timeout after 30 seconds')), 30000)
+        )
+      ]);
+
+      console.log('📥 Got response, status:', response.status);
 
       const data = await response.json();
+      console.log('📥 Response data:', data);
 
       if (!response.ok) {
         console.error('❌ Server error:', data);
@@ -142,6 +182,7 @@ function AdminPanel({ userEmail, onLogout }) {
 
       console.log('✅ App created:', data.app);
 
+      // Add to local state
       setApps([data.app, ...apps]);
       setShowAddApp(false);
       setNewApp({
@@ -153,9 +194,16 @@ function AdminPanel({ userEmail, onLogout }) {
       });
 
       alert(`✅ App "${data.app.app_name}" saved successfully!`);
+
+      // Reload apps from server to ensure consistency
+      console.log('🔄 Reloading apps from server...');
+      await loadApps();
     } catch (error) {
       console.error('❌ Error adding app:', error);
       alert('Error adding app: ' + error.message);
+    } finally {
+      submitLockRef.current = false;
+      setLoadingApps(false);
     }
   };
 
@@ -265,20 +313,30 @@ function AdminPanel({ userEmail, onLogout }) {
 
   const handleAssignApp = async (userId, appId) => {
     try {
+      console.log('🔗 Assigning app:', { userId, appId });
+
       const response = await authorizedFetch(`${API_URL}/admin/users/${userId}/assign-app`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
         },
-        body: JSON.stringify({ appId })
+        body: JSON.stringify({ appId: parseInt(appId) })
       });
 
-      if (!response.ok) throw new Error('Failed to assign app');
+      console.log('📥 Assign response status:', response.status);
+
+      const data = await response.json();
+      console.log('📥 Assign response data:', data);
+
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to assign app');
+      }
 
       // Reload users to get updated app assignment
-      loadUsers();
-      alert('App assigned successfully!');
+      await loadUsers();
+      alert('✅ App assigned successfully!');
     } catch (error) {
+      console.error('❌ Error assigning app:', error);
       alert('Error assigning app: ' + error.message);
     }
   };
@@ -450,29 +508,35 @@ function AdminPanel({ userEmail, onLogout }) {
                       />
                     </div>
                     <div className="md:col-span-2">
-                      <label className="block text-sm font-medium text-gray-300 mb-2">Shopify Install Link</label>
+                      <label className="block text-sm font-medium text-gray-300 mb-2">Shopify Install Link (Optional)</label>
                       <input
                         type="url"
                         value={newApp.installUrl}
                         onChange={(e) => setNewApp({ ...newApp, installUrl: e.target.value })}
                         className="w-full px-4 py-2 bg-slate-700 border border-slate-600 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-purple-500"
                         placeholder="https://partners.shopify.com/.../installations/..."
-                        required
                       />
-                      <p className="text-xs text-gray-400 mt-1">Paste the exact install link Shopify generated for this custom app.</p>
+                      <p className="text-xs text-green-400 mt-1">
+                        ✅ Install link will be auto-generated! The link above is just for your reference.
+                      </p>
+                      <p className="text-xs text-gray-400 mt-1">
+                        The system will create: https://automerchant-backend-v2.vercel.app/api/shopify/install?shop=...
+                      </p>
                     </div>
                   </div>
                   <div className="flex space-x-3">
                     <button
                       type="submit"
-                      className="px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg transition"
+                      disabled={loadingApps}
+                      className={`px-4 py-2 ${loadingApps ? 'bg-gray-500 cursor-not-allowed' : 'bg-green-600 hover:bg-green-700'} text-white rounded-lg transition`}
                     >
-                      Add App
+                      {loadingApps ? 'Adding...' : 'Add App'}
                     </button>
                     <button
                       type="button"
                       onClick={() => setShowAddApp(false)}
-                      className="px-4 py-2 bg-slate-700 hover:bg-slate-600 text-white rounded-lg transition"
+                      disabled={loadingApps}
+                      className="px-4 py-2 bg-slate-700 hover:bg-slate-600 text-white rounded-lg transition disabled:bg-gray-500 disabled:cursor-not-allowed"
                     >
                       Cancel
                     </button>
