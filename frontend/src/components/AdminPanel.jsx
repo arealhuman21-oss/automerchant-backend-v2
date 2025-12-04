@@ -773,7 +773,8 @@ function AdminPanel({ userEmail, onLogout }) {
                   <p className="text-gray-300 mb-3">Go to Shopify Partners and create a new custom app for each customer.</p>
                   <div className="bg-slate-900 p-4 rounded-lg text-sm text-gray-300 space-y-2">
                     <p><span className="text-purple-400">•</span> App URL: <code className="bg-slate-700 px-2 py-1 rounded">https://automerchant.vercel.app</code></p>
-                    <p><span className="text-purple-400">•</span> Redirect URL: <code className="bg-slate-700 px-2 py-1 rounded">https://automerchant.vercel.app/api/shopify/callback</code></p>
+                    <p><span className="text-red-400">•</span> <span className="text-red-400 font-bold">CRITICAL:</span> Redirect URL: <code className="bg-red-900/30 border border-red-500/50 px-2 py-1 rounded">https://automerchant-backend-v2.vercel.app/api/shopify/callback</code></p>
+                    <p className="text-yellow-300 text-xs ml-4">(Must be BACKEND URL, not frontend! This is the #1 cause of "invalid install link" errors)</p>
                     <p><span className="text-purple-400">•</span> Scopes: <code className="bg-slate-700 px-2 py-1 rounded">read_products,write_products,read_orders,write_inventory</code></p>
                     <p><span className="text-purple-400">•</span> Distribution: <span className="text-yellow-400 font-medium">Custom distribution</span></p>
                   </div>
@@ -868,6 +869,30 @@ function AdminPanel({ userEmail, onLogout }) {
               </div>
             </div>
 
+            {/* Troubleshooting */}
+            <div className="bg-red-900/20 border border-red-500/50 rounded-xl p-6">
+              <h3 className="text-xl font-bold text-red-300 mb-3">⚠️ Troubleshooting Common Issues</h3>
+              <div className="space-y-4 text-sm text-gray-300">
+                <div>
+                  <p className="font-bold text-white mb-1">"The installation link for this app is invalid"</p>
+                  <p className="text-red-300">→ The OAuth redirect URI in Shopify is wrong!</p>
+                  <p className="ml-4 mt-1">Go to Shopify Partners → Your App → Configuration → URLs</p>
+                  <p className="ml-4">Verify it's: <code className="bg-slate-700 px-2 py-1 rounded text-green-400">https://automerchant-backend-v2.vercel.app/api/shopify/callback</code></p>
+                </div>
+                <div>
+                  <p className="font-bold text-white mb-1">Admin Panel times out when adding apps</p>
+                  <p className="text-yellow-300">→ Browser has cached a failed CORS request</p>
+                  <p className="ml-4 mt-1">Solution: Use Incognito mode or clear browser cache (Ctrl+Shift+Delete)</p>
+                </div>
+                <div>
+                  <p className="font-bold text-white mb-1">User can't access dashboard after install</p>
+                  <p className="text-yellow-300">→ Check if user is approved and has assigned app</p>
+                  <p className="ml-4 mt-1">Go to Users tab → Verify status shows "✓ Approved"</p>
+                  <p className="ml-4">Make sure app is assigned in the dropdown</p>
+                </div>
+              </div>
+            </div>
+
             {/* Quick Links */}
             <div className="bg-slate-800 border border-slate-700 rounded-xl p-6">
               <h3 className="text-xl font-bold text-white mb-3">Quick Links</h3>
@@ -877,6 +902,9 @@ function AdminPanel({ userEmail, onLogout }) {
                 </a>
                 <a href="https://supabase.com/dashboard" target="_blank" rel="noopener noreferrer" className="block text-purple-400 hover:text-purple-300 transition">
                   → Supabase Dashboard
+                </a>
+                <a href="https://github.com/arealhuman21-oss/automerchant-local/blob/master/COMPLETE_ONBOARDING_GUIDE.md" target="_blank" rel="noopener noreferrer" className="block text-purple-400 hover:text-purple-300 transition">
+                  → Complete Onboarding Guide (GitHub)
                 </a>
               </div>
             </div>
