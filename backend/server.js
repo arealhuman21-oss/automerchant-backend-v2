@@ -866,7 +866,7 @@ app.get('/api/shopify/install', async (req, res) => {
     }
 
     let SHOPIFY_API_KEY, SHOPIFY_SCOPES;
-    const SHOPIFY_REDIRECT_URI = process.env.SHOPIFY_REDIRECT_URI || 'https://automerchant.vercel.app/api/shopify/callback';
+    const SHOPIFY_REDIRECT_URI = process.env.SHOPIFY_REDIRECT_URI || 'https://automerchant-backend-v2.vercel.app/api/shopify/callback';
 
     // ============================================
     // MULTI-APP SUPPORT: Look up credentials from database
