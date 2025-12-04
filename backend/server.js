@@ -158,6 +158,7 @@ app.use((req, res, next) => {
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With');
   res.setHeader('Access-Control-Allow-Credentials', 'true');
   res.setHeader('Access-Control-Max-Age', '86400'); // Cache preflight for 24 hours
+  res.setHeader('Vary', 'Origin'); // Important for caching
 
   // Handle OPTIONS preflight immediately with all headers
   if (req.method === 'OPTIONS') {
@@ -165,15 +166,17 @@ app.use((req, res, next) => {
     console.log('📤 [PREFLIGHT] Sending CORS headers:', {
       origin: res.getHeader('Access-Control-Allow-Origin'),
       methods: res.getHeader('Access-Control-Allow-Methods'),
-      headers: res.getHeader('Access-Control-Allow-Headers')
+      headers: res.getHeader('Access-Control-Allow-Headers'),
+      credentials: res.getHeader('Access-Control-Allow-Credentials')
     });
-    return res.status(200).end();
+    return res.status(204).end(); // Use 204 No Content for OPTIONS
   }
 
   next();
 });
 
-app.use(cors(corsOptions));
+// Don't use cors() package - we're handling CORS manually above
+// app.use(cors(corsOptions));
 app.use(express.json());
 
 const authenticateToken = (req, res, next) => {
