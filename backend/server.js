@@ -142,20 +142,31 @@ app.use((req, res, next) => {
     'http://localhost:5173'
   ];
 
-  // Always set CORS headers
+  // Always set CORS headers for every request
   if (allowedOrigins.includes(origin)) {
     res.setHeader('Access-Control-Allow-Origin', origin);
+  } else if (origin) {
+    // For any other origin, still allow it but log it
+    console.log('⚠️  [CORS] Non-whitelisted origin:', origin);
+    res.setHeader('Access-Control-Allow-Origin', origin);
   } else {
+    // No origin header (like from curl), use default
     res.setHeader('Access-Control-Allow-Origin', 'https://automerchant.vercel.app');
   }
 
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With');
   res.setHeader('Access-Control-Allow-Credentials', 'true');
+  res.setHeader('Access-Control-Max-Age', '86400'); // Cache preflight for 24 hours
 
-  // Handle OPTIONS preflight immediately
+  // Handle OPTIONS preflight immediately with all headers
   if (req.method === 'OPTIONS') {
     console.log('✅ [PREFLIGHT] Handling OPTIONS for:', req.path, 'from origin:', origin);
+    console.log('📤 [PREFLIGHT] Sending CORS headers:', {
+      origin: res.getHeader('Access-Control-Allow-Origin'),
+      methods: res.getHeader('Access-Control-Allow-Methods'),
+      headers: res.getHeader('Access-Control-Allow-Headers')
+    });
     return res.status(200).end();
   }
 
