@@ -40,6 +40,7 @@ function AdminPanel({ userEmail, onLogout }) {
     clientId: '',
     clientSecret: '',
     shopDomain: '',
+    userEmail: '',
     installUrl: ''
   });
   const [copiedLink, setCopiedLink] = useState(null);
@@ -144,6 +145,7 @@ function AdminPanel({ userEmail, onLogout }) {
         clientId: newApp.clientId.trim(),
         clientSecret: newApp.clientSecret.trim(),
         shopDomain: cleanShopDomain,
+        userEmail: newApp.userEmail.trim(),
         installUrl: newApp.installUrl.trim()
       };
 
@@ -190,14 +192,14 @@ function AdminPanel({ userEmail, onLogout }) {
         clientId: '',
         clientSecret: '',
         shopDomain: '',
+        userEmail: '',
         installUrl: ''
       });
 
       alert(`✅ App "${data.app.app_name}" saved successfully!`);
 
-      // Reload apps from server to ensure consistency
-      console.log('🔄 Reloading apps from server...');
-      await loadApps();
+      // No need to reload - we already added it to local state above (line 186)
+      // Reloading causes unnecessary delay and potential timeout issues
     } catch (error) {
       console.error('❌ Error adding app:', error);
       alert('Error adding app: ' + error.message);
@@ -484,6 +486,18 @@ function AdminPanel({ userEmail, onLogout }) {
                         placeholder="store.myshopify.com"
                         required
                       />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-300 mb-2">User Email</label>
+                      <input
+                        type="email"
+                        value={newApp.userEmail}
+                        onChange={(e) => setNewApp({ ...newApp, userEmail: e.target.value })}
+                        className="w-full px-4 py-2 bg-slate-700 border border-slate-600 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-purple-500"
+                        placeholder="customer@example.com"
+                        required
+                      />
+                      <p className="text-xs text-gray-400 mt-1">Email of the user who will install this app</p>
                     </div>
                     <div>
                       <label className="block text-sm font-medium text-gray-300 mb-2">Client ID</label>

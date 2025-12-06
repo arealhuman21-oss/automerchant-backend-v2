@@ -2342,13 +2342,13 @@ app.post('/api/admin/apps', authenticateAdmin, async (req, res) => {
   console.log('🔑 Auth header present:', !!req.headers['authorization']);
   console.log('🌐 Origin:', req.headers['origin']);
 
-  const { appName, clientId, clientSecret, shopDomain, installUrl } = req.body;
+  const { appName, clientId, clientSecret, shopDomain, userEmail, installUrl } = req.body;
 
-  console.log('📝 [ADMIN] Creating app:', { appName, shopDomain, hasInstallUrl: !!installUrl });
+  console.log('📝 [ADMIN] Creating app:', { appName, shopDomain, userEmail, hasInstallUrl: !!installUrl });
 
-  if (!appName || !clientId || !clientSecret || !shopDomain) {
+  if (!appName || !clientId || !clientSecret || !shopDomain || !userEmail) {
     console.log('❌ [ADMIN] Missing required fields');
-    return res.status(400).json({ error: 'Missing required app fields' });
+    return res.status(400).json({ error: 'Missing required app fields (appName, clientId, clientSecret, shopDomain, userEmail)' });
   }
 
   // installUrl is now optional - we'll generate it after getting the app ID
@@ -2376,9 +2376,9 @@ app.post('/api/admin/apps', authenticateAdmin, async (req, res) => {
       throw insertError;
     }
 
-    // Generate the correct OAuth install link using our backend
+    // Generate the correct OAuth install link using our backend WITH user_email
     const backendUrl = process.env.BACKEND_URL || 'https://automerchant-backend-v2.vercel.app';
-    const generatedInstallUrl = `${backendUrl}/api/shopify/install?shop=${shopDomain}&app_id=${newApp.id}`;
+    const generatedInstallUrl = `${backendUrl}/api/shopify/install?shop=${shopDomain}&app_id=${newApp.id}&user_email=${encodeURIComponent(userEmail)}`;
 
     // Update the app with the generated install URL
     const { error: updateError } = await supabase
