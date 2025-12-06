@@ -57,15 +57,23 @@ function AdminPanel({ userEmail, onLogout }) {
   const getAuthToken = async () => {
     if (supabase) {
       try {
-        const { data: { session } } = await supabase.auth.getSession();
+        // Add timeout to prevent hanging
+        const sessionPromise = supabase.auth.getSession();
+        const timeoutPromise = new Promise((_, reject) =>
+          setTimeout(() => reject(new Error('Session check timeout')), 2000)
+        );
+
+        const { data: { session } } = await Promise.race([sessionPromise, timeoutPromise]);
         if (session?.access_token) {
+          console.log('✅ Using Supabase session token');
           return session.access_token;
         }
       } catch (error) {
-        console.warn('Supabase session unavailable, falling back to local admin token.', error);
+        console.warn('⚠️ Supabase session unavailable, falling back to JWT token.', error.message);
       }
     }
 
+    console.log('🔑 Using fallback JWT token for admin auth');
     const fallbackEmail = userEmail || DEFAULT_ADMIN_EMAIL;
     return buildFallbackToken(fallbackEmail);
   };
@@ -391,7 +399,7 @@ function AdminPanel({ userEmail, onLogout }) {
         {/* Header */}
         <div className="flex justify-between items-center mb-8">
           <div>
-            <h1 className="text-4xl font-bold text-white">Admin Panel</h1>
+            <h1 className="text-4xl font-bold text-white">Margin Optimizer AI - Admin</h1>
             <p className="text-gray-400 text-sm mt-1">Logged in as: {userEmail}</p>
           </div>
           <button
