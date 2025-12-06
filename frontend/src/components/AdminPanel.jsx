@@ -488,17 +488,30 @@ function AdminPanel({ userEmail, onLogout }) {
                       />
                     </div>
                     <div>
-                      <label className="block text-sm font-medium text-gray-300 mb-2">User Email</label>
+                      <label className="block text-sm font-medium text-gray-300 mb-2">User Email (Searchable)</label>
                       <input
-                        type="email"
+                        type="text"
+                        list="user-emails"
                         value={newApp.userEmail}
                         onChange={(e) => setNewApp({ ...newApp, userEmail: e.target.value })}
                         className="w-full px-4 py-2 bg-slate-700 border border-slate-600 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-purple-500"
-                        placeholder="customer@example.com"
+                        placeholder="Type to search users..."
                         required
                       />
+                      <datalist id="user-emails">
+                        {users
+                          .filter(user => user.approved && !user.suspended) // Only show approved, non-suspended users
+                          .sort((a, b) => a.email.localeCompare(b.email)) // Sort alphabetically
+                          .map(user => (
+                            <option key={user.id} value={user.email} />
+                          ))
+                        }
+                      </datalist>
+                      <p className="text-xs text-green-400 mt-1">
+                        ✅ <strong>Type to search</strong> - Select from approved users only
+                      </p>
                       <p className="text-xs text-gray-400 mt-1">
-                        <strong className="text-purple-400">Use the email they signed up with on AutoMerchant</strong> (their Google account), NOT their Shopify email
+                        Uses their AutoMerchant signup email (works even if different from Shopify email)
                       </p>
                     </div>
                     <div>
