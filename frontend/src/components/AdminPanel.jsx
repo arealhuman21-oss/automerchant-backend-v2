@@ -40,8 +40,7 @@ function AdminPanel({ userEmail, onLogout }) {
     clientId: '',
     clientSecret: '',
     shopDomain: '',
-    userEmail: '',
-    installUrl: ''
+    userEmail: ''
   });
   const [copiedLink, setCopiedLink] = useState(null);
 
@@ -145,8 +144,7 @@ function AdminPanel({ userEmail, onLogout }) {
         clientId: newApp.clientId.trim(),
         clientSecret: newApp.clientSecret.trim(),
         shopDomain: cleanShopDomain,
-        userEmail: newApp.userEmail.trim(),
-        installUrl: newApp.installUrl.trim()
+        userEmail: newApp.userEmail.trim()
       };
 
       // Validate shop domain format
@@ -192,8 +190,7 @@ function AdminPanel({ userEmail, onLogout }) {
         clientId: '',
         clientSecret: '',
         shopDomain: '',
-        userEmail: '',
-        installUrl: ''
+        userEmail: ''
       });
 
       alert(`✅ App "${data.app.app_name}" saved successfully!`);
@@ -535,22 +532,6 @@ function AdminPanel({ userEmail, onLogout }) {
                         placeholder="Shopify API Secret"
                         required
                       />
-                    </div>
-                    <div className="md:col-span-2">
-                      <label className="block text-sm font-medium text-gray-300 mb-2">Shopify Install Link (Optional)</label>
-                      <input
-                        type="url"
-                        value={newApp.installUrl}
-                        onChange={(e) => setNewApp({ ...newApp, installUrl: e.target.value })}
-                        className="w-full px-4 py-2 bg-slate-700 border border-slate-600 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-purple-500"
-                        placeholder="https://partners.shopify.com/.../installations/..."
-                      />
-                      <p className="text-xs text-green-400 mt-1">
-                        ✅ Install link will be auto-generated! The link above is just for your reference.
-                      </p>
-                      <p className="text-xs text-gray-400 mt-1">
-                        The system will create: https://automerchant-backend-v2.vercel.app/api/shopify/install?shop=...
-                      </p>
                     </div>
                   </div>
                   <div className="flex space-x-3">

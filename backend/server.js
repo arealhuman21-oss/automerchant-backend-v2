@@ -2342,17 +2342,16 @@ app.post('/api/admin/apps', authenticateAdmin, async (req, res) => {
   console.log('🔑 Auth header present:', !!req.headers['authorization']);
   console.log('🌐 Origin:', req.headers['origin']);
 
-  const { appName, clientId, clientSecret, shopDomain, userEmail, installUrl } = req.body;
+  const { appName, clientId, clientSecret, shopDomain, userEmail } = req.body;
 
-  console.log('📝 [ADMIN] Creating app:', { appName, shopDomain, userEmail, hasInstallUrl: !!installUrl });
+  console.log('📝 [ADMIN] Creating app:', { appName, shopDomain, userEmail });
 
   if (!appName || !clientId || !clientSecret || !shopDomain || !userEmail) {
     console.log('❌ [ADMIN] Missing required fields');
     return res.status(400).json({ error: 'Missing required app fields (appName, clientId, clientSecret, shopDomain, userEmail)' });
   }
 
-  // installUrl is now optional - we'll generate it after getting the app ID
-  // The Shopify Partner link provided by user is just for reference, not used
+  // Install URL is auto-generated after creating the app with the app_id
 
   const startTime = Date.now();
   try {
