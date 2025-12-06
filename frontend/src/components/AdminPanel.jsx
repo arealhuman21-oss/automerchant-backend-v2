@@ -497,7 +497,9 @@ function AdminPanel({ userEmail, onLogout }) {
                         placeholder="customer@example.com"
                         required
                       />
-                      <p className="text-xs text-gray-400 mt-1">Email of the user who will install this app</p>
+                      <p className="text-xs text-gray-400 mt-1">
+                        <strong className="text-purple-400">Use the email they signed up with on AutoMerchant</strong> (their Google account), NOT their Shopify email
+                      </p>
                     </div>
                     <div>
                       <label className="block text-sm font-medium text-gray-300 mb-2">Client ID</label>
