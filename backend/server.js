@@ -1,6 +1,6 @@
 // ============================================
 // COMPLETE BACKEND - server.js
-// FIXED VERSION - Duplicate endpoint removed
+// REFACTORED VERSION - Using Supabase JS Client Only
 // ============================================
 
 require('dotenv').config();
@@ -8,9 +8,9 @@ const express = require('express');
 const cors = require('cors');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
-const { Pool } = require('pg');
 const axios = require('axios');
 const crypto = require('crypto');
+const { createClient } = require('@supabase/supabase-js');
 
 // ============================================
 // SHOPIFY DUAL-MODE AUTHENTICATION
@@ -25,54 +25,40 @@ const analysisLimiter = (req, res, next) => next();
 const authLimiter = (req, res, next) => next();
 
 // ============================================
-// BULLETPROOF DATABASE CONFIGURATION
+// SUPABASE CLIENT (For ALL Database Queries)
 // ============================================
-const dbUrl = process.env.DATABASE_URL;
+const SUPABASE_URL = process.env.SUPABASE_URL;
+const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY;
 
-if (!dbUrl) {
-  console.error('❌ FATAL: DATABASE_URL environment variable not set');
+if (!SUPABASE_URL || !SUPABASE_SERVICE_KEY) {
+  console.error('❌ FATAL: SUPABASE_URL or SUPABASE_SERVICE_KEY not set');
+  process.exit(1);
 }
 
-// ABSOLUTE NUCLEAR OPTION: Parse the URL and reconstruct with SSL params
-// This bypasses any pg library SSL config issues
-const url = new URL(dbUrl);
-const connectionConfig = {
-  host: url.hostname,
-  port: url.port || 5432,
-  database: url.pathname.split('/')[1],
-  user: url.username,
-  password: url.password,
-  ssl: {
-    rejectUnauthorized: false
-  },
-  max: 20,
-  connectionTimeoutMillis: 10000,
-  idleTimeoutMillis: 30000
-};
-
-console.log('🔧 Database Config:', {
-  host: connectionConfig.host,
-  port: connectionConfig.port,
-  database: connectionConfig.database,
-  sslEnabled: !!connectionConfig.ssl,
-  sslReject: connectionConfig.ssl.rejectUnauthorized
-});
-
-const pool = new Pool(connectionConfig);
-
-// Add pool error handler
-pool.on('error', (err, client) => {
-  console.error('❌ Unexpected database pool error:', err);
-});
-
-// Test connection
-pool.query('SELECT NOW()', (err, res) => {
-  if (err) {
-    console.error('❌ Database connection failed:', err);
-  } else {
-    console.log('✅ Database connected:', res.rows[0].now);
+// Create Supabase client for admin operations (bypasses RLS, full access)
+const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY, {
+  auth: {
+    autoRefreshToken: false,
+    persistSession: false
   }
 });
+
+console.log('✅ Supabase Client Initialized');
+
+// Test connection
+(async () => {
+  try {
+    const { data, error } = await supabase
+      .from('users')
+      .select('id')
+      .limit(1);
+
+    if (error) throw error;
+    console.log('✅ Database connected via Supabase');
+  } catch (err) {
+    console.error('❌ Database connection failed:', err.message);
+  }
+})();
 
 // ============================================
 // SHOPIFY AUTH MODE STARTUP LOGGING
@@ -219,38 +205,38 @@ async function analyzeProduct(product, allProducts, userSettings, recentOrderDat
     console.log(`   [ALGORITHM] ❌ SKIPPED: No cost price set (cost_price=${product.cost_price})`);
     return { shouldChangePrice: false, error: 'Cost price required' };
   }
-  
+
   const currentMargin = ((currentPrice - costPrice) / currentPrice) * 100;
   const currentProfit = currentPrice - costPrice;
   const currentMarkup = currentPrice / costPrice;
   const daysOfStock = salesVelocity > 0 ? inventory / salesVelocity : 999;
-  
+
   // CONFIGURATION
   const MIN_MARGIN_PERCENT = 30;
   const MAX_MARGIN_PERCENT = 70;
   const HEALTHY_MARGIN_FLOOR = 35;
   const HEALTHY_MARGIN_CEILING = 60;
   const TARGET_MARGIN = parseFloat(userSettings.target_margin) || 40;
-  
+
   const MAX_MARKUP_RATIO = 5.0;
   const SUSPICIOUS_MARKUP = 10.0;
-  
+
   const MAX_INCREASE_PERCENT = 0.20;
   const MAX_DECREASE_PERCENT = 0.25;
-  
+
   const VERY_HIGH_VELOCITY = 2.0;
   const HIGH_VELOCITY = 1.0;
   const MEDIUM_VELOCITY = 0.5;
   const LOW_VELOCITY = 0.2;
   const ZERO_SALES_THRESHOLD = 0.1;
-  
+
   const CRITICAL_LOW_STOCK = 14;
   const LOW_STOCK = 30;
   const HEALTHY_STOCK = 60;
   const OVERSTOCK = 90;
-  
+
   // CRITICAL SAFEGUARDS
-  
+
   // SAFEGUARD 0: Selling BELOW cost (critical emergency)
   if (currentPrice < costPrice) {
     console.log(`   [ALGORITHM] 🚨 CRITICAL: Selling BELOW cost! Price $${currentPrice} < Cost $${costPrice}`);
@@ -266,7 +252,7 @@ async function analyzeProduct(product, allProducts, userSettings, recentOrderDat
       changePercent: (emergencyPrice - currentPrice) / currentPrice * 100
     };
   }
-  
+
   // SAFEGUARD 1: Margin caps
   if (currentMargin < MIN_MARGIN_PERCENT) {
     const targetPrice = costPrice / (1 - (TARGET_MARGIN / 100));
@@ -282,7 +268,7 @@ async function analyzeProduct(product, allProducts, userSettings, recentOrderDat
       changePercent: (cappedPrice - currentPrice) / currentPrice * 100
     };
   }
-  
+
   if (currentMargin > MAX_MARGIN_PERCENT) {
     const targetPrice = costPrice / (1 - (TARGET_MARGIN / 100));
     const cappedPrice = Math.max(targetPrice, currentPrice * (1 - MAX_DECREASE_PERCENT));
@@ -297,7 +283,7 @@ async function analyzeProduct(product, allProducts, userSettings, recentOrderDat
       changePercent: (cappedPrice - currentPrice) / currentPrice * 100
     };
   }
-  
+
   // SAFEGUARD 2: Pricing error detection
   if (currentMarkup > SUSPICIOUS_MARKUP) {
     const reasonablePrice = costPrice * MAX_MARKUP_RATIO;
@@ -312,7 +298,7 @@ async function analyzeProduct(product, allProducts, userSettings, recentOrderDat
       changePercent: (reasonablePrice - currentPrice) / currentPrice * 100
     };
   }
-  
+
   // SAFEGUARD 3: 7-Day Zero Sales with Gradual Price Discovery
   // Only triggers if: 0 sales in 7 days + analyzed at least 7 days ago + under monthly decrease limit
   if (sales7d === 0 && daysSinceLastAnalysis >= 7) {
@@ -355,16 +341,16 @@ async function analyzeProduct(product, allProducts, userSettings, recentOrderDat
       isDecrease: true // Flag for tracking
     };
   }
-  
+
   // DECISION TREE: Velocity-based pricing decisions
-  
+
   // SCENARIO 1: VERY HIGH VELOCITY
   if (salesVelocity >= VERY_HIGH_VELOCITY) {
     if (inventory <= CRITICAL_LOW_STOCK || daysOfStock < 7) {
       const urgentIncrease = currentPrice * 1.15;
       const cappedPrice = Math.min(urgentIncrease, currentPrice * (1 + MAX_INCREASE_PERCENT));
       const increasePercent = ((cappedPrice - currentPrice) / currentPrice * 100).toFixed(1);
-      
+
       return {
         shouldChangePrice: true,
         recommendedPrice: cappedPrice,
@@ -375,12 +361,12 @@ async function analyzeProduct(product, allProducts, userSettings, recentOrderDat
         changePercent: (cappedPrice - currentPrice) / currentPrice * 100
       };
     }
-    
+
     if (currentMargin < TARGET_MARGIN) {
       const optimalPrice = costPrice / (1 - (TARGET_MARGIN / 100));
       const cappedPrice = Math.min(optimalPrice, currentPrice * (1 + MAX_INCREASE_PERCENT));
       const increasePercent = ((cappedPrice - currentPrice) / currentPrice * 100).toFixed(1);
-      
+
       return {
         shouldChangePrice: true,
         recommendedPrice: cappedPrice,
@@ -391,21 +377,21 @@ async function analyzeProduct(product, allProducts, userSettings, recentOrderDat
         changePercent: (cappedPrice - currentPrice) / currentPrice * 100
       };
     }
-    
+
     return {
       shouldChangePrice: false,
       reasoning: `✅ OPTIMAL PERFORMANCE: Product is selling excellently at ${salesVelocity.toFixed(2)} units/day with healthy ${currentMargin.toFixed(1)}% margin. Price of $${currentPrice.toFixed(2)} is in the sweet spot - maintain current pricing.`,
       confidence: 92
     };
   }
-  
+
   // SCENARIO 2: HIGH VELOCITY
   if (salesVelocity >= HIGH_VELOCITY) {
     if (currentMargin < HEALTHY_MARGIN_FLOOR) {
       const improvedPrice = costPrice / (1 - (TARGET_MARGIN / 100));
       const cappedPrice = Math.min(improvedPrice, currentPrice * (1 + MAX_INCREASE_PERCENT));
       const increasePercent = ((cappedPrice - currentPrice) / currentPrice * 100).toFixed(1);
-      
+
       return {
         shouldChangePrice: true,
         recommendedPrice: cappedPrice,
@@ -416,7 +402,7 @@ async function analyzeProduct(product, allProducts, userSettings, recentOrderDat
         changePercent: (cappedPrice - currentPrice) / currentPrice * 100
       };
     }
-    
+
     if (inventory > OVERSTOCK) {
       return {
         shouldChangePrice: false,
@@ -424,21 +410,21 @@ async function analyzeProduct(product, allProducts, userSettings, recentOrderDat
         confidence: 87
       };
     }
-    
+
     return {
       shouldChangePrice: false,
       reasoning: `✅ STRONG PERFORMANCE: Selling ${salesVelocity.toFixed(2)} units/day with healthy ${currentMargin.toFixed(1)}% margin. Price of $${currentPrice.toFixed(2)} is performing well. No changes needed.`,
       confidence: 90
     };
   }
-  
+
   // SCENARIO 3: MEDIUM VELOCITY
   if (salesVelocity >= MEDIUM_VELOCITY) {
     if (inventory <= LOW_STOCK && currentMargin < TARGET_MARGIN) {
       const balancedPrice = costPrice / (1 - (TARGET_MARGIN / 100));
       const cappedPrice = Math.min(balancedPrice, currentPrice * (1 + MAX_INCREASE_PERCENT));
       const increasePercent = ((cappedPrice - currentPrice) / currentPrice * 100).toFixed(1);
-      
+
       return {
         shouldChangePrice: true,
         recommendedPrice: cappedPrice,
@@ -449,13 +435,13 @@ async function analyzeProduct(product, allProducts, userSettings, recentOrderDat
         changePercent: (cappedPrice - currentPrice) / currentPrice * 100
       };
     }
-    
+
     if (inventory > OVERSTOCK) {
       const clearancePrice = currentPrice * 0.92;
       const minPrice = costPrice * 1.3;
       const finalPrice = Math.max(clearancePrice, minPrice);
       const decreasePercent = ((currentPrice - finalPrice) / currentPrice * 100).toFixed(1);
-      
+
       return {
         shouldChangePrice: true,
         recommendedPrice: finalPrice,
@@ -466,21 +452,21 @@ async function analyzeProduct(product, allProducts, userSettings, recentOrderDat
         changePercent: (finalPrice - currentPrice) / currentPrice * 100
       };
     }
-    
+
     return {
       shouldChangePrice: false,
       reasoning: `✅ STEADY PERFORMANCE: Moderate sales of ${salesVelocity.toFixed(2)} units/day with ${currentMargin.toFixed(1)}% margin. Current price $${currentPrice.toFixed(2)} is working adequately. Monitor and maintain.`,
       confidence: 78
     };
   }
-  
+
   // SCENARIO 4: LOW VELOCITY
   if (salesVelocity >= LOW_VELOCITY) {
     if (currentMargin > HEALTHY_MARGIN_CEILING) {
       const competitivePrice = costPrice / (1 - (TARGET_MARGIN / 100));
       const finalPrice = Math.max(competitivePrice, currentPrice * (1 - MAX_DECREASE_PERCENT));
       const decreasePercent = ((currentPrice - finalPrice) / currentPrice * 100).toFixed(1);
-      
+
       return {
         shouldChangePrice: true,
         recommendedPrice: finalPrice,
@@ -491,13 +477,13 @@ async function analyzeProduct(product, allProducts, userSettings, recentOrderDat
         changePercent: (finalPrice - currentPrice) / currentPrice * 100
       };
     }
-    
+
     if (inventory > HEALTHY_STOCK) {
       const discountPrice = currentPrice * 0.88;
       const minPrice = costPrice * 1.3;
       const finalPrice = Math.max(discountPrice, minPrice);
       const decreasePercent = ((currentPrice - finalPrice) / currentPrice * 100).toFixed(1);
-      
+
       return {
         shouldChangePrice: true,
         recommendedPrice: finalPrice,
@@ -508,20 +494,20 @@ async function analyzeProduct(product, allProducts, userSettings, recentOrderDat
         changePercent: (finalPrice - currentPrice) / currentPrice * 100
       };
     }
-    
+
     return {
       shouldChangePrice: false,
       reasoning: `⚠️ MONITOR CLOSELY: Slow sales (${salesVelocity.toFixed(2)} units/day) but limited inventory (${inventory} units, ~${daysOfStock.toFixed(0)} days). Margin at ${currentMargin.toFixed(1)}%. Consider price adjustment if sales don't improve.`,
       confidence: 70
     };
   }
-  
+
   // SCENARIO 5: VERY LOW/ZERO VELOCITY
   const drasticDiscount = currentPrice * 0.75;
   const minPrice = costPrice * 1.25;
   const emergencyPrice = Math.max(drasticDiscount, minPrice);
   const decreasePercent = ((currentPrice - emergencyPrice) / currentPrice * 100).toFixed(1);
-  
+
   return {
     shouldChangePrice: true,
     recommendedPrice: emergencyPrice,
@@ -538,20 +524,33 @@ async function analyzeProduct(product, allProducts, userSettings, recentOrderDat
 app.post('/api/register', authLimiter, async (req, res) => {
   const { email, password, name } = req.body;
   try {
-    const existingUser = await pool.query('SELECT * FROM users WHERE email = $1', [email]);
-    if (existingUser.rows.length > 0) {
+    const { data: existingUser } = await supabase
+      .from('users')
+      .select('*')
+      .eq('email', email)
+      .single();
+
+    if (existingUser) {
       return res.status(400).json({ error: 'Email already registered' });
     }
+
     const hashedPassword = await bcrypt.hash(password, 10);
-    const result = await pool.query(
-      'INSERT INTO users (email, password_hash, name) VALUES ($1, $2, $3) RETURNING id, email, name',
-      [email, hashedPassword, name]
-    );
-    const token = jwt.sign({ id: result.rows[0].id, email: result.rows[0].email }, JWT_SECRET, { expiresIn: '7d' });
-    res.json({ token, user: { id: result.rows[0].id, email: result.rows[0].email, name: result.rows[0].name } });
+
+    const { data: newUser, error } = await supabase
+      .from('users')
+      .insert({ email, password_hash: hashedPassword, name })
+      .select('id, email, name')
+      .single();
+
+    if (error) {
+      throw error;
+    }
+
+    const token = jwt.sign({ id: newUser.id, email: newUser.email }, JWT_SECRET, { expiresIn: '7d' });
+    res.json({ token, user: { id: newUser.id, email: newUser.email, name: newUser.name } });
   } catch (error) {
     console.error('Registration error:', error);
-    res.status(500).json({ error: 'Registration failed' });
+    res.status(500).json({ error: 'Registration failed', details: error.message });
   }
 });
 
@@ -560,13 +559,16 @@ app.post('/api/login', authLimiter, async (req, res) => {
   try {
     console.log(`🔐 [LOGIN] Attempt for email: ${email}`);
 
-    const result = await pool.query('SELECT * FROM users WHERE email = $1', [email]);
-    if (result.rows.length === 0) {
+    const { data: user, error } = await supabase
+      .from('users')
+      .select('*')
+      .eq('email', email)
+      .single();
+
+    if (error || !user) {
       console.log(`❌ [LOGIN] User not found: ${email}`);
       return res.status(401).json({ error: 'Invalid credentials' });
     }
-
-    const user = result.rows[0];
 
     // Check if user is suspended
     if (user.suspended) {
@@ -610,7 +612,7 @@ app.post('/api/login', authLimiter, async (req, res) => {
     });
   } catch (error) {
     console.error('❌ [LOGIN] Error:', error);
-    res.status(500).json({ error: 'Login failed' });
+    res.status(500).json({ error: 'Login failed', details: error.message });
   }
 });
 
@@ -625,23 +627,29 @@ app.post('/api/check-approval', async (req, res) => {
   try {
     console.log(`🔍 [CHECK-APPROVAL] Checking status for: ${email}`);
 
-    const result = await pool.query(
-      'SELECT id, email, approved, suspended FROM users WHERE email = $1',
-      [email.toLowerCase()]
-    );
+    const { data: user, error } = await supabase
+      .from('users')
+      .select('id, email, approved, suspended, assigned_app_id')
+      .eq('email', email.toLowerCase())
+      .single();
 
-    if (result.rows.length === 0) {
+    if (error && error.code === 'PGRST116') {
       console.log(`📝 [CHECK-APPROVAL] User not found, creating pending user: ${email}`);
 
       // Create user with approved=false (pending)
-      const createResult = await pool.query(
-        `INSERT INTO users (email, password_hash, approved, created_at)
-         VALUES ($1, 'oauth_user', false, NOW())
-         RETURNING id, email, approved, suspended`,
-        [email.toLowerCase()]
-      );
+      const { data: newUser, error: createError } = await supabase
+        .from('users')
+        .insert({
+          email: email.toLowerCase(),
+          password_hash: 'oauth_user',
+          approved: false
+        })
+        .select('id, email, approved, suspended')
+        .single();
 
-      const newUser = createResult.rows[0];
+      if (createError) {
+        throw createError;
+      }
 
       console.log(`✅ [CHECK-APPROVAL] Created pending user: ${email}`);
 
@@ -653,7 +661,9 @@ app.post('/api/check-approval', async (req, res) => {
       });
     }
 
-    const user = result.rows[0];
+    if (error) {
+      throw error;
+    }
 
     if (user.suspended) {
       console.log(`🚫 [CHECK-APPROVAL] User suspended: ${email}`);
@@ -680,14 +690,17 @@ app.post('/api/check-approval', async (req, res) => {
     console.log(`✅ [CHECK-APPROVAL] User approved, generating token: ${email}`);
 
     // Check if user has an assigned app
-    const appCheckResult = await pool.query(
-      `SELECT s.id, s.app_name, s.install_url, s.shop_domain
-       FROM shopify_apps s
-       WHERE s.id = $1 AND s.status = 'active'`,
-      [user.assigned_app_id]
-    );
+    let assignedApp = null;
+    if (user.assigned_app_id) {
+      const { data: app } = await supabase
+        .from('shopify_apps')
+        .select('id, app_name, install_url, shop_domain')
+        .eq('id', user.assigned_app_id)
+        .eq('status', 'active')
+        .single();
 
-    const assignedApp = appCheckResult.rows.length > 0 ? appCheckResult.rows[0] : null;
+      assignedApp = app;
+    }
 
     return res.json({
       approved: true,
@@ -737,23 +750,35 @@ app.post('/api/shopify/connect', authenticateToken, async (req, res) => {
     console.log(`✅ [MANUAL CONNECT] Token verified for ${shopDomain}`);
 
     // Update users table
-    await pool.query(
-      'UPDATE users SET shopify_shop = $1, shopify_access_token = $2 WHERE id = $3',
-      [shopDomain, accessToken, req.user.id]
-    );
+    const { error: updateError } = await supabase
+      .from('users')
+      .update({
+        shopify_shop: shopDomain,
+        shopify_access_token: accessToken
+      })
+      .eq('id', req.user.id);
+
+    if (updateError) {
+      throw updateError;
+    }
 
     // Also update/insert in shops table for consistency
-    await pool.query(
-      `INSERT INTO shops (shop_domain, access_token, user_id, installed_at, updated_at, is_active)
-       VALUES ($1, $2, $3, NOW(), NOW(), true)
-       ON CONFLICT (shop_domain)
-       DO UPDATE SET
-         access_token = EXCLUDED.access_token,
-         user_id = EXCLUDED.user_id,
-         updated_at = NOW(),
-         is_active = true`,
-      [shopDomain, accessToken, req.user.id]
-    );
+    const { error: upsertError } = await supabase
+      .from('shops')
+      .upsert({
+        shop_domain: shopDomain,
+        access_token: accessToken,
+        user_id: req.user.id,
+        installed_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+        is_active: true
+      }, {
+        onConflict: 'shop_domain'
+      });
+
+    if (upsertError) {
+      throw upsertError;
+    }
 
     console.log(`✅ [MANUAL CONNECT] Connected ${shopDomain} to user ${req.user.id}`);
 
@@ -766,12 +791,16 @@ app.post('/api/shopify/connect', authenticateToken, async (req, res) => {
 
 app.get('/api/shopify/check', authenticateToken, async (req, res) => {
   try {
-    const result = await pool.query(
-      'SELECT shopify_shop, shopify_access_token FROM users WHERE id = $1',
-      [req.user.id]
-    );
+    const { data: user, error } = await supabase
+      .from('users')
+      .select('shopify_shop, shopify_access_token')
+      .eq('id', req.user.id)
+      .single();
 
-    const user = result.rows[0];
+    if (error) {
+      throw error;
+    }
+
     const connected = !!(user.shopify_shop && user.shopify_access_token);
 
     res.json({ connected, shop: user.shopify_shop });
@@ -784,19 +813,28 @@ app.get('/api/shopify/check', authenticateToken, async (req, res) => {
 // Get user's assigned Shopify app
 app.get('/api/user/assigned-app', authenticateToken, async (req, res) => {
   try {
-    const result = await pool.query(
-      `SELECT s.id, s.app_name, s.shop_domain, s.client_id, s.client_secret, s.install_url
-       FROM users u
-       LEFT JOIN shopify_apps s ON u.assigned_app_id = s.id
-       WHERE u.id = $1 AND s.status = 'active'`,
-      [req.user.id]
-    );
+    const { data: result, error } = await supabase
+      .from('users')
+      .select(`
+        assigned_app_id,
+        shopify_apps!inner (
+          id,
+          app_name,
+          shop_domain,
+          client_id,
+          client_secret,
+          install_url
+        )
+      `)
+      .eq('id', req.user.id)
+      .eq('shopify_apps.status', 'active')
+      .single();
 
-    if (result.rows.length === 0 || !result.rows[0].id) {
+    if (error || !result || !result.shopify_apps) {
       return res.json({ app: null });
     }
 
-    res.json({ app: result.rows[0] });
+    res.json({ app: result.shopify_apps });
   } catch (error) {
     console.error('Error fetching assigned app:', error);
     res.status(500).json({ error: 'Failed to fetch assigned app' });
@@ -806,12 +844,15 @@ app.get('/api/user/assigned-app', authenticateToken, async (req, res) => {
 app.get('/api/shopify/status', authenticateToken, async (req, res) => {
   try {
     // Check both users table AND shops table for maximum compatibility
-    const userResult = await pool.query(
-      'SELECT shopify_shop, shopify_access_token FROM users WHERE id = $1',
-      [req.user.id]
-    );
+    const { data: user, error: userError } = await supabase
+      .from('users')
+      .select('shopify_shop, shopify_access_token')
+      .eq('id', req.user.id)
+      .single();
 
-    const user = userResult.rows[0];
+    if (userError) {
+      throw userError;
+    }
 
     // First check: users table (legacy and current approach)
     let connected = !!(user && user.shopify_shop && user.shopify_access_token);
@@ -819,13 +860,15 @@ app.get('/api/shopify/status', authenticateToken, async (req, res) => {
 
     // Second check: shops table (if not found in users table)
     if (!connected) {
-      const shopsResult = await pool.query(
-        'SELECT shop_domain, access_token FROM shops WHERE user_id = $1 AND is_active = true LIMIT 1',
-        [req.user.id]
-      );
+      const { data: shopData, error: shopError } = await supabase
+        .from('shops')
+        .select('shop_domain, access_token')
+        .eq('user_id', req.user.id)
+        .eq('is_active', true)
+        .limit(1)
+        .single();
 
-      if (shopsResult.rows.length > 0) {
-        const shopData = shopsResult.rows[0];
+      if (!shopError && shopData) {
         connected = !!(shopData.shop_domain && shopData.access_token);
         shop = shopData.shop_domain;
 
@@ -874,19 +917,20 @@ app.get('/api/shopify/install', async (req, res) => {
     if (app_id) {
       console.log(`🔐 [OAuth Install] Using app_id ${app_id} from database`);
 
-      const appResult = await pool.query(
-        'SELECT client_id, shop_domain FROM shopify_apps WHERE id = $1 AND status = $2',
-        [app_id, 'active']
-      );
+      const { data: app, error } = await supabase
+        .from('shopify_apps')
+        .select('client_id, shop_domain')
+        .eq('id', app_id)
+        .eq('status', 'active')
+        .single();
 
-      if (appResult.rows.length === 0) {
+      if (error || !app) {
         return res.status(404).json({
           error: 'App not found',
           message: `No active Shopify app found with ID ${app_id}`
         });
       }
 
-      const app = appResult.rows[0];
       SHOPIFY_API_KEY = app.client_id;
       SHOPIFY_SCOPES = process.env.SHOPIFY_SCOPES || 'read_products,write_products,read_orders,write_inventory';
 
@@ -963,12 +1007,14 @@ app.get('/api/shopify/callback', async (req, res) => {
 
     // Look up credentials from database if app_id is present
     if (app_id) {
-      const appResult = await pool.query(
-        'SELECT client_id, client_secret FROM shopify_apps WHERE id = $1 AND status = $2',
-        [app_id, 'active']
-      );
+      const { data: app, error } = await supabase
+        .from('shopify_apps')
+        .select('client_id, client_secret')
+        .eq('id', app_id)
+        .eq('status', 'active')
+        .single();
 
-      if (appResult.rows.length === 0) {
+      if (error || !app) {
         console.error(`❌ App not found with ID ${app_id}`);
         return res.status(404).json({
           error: 'App not found',
@@ -976,7 +1022,6 @@ app.get('/api/shopify/callback', async (req, res) => {
         });
       }
 
-      const app = appResult.rows[0];
       SHOPIFY_API_KEY = app.client_id;
       SHOPIFY_API_SECRET = app.client_secret;
       SHOPIFY_SCOPES = process.env.SHOPIFY_SCOPES || 'read_products,write_products,read_orders,write_inventory';
@@ -1059,20 +1104,30 @@ app.get('/api/shopify/callback', async (req, res) => {
     let user_id = null;
     if (user_email) {
       try {
-        const userResult = await pool.query(
-          'SELECT id FROM users WHERE email = $1',
-          [user_email]
-        );
-        if (userResult.rows.length > 0) {
-          user_id = userResult.rows[0].id;
+        const { data: userData, error: userError } = await supabase
+          .from('users')
+          .select('id')
+          .eq('email', user_email)
+          .single();
+
+        if (!userError && userData) {
+          user_id = userData.id;
           console.log(`✅ Linked shop to user: ${user_email} (ID: ${user_id})`);
 
           // CRITICAL: Also update the users table so existing code works
-          await pool.query(
-            'UPDATE users SET shopify_shop = $1, shopify_access_token = $2 WHERE id = $3',
-            [shop, access_token, user_id]
-          );
-          console.log(`✅ Updated users table for user ID ${user_id}`);
+          const { error: updateError } = await supabase
+            .from('users')
+            .update({
+              shopify_shop: shop,
+              shopify_access_token: access_token
+            })
+            .eq('id', user_id);
+
+          if (updateError) {
+            console.error('Error updating users table:', updateError);
+          } else {
+            console.log(`✅ Updated users table for user ID ${user_id}`);
+          }
         }
       } catch (err) {
         console.error('Error looking up user:', err);
@@ -1080,19 +1135,24 @@ app.get('/api/shopify/callback', async (req, res) => {
     }
 
     // Store in shops table for multi-shop support
-    await pool.query(
-      `INSERT INTO shops (shop_domain, access_token, scope, user_id, app_id, installed_at, updated_at, is_active)
-       VALUES ($1, $2, $3, $4, $5, NOW(), NOW(), true)
-       ON CONFLICT (shop_domain)
-       DO UPDATE SET
-         access_token = EXCLUDED.access_token,
-         scope = EXCLUDED.scope,
-         user_id = EXCLUDED.user_id,
-         app_id = EXCLUDED.app_id,
-         updated_at = NOW(),
-         is_active = true`,
-      [shop, access_token, scope, user_id, app_id]
-    );
+    const { error: shopsError } = await supabase
+      .from('shops')
+      .upsert({
+        shop_domain: shop,
+        access_token,
+        scope,
+        user_id,
+        app_id,
+        installed_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+        is_active: true
+      }, {
+        onConflict: 'shop_domain'
+      });
+
+    if (shopsError) {
+      console.error('Error storing in shops table:', shopsError);
+    }
 
     console.log(`✅ Token stored in shops table for shop: ${shop} with app_id: ${app_id}`);
 
@@ -1104,12 +1164,13 @@ app.get('/api/shopify/callback', async (req, res) => {
 
     if (user_email) {
       try {
-        const userCheckResult = await pool.query(
-          'SELECT approved FROM users WHERE email = $1',
-          [user_email]
-        );
+        const { data: userData, error: checkError } = await supabase
+          .from('users')
+          .select('approved')
+          .eq('email', user_email)
+          .single();
 
-        if (userCheckResult.rows.length > 0 && userCheckResult.rows[0].approved) {
+        if (!checkError && userData && userData.approved) {
           // User is approved - redirect to product with auto-login
           appUrl = `https://automerchant.vercel.app?oauth_success=true&email=${encodeURIComponent(user_email)}`;
           console.log(`✅ Approved user ${user_email} - redirecting to product dashboard`);
@@ -1141,11 +1202,17 @@ app.get('/api/shopify/callback', async (req, res) => {
 
 app.get('/api/products', authenticateToken, async (req, res) => {
   try {
-    const result = await pool.query(
-      'SELECT * FROM products WHERE user_id = $1 ORDER BY created_at DESC',
-      [req.user.id]
-    );
-    res.json({ products: result.rows });
+    const { data: products, error } = await supabase
+      .from('products')
+      .select('*')
+      .eq('user_id', req.user.id)
+      .order('created_at', { ascending: false });
+
+    if (error) {
+      throw error;
+    }
+
+    res.json({ products });
   } catch (error) {
     console.error('Products fetch error:', error);
     res.status(500).json({ error: 'Failed to fetch products' });
@@ -1157,7 +1224,7 @@ app.post('/api/products/sync', authenticateToken, async (req, res) => {
     // ============================================
     // DUAL-MODE AUTH: Get credentials based on AUTH_MODE
     // ============================================
-    const { shop, accessToken } = await getShopifyCredentials(req, pool);
+    const { shop, accessToken } = await getShopifyCredentials(req, supabase);
 
     const response = await axios.get(
       `https://${shop}/admin/api/2024-01/products.json?limit=250`,
@@ -1175,7 +1242,7 @@ app.post('/api/products/sync', authenticateToken, async (req, res) => {
     const orders = ordersResponse.data.orders || [];
     const variantSales = {};
     const variantRevenue = {};
-    
+
     orders.forEach(order => {
       order.line_items?.forEach(item => {
         const variantId = item.variant_id?.toString();
@@ -1194,35 +1261,29 @@ app.post('/api/products/sync', authenticateToken, async (req, res) => {
       const totalRevenue = variantRevenue[variantId] || 0;
       const salesVelocity = totalSales / 30;
 
-      await pool.query(
-        `INSERT INTO products (
-          user_id, shopify_product_id, shopify_variant_id, title, price, 
-          inventory, image_url, total_sales_30d, revenue_30d, sales_velocity
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-        ON CONFLICT (user_id, shopify_variant_id) 
-        DO UPDATE SET 
-          title = EXCLUDED.title,
-          price = EXCLUDED.price,
-          inventory = EXCLUDED.inventory,
-          image_url = EXCLUDED.image_url,
-          total_sales_30d = EXCLUDED.total_sales_30d,
-          revenue_30d = EXCLUDED.revenue_30d,
-          sales_velocity = EXCLUDED.sales_velocity,
-          updated_at = NOW()`,
-        [
-          req.user.id,
-          product.id.toString(),
-          variantId,
-          product.title,
-          variant.price,
-          variant.inventory_quantity || 0,
-          product.image?.src || null,
-          totalSales,
-          totalRevenue,
-          salesVelocity
-        ]
-      );
-      syncedCount++;
+      const { error: upsertError } = await supabase
+        .from('products')
+        .upsert({
+          user_id: req.user.id,
+          shopify_product_id: product.id.toString(),
+          shopify_variant_id: variantId,
+          title: product.title,
+          price: variant.price,
+          inventory: variant.inventory_quantity || 0,
+          image_url: product.image?.src || null,
+          total_sales_30d: totalSales,
+          revenue_30d: totalRevenue,
+          sales_velocity: salesVelocity,
+          updated_at: new Date().toISOString()
+        }, {
+          onConflict: 'user_id,shopify_variant_id'
+        });
+
+      if (upsertError) {
+        console.error('Error upserting product:', upsertError);
+      } else {
+        syncedCount++;
+      }
     }
 
     res.json({ success: true, message: `Synced ${syncedCount} products`, count: syncedCount });
@@ -1236,10 +1297,16 @@ app.post('/api/products/:id/cost-price', authenticateToken, async (req, res) => 
   const { costPrice } = req.body;
   const productId = req.params.id;
   try {
-    await pool.query(
-      'UPDATE products SET cost_price = $1 WHERE id = $2 AND user_id = $3',
-      [costPrice, productId, req.user.id]
-    );
+    const { error } = await supabase
+      .from('products')
+      .update({ cost_price: costPrice })
+      .eq('id', productId)
+      .eq('user_id', req.user.id);
+
+    if (error) {
+      throw error;
+    }
+
     res.json({ success: true });
   } catch (error) {
     console.error('Cost price update error:', error);
@@ -1269,80 +1336,82 @@ async function runAnalysisForUser(userId) {
     }
   } else {
     // OAuth mode: fetch from database
-    const userResult = await pool.query(
-      'SELECT shopify_shop FROM users WHERE id = $1',
-      [userId]
-    );
+    const { data: user, error: userError } = await supabase
+      .from('users')
+      .select('shopify_shop')
+      .eq('id', userId)
+      .single();
 
-    const user = userResult.rows[0];
-    if (!user || !user.shopify_shop) {
+    if (userError || !user || !user.shopify_shop) {
       console.log(`⚠️ User ${userId}: No shop domain found in users table`);
       return;
     }
 
-    const shopResult = await pool.query(
-      'SELECT access_token FROM shops WHERE shop_domain = $1 AND is_active = true',
-      [user.shopify_shop]
-    );
+    const { data: shopData, error: shopError } = await supabase
+      .from('shops')
+      .select('access_token')
+      .eq('shop_domain', user.shopify_shop)
+      .eq('is_active', true)
+      .single();
 
-    if (shopResult.rows.length === 0) {
+    if (shopError || !shopData) {
       console.log(`⚠️ User ${userId}: No OAuth token found for shop ${user.shopify_shop}`);
       return;
     }
 
     shop = user.shopify_shop;
-    accessToken = shopResult.rows[0].access_token;
+    accessToken = shopData.access_token;
   }
 
-  const productsResult = await pool.query(
-    'SELECT * FROM products WHERE user_id = $1 AND selected_for_analysis = true',
-    [userId]
-  );
+  const { data: products, error: productsError } = await supabase
+    .from('products')
+    .select('*')
+    .eq('user_id', userId)
+    .eq('selected_for_analysis', true);
 
-  if (productsResult.rows.length === 0) {
+  if (productsError || !products || products.length === 0) {
     console.log(`⚠️ User ${userId}: No products selected for analysis`);
     return;
   }
 
-  console.log(`📊 Analyzing ${productsResult.rows.length} selected products for user ${userId}`);
+  console.log(`📊 Analyzing ${products.length} selected products for user ${userId}`);
 
-  const allProducts = productsResult.rows;
+  const allProducts = products;
   const userSettings = { target_margin: 40 };
 
   // Get price decrease history (last 30 days)
   const thirtyDaysAgo = new Date();
   thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
 
-  const decreaseHistoryResult = await pool.query(
-    `SELECT product_id, COUNT(*) as decrease_count
-     FROM price_changes
-     WHERE user_id = $1
-       AND created_at >= $2
-       AND new_price < old_price
-     GROUP BY product_id`,
-    [userId, thirtyDaysAgo]
-  );
+  const { data: decreaseHistory, error: historyError } = await supabase
+    .from('price_changes')
+    .select('product_id')
+    .eq('user_id', userId)
+    .gte('created_at', thirtyDaysAgo.toISOString())
+    .lt('new_price', supabase.raw('old_price'));
 
   const priceDecreaseHistory = {};
-  decreaseHistoryResult.rows.forEach(row => {
-    priceDecreaseHistory[row.product_id] = parseInt(row.decrease_count);
-  });
+  if (!historyError && decreaseHistory) {
+    decreaseHistory.forEach(row => {
+      priceDecreaseHistory[row.product_id] = (priceDecreaseHistory[row.product_id] || 0) + 1;
+    });
+  }
 
-  console.log(`📉 Price decrease history loaded: ${decreaseHistoryResult.rows.length} products have decreases this month`);
-  
+  console.log(`📉 Price decrease history loaded: ${Object.keys(priceDecreaseHistory).length} products have decreases this month`);
+
   const sevenDaysAgo = new Date();
   sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
-  
+
   let recentOrderData = {};
   try {
     const ordersResponse = await axios.get(
       `https://${shop}/admin/api/2024-01/orders.json?status=any&created_at_min=${sevenDaysAgo.toISOString()}&limit=250`,
       { headers: { 'X-Shopify-Access-Token': accessToken } }
     );
-    
+
     const orders = ordersResponse.data.orders || [];
     const variantSales7d = {};
-    
+
     orders.forEach(order => {
       order.line_items?.forEach(item => {
         const variantId = item.variant_id?.toString();
@@ -1351,7 +1420,7 @@ async function runAnalysisForUser(userId) {
         }
       });
     });
-    
+
     allProducts.forEach(product => {
       const key = `sales7d_${product.id}`;
       recentOrderData[key] = variantSales7d[product.shopify_variant_id] || 0;
@@ -1359,7 +1428,7 @@ async function runAnalysisForUser(userId) {
   } catch (error) {
     console.error('Failed to fetch recent orders:', error);
   }
-  
+
   let recommendationsCreated = 0;
 
   for (const product of allProducts) {
@@ -1384,28 +1453,40 @@ async function runAnalysisForUser(userId) {
 
       if (analysis.shouldChangePrice) {
         // First delete any existing recommendation for this product
-        await pool.query(
-          'DELETE FROM recommendations WHERE user_id = $1 AND product_id = $2',
-          [userId, product.id]
-        );
+        await supabase
+          .from('recommendations')
+          .delete()
+          .eq('user_id', userId)
+          .eq('product_id', product.id);
 
         // Then insert the new recommendation
-        await pool.query(
-          `INSERT INTO recommendations (user_id, product_id, recommended_price, reasoning, urgency, confidence)
-           VALUES ($1, $2, $3, $4, $5, $6)`,
-          [userId, product.id, analysis.recommendedPrice, analysis.reasoning, analysis.urgency || 'MEDIUM', analysis.confidence]
-        );
-        console.log(`   ✅ Recommendation created: $${product.price} → $${analysis.recommendedPrice}`);
-        recommendationsCreated++;
+        const { error: insertError } = await supabase
+          .from('recommendations')
+          .insert({
+            user_id: userId,
+            product_id: product.id,
+            recommended_price: analysis.recommendedPrice,
+            reasoning: analysis.reasoning,
+            urgency: analysis.urgency || 'MEDIUM',
+            confidence: analysis.confidence
+          });
+
+        if (insertError) {
+          console.error('Error inserting recommendation:', insertError);
+        } else {
+          console.log(`   ✅ Recommendation created: $${product.price} → $${analysis.recommendedPrice}`);
+          recommendationsCreated++;
+        }
       } else {
         console.log(`   ✓ No price change needed`);
         console.log(`   Reasoning: ${analysis.reasoning || analysis.error || 'Unknown'}`);
       }
 
-      await pool.query(
-        'UPDATE products SET last_analyzed_at = NOW() WHERE id = $1',
-        [product.id]
-      );
+      await supabase
+        .from('products')
+        .update({ last_analyzed_at: new Date().toISOString() })
+        .eq('id', product.id);
+
     } catch (error) {
       console.error(`❌ Error analyzing product ${product.id}:`, error);
       console.error(`   Stack trace:`, error.stack);
@@ -1420,41 +1501,51 @@ async function runAnalysisForUser(userId) {
 
 app.get('/api/analysis/status', authenticateToken, async (req, res) => {
   try {
-    const selectedResult = await pool.query(
-      'SELECT COUNT(*) as count FROM products WHERE user_id = $1 AND selected_for_analysis = true',
-      [req.user.id]
-    );
-    const selectedCount = parseInt(selectedResult.rows[0].count) || 0;
+    const { count: selectedCount, error: countError } = await supabase
+      .from('products')
+      .select('*', { count: 'exact', head: true })
+      .eq('user_id', req.user.id)
+      .eq('selected_for_analysis', true);
+
+    if (countError) {
+      throw countError;
+    }
 
     const todayStart = new Date();
     todayStart.setHours(0, 0, 0, 0);
-    
-    const manualCountResult = await pool.query(
-      'SELECT COUNT(*) as count FROM manual_analyses WHERE user_id = $1 AND triggered_at >= $2',
-      [req.user.id, todayStart]
-    );
-    const manualUsedToday = parseInt(manualCountResult.rows[0].count) || 0;
-    const manualRemaining = Math.max(0, 10 - manualUsedToday);
 
-    const scheduleResult = await pool.query(
-      'SELECT next_analysis_due FROM analysis_schedule WHERE user_id = $1',
-      [req.user.id]
-    );
-    
+    const { count: manualUsedToday, error: manualError } = await supabase
+      .from('manual_analyses')
+      .select('*', { count: 'exact', head: true })
+      .eq('user_id', req.user.id)
+      .gte('triggered_at', todayStart.toISOString());
+
+    if (manualError) {
+      throw manualError;
+    }
+
+    const manualRemaining = Math.max(0, 10 - (manualUsedToday || 0));
+
+    const { data: scheduleData, error: scheduleError } = await supabase
+      .from('analysis_schedule')
+      .select('next_analysis_due')
+      .eq('user_id', req.user.id)
+      .single();
+
     let timeRemaining = 0;
     let nextAnalysisDue = null;
-    
-    if (scheduleResult.rows.length > 0 && scheduleResult.rows[0].next_analysis_due) {
-      nextAnalysisDue = new Date(scheduleResult.rows[0].next_analysis_due);
+
+    if (!scheduleError && scheduleData && scheduleData.next_analysis_due) {
+      nextAnalysisDue = new Date(scheduleData.next_analysis_due);
       const now = new Date();
       timeRemaining = Math.max(0, Math.floor((nextAnalysisDue - now) / 1000));
     }
 
     res.json({
-      selectedCount,
+      selectedCount: selectedCount || 0,
       limit: 10,
       canAnalyze: manualRemaining > 0,
-      manualUsedToday,
+      manualUsedToday: manualUsedToday || 0,
       manualRemaining,
       timeRemaining,
       nextAnalysisDue
@@ -1469,27 +1560,35 @@ app.post('/api/analysis/run-now', authenticateToken, async (req, res) => {
   try {
     const todayStart = new Date();
     todayStart.setHours(0, 0, 0, 0);
-    
-    const manualCountResult = await pool.query(
-      'SELECT COUNT(*) as count FROM manual_analyses WHERE user_id = $1 AND triggered_at >= $2',
-      [req.user.id, todayStart]
-    );
-    const manualUsedToday = parseInt(manualCountResult.rows[0].count) || 0;
-    
-    if (manualUsedToday >= 10) {
-      return res.status(429).json({ 
+
+    const { count: manualUsedToday, error: manualError } = await supabase
+      .from('manual_analyses')
+      .select('*', { count: 'exact', head: true })
+      .eq('user_id', req.user.id)
+      .gte('triggered_at', todayStart.toISOString());
+
+    if (manualError) {
+      throw manualError;
+    }
+
+    if ((manualUsedToday || 0) >= 10) {
+      return res.status(429).json({
         error: 'Daily limit reached',
         message: 'You have used all 10 manual analyses for today. Limit resets at midnight or wait for automatic analysis.'
       });
     }
 
-    const selectedResult = await pool.query(
-      'SELECT COUNT(*) as count FROM products WHERE user_id = $1 AND selected_for_analysis = true',
-      [req.user.id]
-    );
-    const selectedCount = parseInt(selectedResult.rows[0].count) || 0;
-    
-    if (selectedCount === 0) {
+    const { count: selectedCount, error: countError } = await supabase
+      .from('products')
+      .select('*', { count: 'exact', head: true })
+      .eq('user_id', req.user.id)
+      .eq('selected_for_analysis', true);
+
+    if (countError) {
+      throw countError;
+    }
+
+    if ((selectedCount || 0) === 0) {
       return res.status(400).json({ error: 'No products selected for analysis' });
     }
 
@@ -1497,22 +1596,34 @@ app.post('/api/analysis/run-now', authenticateToken, async (req, res) => {
 
     const recommendationsCreated = await runAnalysisForUser(req.user.id);
 
-    await pool.query(
-      'INSERT INTO manual_analyses (user_id, products_analyzed) VALUES ($1, $2)',
-      [req.user.id, selectedCount]
-    );
+    const { error: insertError } = await supabase
+      .from('manual_analyses')
+      .insert({
+        user_id: req.user.id,
+        products_analyzed: selectedCount
+      });
+
+    if (insertError) {
+      console.error('Error logging manual analysis:', insertError);
+    }
 
     // Initialize or update analysis schedule for auto-analysis
     const nextDue = new Date(Date.now() + 30 * 60 * 1000); // 30 minutes from now
-    await pool.query(
-      `INSERT INTO analysis_schedule (user_id, last_analysis_run, next_analysis_due)
-       VALUES ($1, NOW(), $2)
-       ON CONFLICT (user_id)
-       DO UPDATE SET last_analysis_run = NOW(), next_analysis_due = $2`,
-      [req.user.id, nextDue]
-    );
+    const { error: scheduleError } = await supabase
+      .from('analysis_schedule')
+      .upsert({
+        user_id: req.user.id,
+        last_analysis_run: new Date().toISOString(),
+        next_analysis_due: nextDue.toISOString()
+      }, {
+        onConflict: 'user_id'
+      });
 
-    const remaining = 10 - manualUsedToday - 1;
+    if (scheduleError) {
+      console.error('Error updating analysis schedule:', scheduleError);
+    }
+
+    const remaining = 10 - (manualUsedToday || 0) - 1;
 
     console.log(`✅ Manual analysis complete: ${recommendationsCreated} recommendations created, ${remaining} analyses remaining today`);
 
@@ -1520,7 +1631,7 @@ app.post('/api/analysis/run-now', authenticateToken, async (req, res) => {
       success: true,
       message: `Analysis completed for ${selectedCount} products. ${recommendationsCreated} recommendations generated.`,
       manualRemaining: remaining,
-      manualUsedToday: manualUsedToday + 1,
+      manualUsedToday: (manualUsedToday || 0) + 1,
       recommendationsCreated
     });
   } catch (error) {
@@ -1535,14 +1646,17 @@ app.post('/api/products/:id/toggle-analysis', authenticateToken, async (req, res
 
   try {
     if (selected) {
-      const currentSelected = await pool.query(
-        'SELECT COUNT(*) as count FROM products WHERE user_id = $1 AND selected_for_analysis = true',
-        [req.user.id]
-      );
+      const { count: selectedCount, error: countError } = await supabase
+        .from('products')
+        .select('*', { count: 'exact', head: true })
+        .eq('user_id', req.user.id)
+        .eq('selected_for_analysis', true);
 
-      const selectedCount = parseInt(currentSelected.rows[0].count) || 0;
+      if (countError) {
+        throw countError;
+      }
 
-      if (selectedCount >= 10) {
+      if ((selectedCount || 0) >= 10) {
         return res.status(400).json({
           error: 'Selection limit reached',
           message: 'You can only select up to 10 products for analysis (Pro plan limit)'
@@ -1550,33 +1664,48 @@ app.post('/api/products/:id/toggle-analysis', authenticateToken, async (req, res
       }
     }
 
-    await pool.query(
-      'UPDATE products SET selected_for_analysis = $1 WHERE id = $2 AND user_id = $3',
-      [selected, productId, req.user.id]
-    );
+    const { error: updateError } = await supabase
+      .from('products')
+      .update({ selected_for_analysis: selected })
+      .eq('id', productId)
+      .eq('user_id', req.user.id);
 
-    const newCount = await pool.query(
-      'SELECT COUNT(*) as count FROM products WHERE user_id = $1 AND selected_for_analysis = true',
-      [req.user.id]
-    );
+    if (updateError) {
+      throw updateError;
+    }
 
-    const finalCount = parseInt(newCount.rows[0].count) || 0;
+    const { count: finalCount, error: finalError } = await supabase
+      .from('products')
+      .select('*', { count: 'exact', head: true })
+      .eq('user_id', req.user.id)
+      .eq('selected_for_analysis', true);
+
+    if (finalError) {
+      throw finalError;
+    }
 
     // Initialize analysis schedule if this is the first product selected
     if (selected && finalCount === 1) {
       const nextDue = new Date(Date.now() + 30 * 60 * 1000); // 30 minutes from now
-      await pool.query(
-        `INSERT INTO analysis_schedule (user_id, next_analysis_due)
-         VALUES ($1, $2)
-         ON CONFLICT (user_id) DO UPDATE SET next_analysis_due = $2`,
-        [req.user.id, nextDue]
-      );
-      console.log(`✅ Initialized analysis schedule for user ${req.user.id}, next analysis at ${nextDue.toISOString()}`);
+      const { error: scheduleError } = await supabase
+        .from('analysis_schedule')
+        .upsert({
+          user_id: req.user.id,
+          next_analysis_due: nextDue.toISOString()
+        }, {
+          onConflict: 'user_id'
+        });
+
+      if (scheduleError) {
+        console.error('Error initializing analysis schedule:', scheduleError);
+      } else {
+        console.log(`✅ Initialized analysis schedule for user ${req.user.id}, next analysis at ${nextDue.toISOString()}`);
+      }
     }
 
     res.json({
       success: true,
-      selectedCount: finalCount
+      selectedCount: finalCount || 0
     });
   } catch (error) {
     console.error('Toggle analysis error:', error);
@@ -1589,29 +1718,40 @@ app.post('/api/products/:id/toggle-analysis', authenticateToken, async (req, res
 setInterval(async () => {
   try {
     console.log('⏰ Running automatic analysis check...');
-    
-    const dueAnalysisResult = await pool.query(
-      'SELECT user_id FROM analysis_schedule WHERE next_analysis_due <= NOW()'
-    );
-    
-    console.log(`📊 Found ${dueAnalysisResult.rows.length} users due for analysis`);
-    
-    for (const row of dueAnalysisResult.rows) {
-      const userId = row.user_id;
-      
-      try {
-        await runAnalysisForUser(userId);
-        
-        const now = new Date();
-        const nextDue = new Date(now.getTime() + 30 * 60 * 1000);
-        await pool.query(
-          'UPDATE analysis_schedule SET last_analysis_run = $1, next_analysis_due = $2 WHERE user_id = $3',
-          [now, nextDue, userId]
-        );
-        
-        console.log(`✅ User ${userId}: Analysis completed, next due at ${nextDue.toISOString()}`);
-      } catch (error) {
-        console.error(`❌ Error running analysis for user ${userId}:`, error);
+
+    const { data: dueUsers, error: dueError } = await supabase
+      .from('analysis_schedule')
+      .select('user_id')
+      .lte('next_analysis_due', new Date().toISOString());
+
+    if (dueError) {
+      throw dueError;
+    }
+
+    console.log(`📊 Found ${dueUsers ? dueUsers.length : 0} users due for analysis`);
+
+    if (dueUsers) {
+      for (const row of dueUsers) {
+        const userId = row.user_id;
+
+        try {
+          await runAnalysisForUser(userId);
+
+          const now = new Date();
+          const nextDue = new Date(now.getTime() + 30 * 60 * 1000);
+
+          await supabase
+            .from('analysis_schedule')
+            .update({
+              last_analysis_run: now.toISOString(),
+              next_analysis_due: nextDue.toISOString()
+            })
+            .eq('user_id', userId);
+
+          console.log(`✅ User ${userId}: Analysis completed, next due at ${nextDue.toISOString()}`);
+        } catch (error) {
+          console.error(`❌ Error running analysis for user ${userId}:`, error);
+        }
       }
     }
   } catch (error) {
@@ -1623,24 +1763,45 @@ setInterval(async () => {
 
 app.get('/api/recommendations', authenticateToken, async (req, res) => {
   try {
-    const result = await pool.query(
-      `SELECT r.*, p.title, p.price as current_price, p.image_url, p.inventory, p.cost_price
-       FROM recommendations r
-       JOIN products p ON r.product_id = p.id
-       WHERE r.user_id = $1
-       ORDER BY
-         CASE r.urgency
-           WHEN 'CRITICAL' THEN 1
-           WHEN 'URGENT' THEN 2
-           WHEN 'HIGH' THEN 3
-           WHEN 'MEDIUM' THEN 4
-           ELSE 5
-         END,
-         r.confidence DESC,
-         r.created_at DESC`,
-      [req.user.id]
-    );
-    res.json({ recommendations: result.rows });
+    const { data: recommendations, error } = await supabase
+      .from('recommendations')
+      .select(`
+        *,
+        products!inner (
+          title,
+          price,
+          image_url,
+          inventory,
+          cost_price
+        )
+      `)
+      .eq('user_id', req.user.id)
+      .order('created_at', { ascending: false });
+
+    if (error) {
+      throw error;
+    }
+
+    // Flatten the structure to match the original format
+    const formattedRecommendations = recommendations.map(rec => ({
+      ...rec,
+      title: rec.products.title,
+      current_price: rec.products.price,
+      image_url: rec.products.image_url,
+      inventory: rec.products.inventory,
+      cost_price: rec.products.cost_price,
+      products: undefined
+    }));
+
+    // Sort by urgency and confidence
+    const urgencyOrder = { 'CRITICAL': 1, 'URGENT': 2, 'HIGH': 3, 'MEDIUM': 4 };
+    formattedRecommendations.sort((a, b) => {
+      const urgencyDiff = (urgencyOrder[a.urgency] || 5) - (urgencyOrder[b.urgency] || 5);
+      if (urgencyDiff !== 0) return urgencyDiff;
+      return (b.confidence || 0) - (a.confidence || 0);
+    });
+
+    res.json({ recommendations: formattedRecommendations });
   } catch (error) {
     console.error('Recommendations fetch error:', error);
     res.status(500).json({ error: 'Failed to fetch recommendations' });
@@ -1650,10 +1811,16 @@ app.get('/api/recommendations', authenticateToken, async (req, res) => {
 app.post('/api/recommendations/reject', authenticateToken, async (req, res) => {
   const { productId } = req.body;
   try {
-    await pool.query(
-      'DELETE FROM recommendations WHERE product_id = $1 AND user_id = $2',
-      [productId, req.user.id]
-    );
+    const { error } = await supabase
+      .from('recommendations')
+      .delete()
+      .eq('product_id', productId)
+      .eq('user_id', req.user.id);
+
+    if (error) {
+      throw error;
+    }
+
     res.json({ success: true, message: 'Recommendation dismissed' });
   } catch (error) {
     console.error('Recommendation rejection error:', error);
@@ -1666,21 +1833,21 @@ app.post('/api/recommendations/reject', authenticateToken, async (req, res) => {
 app.post('/api/price-changes/apply', authenticateToken, async (req, res) => {
   const { productId, newPrice } = req.body;
   try {
-    const productResult = await pool.query(
-      'SELECT * FROM products WHERE id = $1 AND user_id = $2',
-      [productId, req.user.id]
-    );
+    const { data: product, error: productError } = await supabase
+      .from('products')
+      .select('*')
+      .eq('id', productId)
+      .eq('user_id', req.user.id)
+      .single();
 
-    if (productResult.rows.length === 0) {
+    if (productError || !product) {
       return res.status(404).json({ error: 'Product not found' });
     }
-
-    const product = productResult.rows[0];
 
     // ============================================
     // DUAL-MODE AUTH: Get credentials based on AUTH_MODE
     // ============================================
-    const { shop, accessToken } = await getShopifyCredentials(req, pool);
+    const { shop, accessToken } = await getShopifyCredentials(req, supabase);
 
     await axios.put(
       `https://${shop}/admin/api/2024-01/variants/${product.shopify_variant_id}.json`,
@@ -1688,13 +1855,29 @@ app.post('/api/price-changes/apply', authenticateToken, async (req, res) => {
       { headers: { 'X-Shopify-Access-Token': accessToken, 'Content-Type': 'application/json' } }
     );
 
-    await pool.query(
-      'INSERT INTO price_changes (user_id, product_id, old_price, new_price) VALUES ($1, $2, $3, $4)',
-      [req.user.id, productId, product.price, newPrice]
-    );
+    const { error: priceChangeError } = await supabase
+      .from('price_changes')
+      .insert({
+        user_id: req.user.id,
+        product_id: productId,
+        old_price: product.price,
+        new_price: newPrice
+      });
 
-    await pool.query('UPDATE products SET price = $1 WHERE id = $2', [newPrice, productId]);
-    await pool.query('DELETE FROM recommendations WHERE product_id = $1 AND user_id = $2', [productId, req.user.id]);
+    if (priceChangeError) {
+      console.error('Error logging price change:', priceChangeError);
+    }
+
+    await supabase
+      .from('products')
+      .update({ price: newPrice })
+      .eq('id', productId);
+
+    await supabase
+      .from('recommendations')
+      .delete()
+      .eq('product_id', productId)
+      .eq('user_id', req.user.id);
 
     res.json({ success: true, message: 'Price updated successfully' });
   } catch (error) {
@@ -1705,16 +1888,32 @@ app.post('/api/price-changes/apply', authenticateToken, async (req, res) => {
 
 app.get('/api/price-changes', authenticateToken, async (req, res) => {
   try {
-    const result = await pool.query(
-      `SELECT pc.*, p.title, p.image_url
-       FROM price_changes pc
-       JOIN products p ON pc.product_id = p.id
-       WHERE pc.user_id = $1
-       ORDER BY pc.created_at DESC
-       LIMIT 50`,
-      [req.user.id]
-    );
-    res.json({ priceChanges: result.rows });
+    const { data: priceChanges, error } = await supabase
+      .from('price_changes')
+      .select(`
+        *,
+        products (
+          title,
+          image_url
+        )
+      `)
+      .eq('user_id', req.user.id)
+      .order('created_at', { ascending: false })
+      .limit(50);
+
+    if (error) {
+      throw error;
+    }
+
+    // Flatten the structure
+    const formattedChanges = priceChanges.map(pc => ({
+      ...pc,
+      title: pc.products?.title,
+      image_url: pc.products?.image_url,
+      products: undefined
+    }));
+
+    res.json({ priceChanges: formattedChanges });
   } catch (error) {
     console.error('Price changes fetch error:', error);
     res.status(500).json({ error: 'Failed to fetch price changes' });
@@ -1725,42 +1924,40 @@ app.get('/api/price-changes', authenticateToken, async (req, res) => {
 
 app.get('/api/analytics/dashboard', authenticateToken, async (req, res) => {
   try {
-    const productsResult = await pool.query(
-      'SELECT COUNT(*) as count FROM products WHERE user_id = $1',
-      [req.user.id]
-    );
-    const totalProducts = parseInt(productsResult.rows[0].count) || 0;
+    const { count: totalProducts } = await supabase
+      .from('products')
+      .select('*', { count: 'exact', head: true })
+      .eq('user_id', req.user.id);
 
-    const costPricesResult = await pool.query(
-      'SELECT COUNT(*) as count FROM products WHERE user_id = $1 AND cost_price > 0',
-      [req.user.id]
-    );
-    const productsWithCost = parseInt(costPricesResult.rows[0].count) || 0;
+    const { count: productsWithCost } = await supabase
+      .from('products')
+      .select('*', { count: 'exact', head: true })
+      .eq('user_id', req.user.id)
+      .gt('cost_price', 0);
 
-    const recsResult = await pool.query(
-      'SELECT COUNT(*) as count FROM recommendations WHERE user_id = $1',
-      [req.user.id]
-    );
-    const recommendationsCount = parseInt(recsResult.rows[0].count) || 0;
+    const { count: recommendationsCount } = await supabase
+      .from('recommendations')
+      .select('*', { count: 'exact', head: true })
+      .eq('user_id', req.user.id);
 
-    const profitResult = await pool.query(
-      'SELECT SUM(profit_impact) as total FROM price_changes WHERE user_id = $1',
-      [req.user.id]
-    );
-    const aiProfitImpact = parseFloat(profitResult.rows[0].total) || 0;
+    const { data: profitData, error: profitError } = await supabase
+      .from('price_changes')
+      .select('profit_impact')
+      .eq('user_id', req.user.id);
 
-    const changesResult = await pool.query(
-      'SELECT COUNT(*) as count FROM price_changes WHERE user_id = $1',
-      [req.user.id]
-    );
-    const priceChangesCount = parseInt(changesResult.rows[0].count) || 0;
+    const aiProfitImpact = profitData?.reduce((sum, row) => sum + (parseFloat(row.profit_impact) || 0), 0) || 0;
+
+    const { count: priceChangesCount } = await supabase
+      .from('price_changes')
+      .select('*', { count: 'exact', head: true })
+      .eq('user_id', req.user.id);
 
     res.json({
-      totalProducts,
-      productsWithCost,
-      recommendationsCount,
+      totalProducts: totalProducts || 0,
+      productsWithCost: productsWithCost || 0,
+      recommendationsCount: recommendationsCount || 0,
       aiProfitImpact,
-      priceChangesCount
+      priceChangesCount: priceChangesCount || 0
     });
   } catch (error) {
     console.error('Dashboard analytics error:', error);
@@ -1770,17 +1967,27 @@ app.get('/api/analytics/dashboard', authenticateToken, async (req, res) => {
 
 app.get('/api/analytics/revenue-impact', authenticateToken, async (req, res) => {
   try {
-    const result = await pool.query(
-      `SELECT 
-        SUM(CASE WHEN created_at >= NOW() - INTERVAL '7 days' THEN profit_impact ELSE 0 END) as this_week,
-        SUM(CASE WHEN created_at >= NOW() - INTERVAL '14 days' AND created_at < NOW() - INTERVAL '7 days' THEN profit_impact ELSE 0 END) as last_week
-       FROM price_changes 
-       WHERE user_id = $1`,
-      [req.user.id]
-    );
+    const sevenDaysAgo = new Date();
+    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
 
-    const thisWeek = parseFloat(result.rows[0]?.this_week) || 0;
-    const lastWeek = parseFloat(result.rows[0]?.last_week) || 0;
+    const fourteenDaysAgo = new Date();
+    fourteenDaysAgo.setDate(fourteenDaysAgo.getDate() - 14);
+
+    const { data: thisWeekData } = await supabase
+      .from('price_changes')
+      .select('profit_impact')
+      .eq('user_id', req.user.id)
+      .gte('created_at', sevenDaysAgo.toISOString());
+
+    const { data: lastWeekData } = await supabase
+      .from('price_changes')
+      .select('profit_impact')
+      .eq('user_id', req.user.id)
+      .gte('created_at', fourteenDaysAgo.toISOString())
+      .lt('created_at', sevenDaysAgo.toISOString());
+
+    const thisWeek = thisWeekData?.reduce((sum, row) => sum + (parseFloat(row.profit_impact) || 0), 0) || 0;
+    const lastWeek = lastWeekData?.reduce((sum, row) => sum + (parseFloat(row.profit_impact) || 0), 0) || 0;
     const improvement = thisWeek - lastWeek;
     const improvementPercent = lastWeek > 0 ? (improvement / lastWeek) * 100 : 0;
 
@@ -1798,23 +2005,35 @@ app.get('/api/analytics/revenue-impact', authenticateToken, async (req, res) => 
 
 app.get('/api/analytics/action-timeline', authenticateToken, async (req, res) => {
   try {
-    const result = await pool.query(
-      `SELECT 
-        DATE(created_at) as date,
-        COUNT(*) as actions,
-        SUM(profit_impact) as revenue
-       FROM price_changes 
-       WHERE user_id = $1 
-         AND created_at >= NOW() - INTERVAL '30 days'
-       GROUP BY DATE(created_at)
-       ORDER BY DATE(created_at) ASC`,
-      [req.user.id]
-    );
+    const thirtyDaysAgo = new Date();
+    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
 
-    const timelineData = result.rows.map(row => ({
-      date: new Date(row.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
-      actions: parseInt(row.actions) || 0,
-      revenue: parseFloat(row.revenue) || 0
+    const { data: changes, error } = await supabase
+      .from('price_changes')
+      .select('created_at, profit_impact')
+      .eq('user_id', req.user.id)
+      .gte('created_at', thirtyDaysAgo.toISOString())
+      .order('created_at', { ascending: true });
+
+    if (error) {
+      throw error;
+    }
+
+    // Group by date
+    const grouped = {};
+    changes?.forEach(row => {
+      const date = new Date(row.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+      if (!grouped[date]) {
+        grouped[date] = { actions: 0, revenue: 0 };
+      }
+      grouped[date].actions++;
+      grouped[date].revenue += parseFloat(row.profit_impact) || 0;
+    });
+
+    const timelineData = Object.keys(grouped).map(date => ({
+      date,
+      actions: grouped[date].actions,
+      revenue: grouped[date].revenue
     }));
 
     res.json({ timelineData });
@@ -1826,15 +2045,22 @@ app.get('/api/analytics/action-timeline', authenticateToken, async (req, res) =>
 
 app.get('/api/analytics/projected-growth', authenticateToken, async (req, res) => {
   try {
-    const avgResult = await pool.query(
-      `SELECT AVG(profit_impact) as avg_profit, COUNT(*) as count
-       FROM price_changes 
-       WHERE user_id = $1 AND created_at >= NOW() - INTERVAL '30 days'`,
-      [req.user.id]
-    );
+    const thirtyDaysAgo = new Date();
+    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
 
-    const avgProfit = parseFloat(avgResult.rows[0]?.avg_profit) || 0;
-    const count = parseInt(avgResult.rows[0]?.count) || 0;
+    const { data: changes, error } = await supabase
+      .from('price_changes')
+      .select('profit_impact')
+      .eq('user_id', req.user.id)
+      .gte('created_at', thirtyDaysAgo.toISOString());
+
+    if (error) {
+      throw error;
+    }
+
+    const count = changes?.length || 0;
+    const totalProfit = changes?.reduce((sum, row) => sum + (parseFloat(row.profit_impact) || 0), 0) || 0;
+    const avgProfit = count > 0 ? totalProfit / count : 0;
 
     const dailyRate = count > 0 ? avgProfit * (count / 30) : 0;
     const projected30 = dailyRate * 30;
@@ -1842,7 +2068,7 @@ app.get('/api/analytics/projected-growth', authenticateToken, async (req, res) =
     const projected90 = dailyRate * 90;
 
     res.json({
-      current: avgProfit * count,
+      current: totalProfit,
       projected30,
       projected60,
       projected90
@@ -1860,7 +2086,7 @@ app.get('/api/orders', authenticateToken, async (req, res) => {
     // ============================================
     // DUAL-MODE AUTH: Get credentials based on AUTH_MODE
     // ============================================
-    const { shop, accessToken } = await getShopifyCredentials(req, pool);
+    const { shop, accessToken } = await getShopifyCredentials(req, supabase);
 
     const thirtyDaysAgo = new Date();
     thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
@@ -1899,14 +2125,9 @@ app.get('/api/orders', authenticateToken, async (req, res) => {
 app.get('/api/debug', (req, res) => {
   res.json({
     deployTime: new Date().toISOString(),
-    commitHash: 'PARSED-CONFIG',
-    hasDbUrl: !!process.env.DATABASE_URL,
-    connectionConfig: {
-      host: connectionConfig.host,
-      port: connectionConfig.port,
-      database: connectionConfig.database,
-      ssl: connectionConfig.ssl
-    },
+    commitHash: 'SUPABASE-REFACTORED',
+    hasSupabaseUrl: !!process.env.SUPABASE_URL,
+    hasSupabaseKey: !!process.env.SUPABASE_SERVICE_KEY,
     nodeEnv: process.env.NODE_ENV,
     vercelEnv: process.env.VERCEL_ENV
   });
@@ -1919,7 +2140,7 @@ app.get('/api/test-auth', authenticateToken, async (req, res) => {
     // ============================================
     // DUAL-MODE AUTH: Get credentials and test connection
     // ============================================
-    const { shop, accessToken } = await getShopifyCredentials(req, pool);
+    const { shop, accessToken } = await getShopifyCredentials(req, supabase);
 
     // Test the Shopify connection by fetching shop info
     const shopifyResponse = await axios.get(
@@ -2042,23 +2263,35 @@ app.post('/api/admin/users/:id/set-shopify', authenticateAdmin, async (req, res)
     }
 
     // Update users table
-    await pool.query(
-      'UPDATE users SET shopify_shop = $1, shopify_access_token = $2 WHERE id = $3',
-      [shopDomain, accessToken, userId]
-    );
+    const { error: updateError } = await supabase
+      .from('users')
+      .update({
+        shopify_shop: shopDomain,
+        shopify_access_token: accessToken
+      })
+      .eq('id', userId);
+
+    if (updateError) {
+      throw updateError;
+    }
 
     // Also update/insert in shops table
-    await pool.query(
-      `INSERT INTO shops (shop_domain, access_token, user_id, installed_at, updated_at, is_active)
-       VALUES ($1, $2, $3, NOW(), NOW(), true)
-       ON CONFLICT (shop_domain)
-       DO UPDATE SET
-         access_token = EXCLUDED.access_token,
-         user_id = EXCLUDED.user_id,
-         updated_at = NOW(),
-         is_active = true`,
-      [shopDomain, accessToken, userId]
-    );
+    const { error: upsertError } = await supabase
+      .from('shops')
+      .upsert({
+        shop_domain: shopDomain,
+        access_token: accessToken,
+        user_id: userId,
+        installed_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+        is_active: true
+      }, {
+        onConflict: 'shop_domain'
+      });
+
+    if (upsertError) {
+      throw upsertError;
+    }
 
     console.log(`✅ [ADMIN] Manually connected ${shopDomain} to user ${userId}`);
 
@@ -2078,20 +2311,20 @@ app.post('/api/admin/users/:id/set-shopify', authenticateAdmin, async (req, res)
 app.get('/api/admin/apps', authenticateAdmin, async (req, res) => {
   const startTime = Date.now();
   try {
-    console.log('📋 [ADMIN] Fetching all apps...');
-    console.log('📊 [ADMIN] Pool status before query:', {
-      total: pool.totalCount,
-      idle: pool.idleCount,
-      waiting: pool.waitingCount
-    });
+    console.log('📋 [ADMIN] Fetching all apps via Supabase...');
 
-    const result = await pool.query(
-      'SELECT id, app_name, client_id, shop_domain, status, created_at, install_url FROM shopify_apps ORDER BY created_at DESC'
-    );
+    const { data, error } = await supabase
+      .from('shopify_apps')
+      .select('id, app_name, client_id, shop_domain, status, created_at, install_url')
+      .order('created_at', { ascending: false });
+
+    if (error) {
+      throw error;
+    }
 
     const duration = Date.now() - startTime;
-    console.log(`✅ [ADMIN] Found ${result.rows.length} apps in ${duration}ms`);
-    res.json({ apps: result.rows });
+    console.log(`✅ [ADMIN] Found ${data.length} apps in ${duration}ms`);
+    res.json({ apps: data });
   } catch (error) {
     const duration = Date.now() - startTime;
     console.error(`❌ [ADMIN] Apps fetch error after ${duration}ms:`, error.message);
@@ -2123,36 +2356,42 @@ app.post('/api/admin/apps', authenticateAdmin, async (req, res) => {
 
   const startTime = Date.now();
   try {
-    console.log('💾 [ADMIN] Inserting app into database...');
-    console.log('📊 [ADMIN] Pool status:', {
-      total: pool.totalCount,
-      idle: pool.idleCount,
-      waiting: pool.waitingCount
-    });
-
+    console.log('💾 [ADMIN] Inserting app into database via Supabase...');
     console.log('⏱️  [ADMIN] Starting database INSERT...');
 
-    // First insert without install_url to get the app ID
-    const result = await pool.query(
-      `INSERT INTO shopify_apps (app_name, client_id, client_secret, shop_domain, status)
-       VALUES ($1, $2, $3, $4, 'active')
-       RETURNING id, app_name, client_id, shop_domain, status, created_at`,
-      [appName, clientId, clientSecret, shopDomain]
-    );
+    // Insert app and get the ID back
+    const { data: newApp, error: insertError } = await supabase
+      .from('shopify_apps')
+      .insert({
+        app_name: appName,
+        client_id: clientId,
+        client_secret: clientSecret,
+        shop_domain: shopDomain,
+        status: 'active'
+      })
+      .select('id, app_name, client_id, shop_domain, status, created_at')
+      .single();
 
-    const app = result.rows[0];
+    if (insertError) {
+      throw insertError;
+    }
 
     // Generate the correct OAuth install link using our backend
     const backendUrl = process.env.BACKEND_URL || 'https://automerchant-backend-v2.vercel.app';
-    const generatedInstallUrl = `${backendUrl}/api/shopify/install?shop=${shopDomain}&app_id=${app.id}`;
+    const generatedInstallUrl = `${backendUrl}/api/shopify/install?shop=${shopDomain}&app_id=${newApp.id}`;
 
     // Update the app with the generated install URL
-    await pool.query(
-      `UPDATE shopify_apps SET install_url = $1 WHERE id = $2`,
-      [generatedInstallUrl, app.id]
-    );
+    const { error: updateError } = await supabase
+      .from('shopify_apps')
+      .update({ install_url: generatedInstallUrl })
+      .eq('id', newApp.id);
 
-    app.install_url = generatedInstallUrl;
+    if (updateError) {
+      throw updateError;
+    }
+
+    newApp.install_url = generatedInstallUrl;
+    const app = newApp;
 
     console.log('⏱️  [ADMIN] Database INSERT completed');
     console.log('🔗 [ADMIN] Generated install URL:', generatedInstallUrl);
@@ -2191,13 +2430,14 @@ app.delete('/api/admin/apps/:id', authenticateAdmin, async (req, res) => {
   try {
     console.log(`🗑️  [ADMIN] Deleting app ID: ${req.params.id}`);
 
-    const timeoutPromise = new Promise((_, reject) =>
-      setTimeout(() => reject(new Error('Query timeout')), 10000)
-    );
+    const { error } = await supabase
+      .from('shopify_apps')
+      .delete()
+      .eq('id', req.params.id);
 
-    const queryPromise = pool.query('DELETE FROM shopify_apps WHERE id = $1', [req.params.id]);
-
-    await Promise.race([queryPromise, timeoutPromise]);
+    if (error) {
+      throw error;
+    }
 
     console.log(`✅ [ADMIN] App ${req.params.id} deleted`);
     res.json({ success: true });
@@ -2209,190 +2449,258 @@ app.delete('/api/admin/apps/:id', authenticateAdmin, async (req, res) => {
 
 // Get all waitlist users with approval status
 app.get('/api/admin/users', authenticateAdmin, async (req, res) => {
+  const startTime = Date.now();
   try {
-    console.log('📊 [ADMIN] Fetching all users with approval status');
+    console.log('📊 [ADMIN] Fetching all users with approval status via Supabase...');
 
     // Get all users from users table (includes approved status)
-    const usersResult = await pool.query(
-      `SELECT
-        u.id,
-        u.email,
-        u.approved,
-        u.suspended,
-        u.approved_at,
-        u.suspended_at,
-        u.assigned_app_id,
-        u.created_at,
-        s.app_name as assigned_app_name
-       FROM users u
-       LEFT JOIN shopify_apps s ON u.assigned_app_id = s.id
-       ORDER BY u.created_at DESC`
-    );
+    const { data: users, error } = await supabase
+      .from('users')
+      .select(`
+        id,
+        email,
+        approved,
+        suspended,
+        approved_at,
+        suspended_at,
+        assigned_app_id,
+        created_at,
+        shopify_apps(app_name)
+      `)
+      .order('created_at', { ascending: false });
 
-    const usersWithStatus = usersResult.rows.map(row => ({
-      ...row,
-      name: row.email.split('@')[0] // Extract name from email
+    if (error) {
+      throw error;
+    }
+
+    const usersWithStatus = users.map(user => ({
+      ...user,
+      assigned_app_name: user.shopify_apps?.app_name || null,
+      shopify_apps: undefined, // Remove nested object
+      name: user.email.split('@')[0] // Extract name from email
     }));
 
-    console.log(`📊 [ADMIN] Returned ${usersWithStatus.length} users`);
+    const duration = Date.now() - startTime;
+    console.log(`📊 [ADMIN] Returned ${usersWithStatus.length} users in ${duration}ms`);
 
     res.json({ users: usersWithStatus });
   } catch (error) {
-    console.error('❌ [ADMIN] Users fetch error:', error);
-    res.status(500).json({ error: 'Failed to fetch users' });
+    const duration = Date.now() - startTime;
+    console.error(`❌ [ADMIN] Users fetch error after ${duration}ms:`, error.message);
+    console.error('Full error:', error);
+    res.status(500).json({ error: 'Failed to fetch users', details: error.message });
   }
 });
 
 // Approve user
 app.post('/api/admin/users/:id/approve', authenticateAdmin, async (req, res) => {
+  const startTime = Date.now();
   try {
-    console.log(`✅ [ADMIN] Approving user ${req.params.id}`);
+    console.log(`✅ [ADMIN] Approving user ${req.params.id} via Supabase...`);
 
-    const result = await pool.query(
-      `UPDATE users
-       SET approved = true,
-           suspended = false,
-           approved_at = NOW()
-       WHERE id = $1
-       RETURNING id, email, approved, approved_at`,
-      [req.params.id]
-    );
+    const { data: updatedUser, error } = await supabase
+      .from('users')
+      .update({
+        approved: true,
+        suspended: false,
+        approved_at: new Date().toISOString()
+      })
+      .eq('id', req.params.id)
+      .select('id, email, approved, approved_at')
+      .single();
 
-    if (result.rows.length === 0) {
-      console.log(`❌ [ADMIN] User ${req.params.id} not found`);
-      return res.status(404).json({ error: 'User not found' });
+    if (error) {
+      if (error.code === 'PGRST116') {
+        console.log(`❌ [ADMIN] User ${req.params.id} not found`);
+        return res.status(404).json({ error: 'User not found' });
+      }
+      throw error;
     }
 
-    console.log(`✅ [ADMIN] User ${result.rows[0].email} approved successfully`);
+    const duration = Date.now() - startTime;
+    console.log(`✅ [ADMIN] User ${updatedUser.email} approved successfully in ${duration}ms`);
 
-    res.json({ success: true, user: result.rows[0] });
+    res.json({ success: true, user: updatedUser });
   } catch (error) {
-    console.error('❌ [ADMIN] User approve error:', error);
-    res.status(500).json({ error: 'Failed to approve user' });
+    const duration = Date.now() - startTime;
+    console.error(`❌ [ADMIN] User approve error after ${duration}ms:`, error.message);
+    console.error('Full error:', error);
+    res.status(500).json({ error: 'Failed to approve user', details: error.message });
   }
 });
 
 // Suspend user
 app.post('/api/admin/users/:id/suspend', authenticateAdmin, async (req, res) => {
+  const startTime = Date.now();
   try {
-    console.log(`🚫 [ADMIN] Suspending user ${req.params.id}`);
+    console.log(`🚫 [ADMIN] Suspending user ${req.params.id} via Supabase...`);
 
-    const result = await pool.query(
-      `UPDATE users
-       SET suspended = true,
-           suspended_at = NOW()
-       WHERE id = $1
-       RETURNING id, email, suspended, suspended_at`,
-      [req.params.id]
-    );
+    const { data: updatedUser, error } = await supabase
+      .from('users')
+      .update({
+        suspended: true,
+        suspended_at: new Date().toISOString()
+      })
+      .eq('id', req.params.id)
+      .select('id, email, suspended, suspended_at')
+      .single();
 
-    if (result.rows.length === 0) {
-      console.log(`❌ [ADMIN] User ${req.params.id} not found`);
-      return res.status(404).json({ error: 'User not found' });
+    if (error) {
+      if (error.code === 'PGRST116') {
+        console.log(`❌ [ADMIN] User ${req.params.id} not found`);
+        return res.status(404).json({ error: 'User not found' });
+      }
+      throw error;
     }
 
-    console.log(`🚫 [ADMIN] User ${result.rows[0].email} suspended successfully`);
+    const duration = Date.now() - startTime;
+    console.log(`🚫 [ADMIN] User ${updatedUser.email} suspended successfully in ${duration}ms`);
 
-    res.json({ success: true, user: result.rows[0] });
+    res.json({ success: true, user: updatedUser });
   } catch (error) {
-    console.error('❌ [ADMIN] User suspend error:', error);
-    res.status(500).json({ error: 'Failed to suspend user' });
+    const duration = Date.now() - startTime;
+    console.error(`❌ [ADMIN] User suspend error after ${duration}ms:`, error.message);
+    console.error('Full error:', error);
+    res.status(500).json({ error: 'Failed to suspend user', details: error.message });
   }
 });
 
 // Unsuspend user
 app.post('/api/admin/users/:id/unsuspend', authenticateAdmin, async (req, res) => {
+  const startTime = Date.now();
   try {
-    console.log(`✅ [ADMIN] Unsuspending user ${req.params.id}`);
+    console.log(`✅ [ADMIN] Unsuspending user ${req.params.id} via Supabase...`);
 
-    const result = await pool.query(
-      `UPDATE users
-       SET suspended = false,
-           suspended_at = NULL
-       WHERE id = $1
-       RETURNING id, email, suspended`,
-      [req.params.id]
-    );
+    const { data: updatedUser, error } = await supabase
+      .from('users')
+      .update({
+        suspended: false,
+        suspended_at: null
+      })
+      .eq('id', req.params.id)
+      .select('id, email, suspended')
+      .single();
 
-    if (result.rows.length === 0) {
-      console.log(`❌ [ADMIN] User ${req.params.id} not found`);
-      return res.status(404).json({ error: 'User not found' });
+    if (error) {
+      if (error.code === 'PGRST116') {
+        console.log(`❌ [ADMIN] User ${req.params.id} not found`);
+        return res.status(404).json({ error: 'User not found' });
+      }
+      throw error;
     }
 
-    console.log(`✅ [ADMIN] User ${result.rows[0].email} unsuspended successfully`);
+    const duration = Date.now() - startTime;
+    console.log(`✅ [ADMIN] User ${updatedUser.email} unsuspended successfully in ${duration}ms`);
 
-    res.json({ success: true, user: result.rows[0] });
+    res.json({ success: true, user: updatedUser });
   } catch (error) {
-    console.error('❌ [ADMIN] User unsuspend error:', error);
-    res.status(500).json({ error: 'Failed to unsuspend user' });
+    const duration = Date.now() - startTime;
+    console.error(`❌ [ADMIN] User unsuspend error after ${duration}ms:`, error.message);
+    console.error('Full error:', error);
+    res.status(500).json({ error: 'Failed to unsuspend user', details: error.message });
   }
 });
 
 // Assign app to user
 app.post('/api/admin/users/:id/assign-app', authenticateAdmin, async (req, res) => {
   const { appId } = req.body;
+  const startTime = Date.now();
 
   try {
-    console.log(`🔗 [ADMIN] Assigning app ${appId} to user ${req.params.id}`);
+    console.log(`🔗 [ADMIN] Assigning app ${appId} to user ${req.params.id} via Supabase...`);
 
-    const result = await pool.query(
-      `UPDATE users
-       SET assigned_app_id = $1
-       WHERE id = $2
-       RETURNING id, email, assigned_app_id`,
-      [appId, req.params.id]
-    );
+    const { data: updatedUser, error } = await supabase
+      .from('users')
+      .update({ assigned_app_id: appId })
+      .eq('id', req.params.id)
+      .select('id, email, assigned_app_id')
+      .single();
 
-    if (result.rows.length === 0) {
-      console.log(`❌ [ADMIN] User ${req.params.id} not found`);
-      return res.status(404).json({ error: 'User not found' });
+    if (error) {
+      if (error.code === 'PGRST116') {
+        console.log(`❌ [ADMIN] User ${req.params.id} not found`);
+        return res.status(404).json({ error: 'User not found' });
+      }
+      throw error;
     }
 
-    console.log(`🔗 [ADMIN] App ${appId} assigned to user ${result.rows[0].email}`);
+    const duration = Date.now() - startTime;
+    console.log(`🔗 [ADMIN] App ${appId} assigned to user ${updatedUser.email} in ${duration}ms`);
 
-    res.json({ success: true, user: result.rows[0] });
+    res.json({ success: true, user: updatedUser });
   } catch (error) {
-    console.error('❌ [ADMIN] App assignment error:', error);
-    res.status(500).json({ error: 'Failed to assign app' });
+    const duration = Date.now() - startTime;
+    console.error(`❌ [ADMIN] App assignment error after ${duration}ms:`, error.message);
+    console.error('Full error:', error);
+    res.status(500).json({ error: 'Failed to assign app', details: error.message });
   }
 });
 
 // Get admin stats
 app.get('/api/admin/stats', authenticateAdmin, async (req, res) => {
+  const startTime = Date.now();
   try {
-    console.log('📊 [ADMIN] Fetching admin stats');
+    console.log('📊 [ADMIN] Fetching admin stats via Supabase...');
 
-    const totalUsersResult = await pool.query('SELECT COUNT(*) as count FROM users');
-    const approvedUsersResult = await pool.query('SELECT COUNT(*) as count FROM users WHERE approved = true');
-    const suspendedUsersResult = await pool.query('SELECT COUNT(*) as count FROM users WHERE suspended = true');
-    const pendingUsersResult = await pool.query('SELECT COUNT(*) as count FROM users WHERE approved = false AND suspended = false');
-    const totalAppsResult = await pool.query('SELECT COUNT(*) as count FROM shopify_apps WHERE status = $1', ['active']);
+    // Run all count queries in parallel
+    const [
+      totalUsersResult,
+      approvedUsersResult,
+      suspendedUsersResult,
+      pendingUsersResult,
+      totalAppsResult
+    ] = await Promise.all([
+      supabase.from('users').select('*', { count: 'exact', head: true }),
+      supabase.from('users').select('*', { count: 'exact', head: true }).eq('approved', true),
+      supabase.from('users').select('*', { count: 'exact', head: true }).eq('suspended', true),
+      supabase.from('users').select('*', { count: 'exact', head: true }).eq('approved', false).eq('suspended', false),
+      supabase.from('shopify_apps').select('*', { count: 'exact', head: true }).eq('status', 'active')
+    ]);
 
     const stats = {
-      totalUsers: parseInt(totalUsersResult.rows[0].count) || 0,
-      approvedUsers: parseInt(approvedUsersResult.rows[0].count) || 0,
-      suspendedUsers: parseInt(suspendedUsersResult.rows[0].count) || 0,
-      pendingUsers: parseInt(pendingUsersResult.rows[0].count) || 0,
-      totalApps: parseInt(totalAppsResult.rows[0].count) || 0
+      totalUsers: totalUsersResult.count || 0,
+      approvedUsers: approvedUsersResult.count || 0,
+      suspendedUsers: suspendedUsersResult.count || 0,
+      pendingUsers: pendingUsersResult.count || 0,
+      totalApps: totalAppsResult.count || 0
     };
 
-    console.log('📊 [ADMIN] Stats:', stats);
+    const duration = Date.now() - startTime;
+    console.log(`📊 [ADMIN] Stats fetched in ${duration}ms:`, stats);
 
     res.json(stats);
   } catch (error) {
-    console.error('❌ [ADMIN] Stats fetch error:', error);
-    res.status(500).json({ error: 'Failed to fetch stats' });
+    const duration = Date.now() - startTime;
+    console.error(`❌ [ADMIN] Stats fetch error after ${duration}ms:`, error.message);
+    console.error('Full error:', error);
+    res.status(500).json({ error: 'Failed to fetch stats', details: error.message });
   }
 });
 
 // Remove user from waitlist
 app.delete('/api/admin/users/:id', authenticateAdmin, async (req, res) => {
+  const startTime = Date.now();
   try {
-    await pool.query('DELETE FROM waitlist_emails WHERE id = $1', [req.params.id]);
+    console.log(`🗑️  [ADMIN] Deleting user ${req.params.id} via Supabase...`);
+
+    const { error } = await supabase
+      .from('waitlist_emails')
+      .delete()
+      .eq('id', req.params.id);
+
+    if (error) {
+      throw error;
+    }
+
+    const duration = Date.now() - startTime;
+    console.log(`🗑️  [ADMIN] User deleted successfully in ${duration}ms`);
+
     res.json({ success: true });
   } catch (error) {
-    console.error('Admin user delete error:', error);
-    res.status(500).json({ error: 'Failed to delete user' });
+    const duration = Date.now() - startTime;
+    console.error(`❌ [ADMIN] User delete error after ${duration}ms:`, error.message);
+    console.error('Full error:', error);
+    res.status(500).json({ error: 'Failed to delete user', details: error.message });
   }
 });
 
@@ -2400,11 +2708,20 @@ app.delete('/api/admin/users/:id', authenticateAdmin, async (req, res) => {
 
 app.get('/api/health', async (req, res) => {
   try {
-    const { rows } = await pool.query('SELECT NOW() as now');
+    // Test Supabase connection by querying any table
+    const { data, error } = await supabase
+      .from('users')
+      .select('id')
+      .limit(1);
+
+    if (error) {
+      throw error;
+    }
+
     return res.json({
       status: 'ok',
       supabase: true,
-      time: rows[0].now.toISOString?.() || rows[0].now
+      time: new Date().toISOString()
     });
   } catch (err) {
     return res.status(500).json({
