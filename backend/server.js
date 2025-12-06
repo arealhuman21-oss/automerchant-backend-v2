@@ -2703,6 +2703,35 @@ app.delete('/api/admin/users/:id', authenticateAdmin, async (req, res) => {
   }
 });
 
+// ============ CUSTOM APP INSTALL CALLBACK (ROOT) ============
+// Custom app installs redirect to App URL root instead of /api/shopify/callback
+app.get('/', async (req, res) => {
+  const { hmac, shop, host, timestamp } = req.query;
+
+  // If this is a custom app install callback (has hmac, shop, host)
+  if (hmac && shop && host) {
+    console.log('🔐 [Custom App Install] Redirect to callback handler');
+    console.log('   Shop:', shop);
+    console.log('   HMAC:', hmac);
+
+    // Redirect to the main callback handler with all query params
+    const callbackUrl = `/api/shopify/callback?${new URLSearchParams(req.query).toString()}`;
+    return res.redirect(callbackUrl);
+  }
+
+  // Otherwise, show API info
+  res.json({
+    name: 'AutoMerchant Backend API',
+    version: '2.0',
+    status: 'running',
+    endpoints: {
+      health: '/api/health',
+      shopifyInstall: '/api/shopify/install',
+      shopifyCallback: '/api/shopify/callback'
+    }
+  });
+});
+
 // ============ HEALTH CHECK ============
 
 app.get('/api/health', async (req, res) => {
