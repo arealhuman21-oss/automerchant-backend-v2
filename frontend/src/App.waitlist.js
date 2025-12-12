@@ -164,21 +164,29 @@ function LandingPage({ onJoinWaitlist, waitlistCount, userAlreadySignedUp }) {
 
         {/* Show different message if user already signed up */}
         {userAlreadySignedUp ? (
-          <div className="mb-8">
+          <div className="mb-8 space-y-4">
             <div className="inline-block px-6 py-4 bg-green-500/10 border border-green-500/30 rounded-lg">
               <p className="text-green-300 font-medium text-lg">
                 🎉 You're already on the waitlist! We'll reach out soon.
               </p>
             </div>
+            <p className="text-gray-400 text-sm">
+              Already approved? <button className="text-purple-400 hover:text-purple-300 underline font-semibold" onClick={onJoinWaitlist}>Sign in here</button>
+            </p>
           </div>
         ) : (
-          <div className="flex items-center justify-center space-x-4 mb-8">
-            <button
-              onClick={onJoinWaitlist}
-              className="px-8 py-4 bg-gradient-to-r from-purple-600 to-pink-600 text-white rounded-lg font-bold text-lg hover:from-purple-700 hover:to-pink-700 transition transform hover:scale-105"
-            >
-              Join Waitlist
-            </button>
+          <div className="mb-8">
+            <div className="flex items-center justify-center space-x-4 mb-4">
+              <button
+                onClick={onJoinWaitlist}
+                className="px-10 py-5 bg-gradient-to-r from-purple-600 to-pink-600 text-white rounded-xl font-bold text-xl hover:from-purple-700 hover:to-pink-700 transition transform hover:scale-105 shadow-2xl shadow-purple-500/50"
+              >
+                🚀 Join Waitlist
+              </button>
+            </div>
+            <p className="text-gray-400 text-sm">
+              Already approved? <button className="text-purple-400 hover:text-purple-300 underline font-semibold" onClick={onJoinWaitlist}>Sign in here</button>
+            </p>
           </div>
         )}
 
@@ -262,6 +270,231 @@ function LandingPage({ onJoinWaitlist, waitlistCount, userAlreadySignedUp }) {
               Early access opens soon. Be part of the movement to bring honesty back to AI pricing.
             </p>
           </div>
+        </div>
+
+        {/* FULL FEATURE SHOWCASE - COLORFUL & DETAILED */}
+        <div className="mt-20 mb-12">
+          <h2 className="text-5xl font-black text-white mb-4">Every Feature You Need</h2>
+          <p className="text-xl text-gray-300 mb-12">Designed for Shopify merchants who want results, not complexity</p>
+
+          <div className="space-y-8">
+            {/* Feature 1: AI Pricing Engine */}
+            <div className="p-10 bg-gradient-to-br from-purple-900/40 to-indigo-900/40 border-2 border-purple-400/60 rounded-3xl shadow-2xl">
+              <div className="flex items-center space-x-4 mb-6">
+                <div className="p-4 bg-purple-500/30 rounded-2xl">
+                  <BarChart3 className="w-12 h-12 text-purple-300" />
+                </div>
+                <div>
+                  <h3 className="text-3xl font-bold text-white">🤖 AI Pricing Engine</h3>
+                  <p className="text-purple-200 text-lg">Smart recommendations based on YOUR data</p>
+                </div>
+              </div>
+              <div className="grid md:grid-cols-2 gap-6">
+                <div className="bg-slate-900/50 border border-purple-500/30 rounded-xl p-6">
+                  <p className="text-purple-300 font-bold mb-3">✅ What It Does:</p>
+                  <ul className="text-gray-300 space-y-2 text-sm">
+                    <li>• Analyzes sales velocity, inventory, margins</li>
+                    <li>• Detects pricing errors (selling below cost)</li>
+                    <li>• Optimizes for YOUR target margin (30-70%)</li>
+                    <li>• Runs automatically every 30 minutes</li>
+                    <li>• Manual analysis: 10 times per day</li>
+                  </ul>
+                </div>
+                <div className="bg-purple-950/50 border border-purple-400/40 rounded-xl p-6">
+                  <p className="text-green-300 font-bold mb-3">📊 Example Output:</p>
+                  <div className="bg-slate-900/70 rounded-lg p-4 border border-green-500/30">
+                    <p className="text-green-300 font-mono text-xs leading-relaxed">
+                      <span className="text-yellow-300">Product:</span> Blue T-Shirt<br/>
+                      <span className="text-yellow-300">Current:</span> $20 (20% margin)<br/>
+                      <span className="text-yellow-300">Recommended:</span> $25 (+25%)<br/>
+                      <span className="text-yellow-300">Reason:</span> Margin too low. Raising to 40% target while staying within 25% max increase.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Feature 2: Transparent Reasoning */}
+            <div className="p-10 bg-gradient-to-br from-green-900/40 to-emerald-900/40 border-2 border-green-400/60 rounded-3xl shadow-2xl">
+              <div className="flex items-center space-x-4 mb-6">
+                <div className="p-4 bg-green-500/30 rounded-2xl">
+                  <Check className="w-12 h-12 text-green-300" />
+                </div>
+                <div>
+                  <h3 className="text-3xl font-bold text-white">🔍 Transparent Reasoning</h3>
+                  <p className="text-green-200 text-lg">See EXACTLY why each price is recommended</p>
+                </div>
+              </div>
+              <div className="grid md:grid-cols-3 gap-4">
+                <div className="bg-slate-900/50 border border-green-500/30 rounded-xl p-5">
+                  <p className="text-red-300 font-bold mb-2">🚨 CRITICAL</p>
+                  <p className="text-gray-300 text-sm">Selling below cost! Emergency price increase to stop losses immediately.</p>
+                </div>
+                <div className="bg-slate-900/50 border border-yellow-500/30 rounded-xl p-5">
+                  <p className="text-yellow-300 font-bold mb-2">⚠️ HIGH</p>
+                  <p className="text-gray-300 text-sm">High demand + low stock. Raise price to maximize profit on remaining inventory.</p>
+                </div>
+                <div className="bg-slate-900/50 border border-blue-500/30 rounded-xl p-5">
+                  <p className="text-blue-300 font-bold mb-2">📊 MEDIUM</p>
+                  <p className="text-gray-300 text-sm">Overstock situation. Lower price to accelerate sales and reduce holding costs.</p>
+                </div>
+              </div>
+            </div>
+
+            {/* Feature 3: Safety Guardrails */}
+            <div className="p-10 bg-gradient-to-br from-orange-900/40 to-red-900/40 border-2 border-orange-400/60 rounded-3xl shadow-2xl">
+              <div className="flex items-center space-x-4 mb-6">
+                <div className="p-4 bg-orange-500/30 rounded-2xl">
+                  <Check className="w-12 h-12 text-orange-300" />
+                </div>
+                <div>
+                  <h3 className="text-3xl font-bold text-white">🛡️ Safety Guardrails</h3>
+                  <p className="text-orange-200 text-lg">We protect you from bad decisions</p>
+                </div>
+              </div>
+              <div className="grid md:grid-cols-2 gap-6">
+                <div>
+                  <p className="text-orange-300 font-bold mb-4">✅ Built-in Protections:</p>
+                  <div className="space-y-3">
+                    <div className="flex items-start space-x-3">
+                      <span className="text-green-400 text-2xl">✓</span>
+                      <div>
+                        <p className="text-white font-semibold">Never price below cost</p>
+                        <p className="text-gray-400 text-sm">Prevents losses from pricing errors</p>
+                      </div>
+                    </div>
+                    <div className="flex items-start space-x-3">
+                      <span className="text-green-400 text-2xl">✓</span>
+                      <div>
+                        <p className="text-white font-semibold">Max 20-25% price changes</p>
+                        <p className="text-gray-400 text-sm">Prevents shocking your customers</p>
+                      </div>
+                    </div>
+                    <div className="flex items-start space-x-3">
+                      <span className="text-green-400 text-2xl">✓</span>
+                      <div>
+                        <p className="text-white font-semibold">30-70% margin guardrails</p>
+                        <p className="text-gray-400 text-sm">Keeps business healthy & profitable</p>
+                      </div>
+                    </div>
+                    <div className="flex items-start space-x-3">
+                      <span className="text-green-400 text-2xl">✓</span>
+                      <div>
+                        <p className="text-white font-semibold">Manual approval required</p>
+                        <p className="text-gray-400 text-sm">YOU decide what gets applied</p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+                <div className="bg-orange-950/50 border border-orange-400/40 rounded-xl p-6">
+                  <p className="text-white font-bold mb-3">🎯 Your Control:</p>
+                  <div className="space-y-2 text-gray-300 text-sm">
+                    <p>• Review each recommendation before applying</p>
+                    <p>• Accept or reject with one click</p>
+                    <p>• See full reasoning for every suggestion</p>
+                    <p>• Track what you've applied vs rejected</p>
+                    <p>• AI learns your preferences over time</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Feature 4: Dashboard & Analytics */}
+            <div className="p-10 bg-gradient-to-br from-blue-900/40 to-cyan-900/40 border-2 border-blue-400/60 rounded-3xl shadow-2xl">
+              <div className="flex items-center space-x-4 mb-6">
+                <div className="p-4 bg-blue-500/30 rounded-2xl">
+                  <BarChart3 className="w-12 h-12 text-blue-300" />
+                </div>
+                <div>
+                  <h3 className="text-3xl font-bold text-white">📊 Dashboard & Analytics</h3>
+                  <p className="text-blue-200 text-lg">Everything you need in one place</p>
+                </div>
+              </div>
+              <div className="grid md:grid-cols-3 gap-4 text-sm">
+                <div className="bg-slate-900/50 border border-blue-500/30 rounded-xl p-5">
+                  <p className="text-blue-300 font-bold mb-3">🎯 Dashboard Tab</p>
+                  <ul className="text-gray-300 space-y-1">
+                    <li>• AI recommendations</li>
+                    <li>• Product list with margins</li>
+                    <li>• Apply/reject buttons</li>
+                    <li>• Set cost prices</li>
+                    <li>• Manual analysis trigger</li>
+                  </ul>
+                </div>
+                <div className="bg-slate-900/50 border border-green-500/30 rounded-xl p-5">
+                  <p className="text-green-300 font-bold mb-3">🛍️ Orders Tab</p>
+                  <ul className="text-gray-300 space-y-1">
+                    <li>• Last 30 days orders</li>
+                    <li>• Customer names</li>
+                    <li>• Order totals</li>
+                    <li>• Items per order</li>
+                    <li>• Payment status</li>
+                  </ul>
+                </div>
+                <div className="bg-slate-900/50 border border-purple-500/30 rounded-xl p-5">
+                  <p className="text-purple-300 font-bold mb-3">💰 ROI Calculator</p>
+                  <ul className="text-gray-300 space-y-1">
+                    <li>• Projected revenue increase</li>
+                    <li>• Profit forecasting</li>
+                    <li>• Historical tracking</li>
+                    <li>• Before/after comparison</li>
+                    <li>• Performance metrics</li>
+                  </ul>
+                </div>
+              </div>
+            </div>
+
+            {/* Feature 5: Shopify Integration */}
+            <div className="p-10 bg-gradient-to-br from-pink-900/40 to-rose-900/40 border-2 border-pink-400/60 rounded-3xl shadow-2xl">
+              <div className="flex items-center space-x-4 mb-6">
+                <div className="p-4 bg-pink-500/30 rounded-2xl">
+                  <Zap className="w-12 h-12 text-pink-300" />
+                </div>
+                <div>
+                  <h3 className="text-3xl font-bold text-white">⚡ Seamless Shopify Integration</h3>
+                  <p className="text-pink-200 text-lg">Works directly with your store</p>
+                </div>
+              </div>
+              <div className="grid md:grid-cols-2 gap-6">
+                <div className="bg-slate-900/50 border border-pink-500/30 rounded-xl p-6">
+                  <p className="text-pink-300 font-bold mb-4">🔗 What's Connected:</p>
+                  <div className="space-y-2 text-gray-300">
+                    <p>✅ Products (auto-synced)</p>
+                    <p>✅ Prices (read & update)</p>
+                    <p>✅ Inventory levels</p>
+                    <p>✅ Order history (30 days)</p>
+                    <p>✅ Sales data & velocity</p>
+                  </div>
+                </div>
+                <div className="bg-slate-900/50 border border-pink-500/30 rounded-xl p-6">
+                  <p className="text-green-300 font-bold mb-4">⚡ One-Click Actions:</p>
+                  <div className="space-y-2 text-gray-300">
+                    <p>✅ Apply price changes to Shopify</p>
+                    <p>✅ Sync products instantly</p>
+                    <p>✅ Update cost prices</p>
+                    <p>✅ Refresh inventory counts</p>
+                    <p>✅ Pull latest orders</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Final CTA */}
+        <div className="mt-16 p-12 bg-gradient-to-r from-purple-900/50 to-pink-900/50 border-2 border-purple-500/70 rounded-3xl text-center">
+          <h2 className="text-4xl font-black text-white mb-4">
+            Ready to take control of your pricing?
+          </h2>
+          <p className="text-xl text-gray-300 mb-8">
+            Join the waitlist and be among the first to experience transparent AI pricing
+          </p>
+          <button
+            onClick={onJoinWaitlist}
+            className="px-12 py-6 bg-gradient-to-r from-purple-600 to-pink-600 text-white rounded-2xl font-bold text-2xl hover:from-purple-700 hover:to-pink-700 transition transform hover:scale-105 shadow-2xl shadow-purple-500/50"
+          >
+            🚀 Join Waitlist Now
+          </button>
         </div>
       </div>
     </div>
