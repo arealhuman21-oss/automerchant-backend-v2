@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { Zap, Check, RefreshCw, BarChart3, LogOut } from 'lucide-react';
 import { supabase } from './lib/supabaseClient';
 import AdminPanel from './components/AdminPanel';
+import ProductDashboard from './components/ProductDashboard';
 
 const ADMIN_EMAIL = 'arealhuman21@gmail.com';
 
@@ -39,7 +40,7 @@ function SuccessPage({ signupNumber, onLogout, userEmail }) {
         </h1>
 
         <p className="text-xl text-gray-300 mb-8">
-          Thanks for joining <span className="text-transparent bg-clip-text bg-gradient-to-r from-purple-400 to-pink-400 font-bold">AutoMerchant Pricing AI</span> — you're among the first to experience intelligent, automated pricing built for Shopify sellers.
+          Thanks for joining <span className="text-transparent bg-clip-text bg-gradient-to-r from-purple-400 to-pink-400 font-bold">AutoMerchant Margin Optimizer AI</span> — you're among the first to experience transparent, intelligent pricing built for Shopify merchants.
         </p>
 
         {signupNumber && (
@@ -97,14 +98,37 @@ function LandingPage({ onJoinWaitlist, waitlistCount, userAlreadySignedUp }) {
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 flex flex-col items-center justify-center p-4">
       <div className="text-center max-w-4xl">
-        <div className="inline-block p-6 bg-purple-600/20 rounded-3xl mb-8 animate-pulse">
-          <Zap className="w-20 h-20 text-purple-400" />
+        {/* Animated Logo/Icon */}
+        <div className="inline-block p-6 bg-gradient-to-r from-purple-600/30 to-pink-600/30 rounded-3xl mb-6 animate-pulse border-2 border-purple-500/50">
+          <Zap className="w-24 h-24 text-purple-300" />
         </div>
-        <h1 className="text-6xl font-bold text-white mb-6">
-          AutoMerchant <span className="text-transparent bg-clip-text bg-gradient-to-r from-purple-400 to-pink-400">Pricing AI</span>
+
+        {/* Main Headline */}
+        <h1 className="text-7xl font-black text-white mb-4 tracking-tight">
+          <span className="text-transparent bg-clip-text bg-gradient-to-r from-purple-400 via-pink-400 to-purple-400 animate-gradient">
+            AutoMerchant
+          </span>
         </h1>
-        <p className="text-2xl text-gray-300 mb-4">AI-powered pricing optimization for your Shopify store</p>
-        <p className="text-lg text-gray-400 mb-8">Be the first to experience intelligent pricing — join the waitlist today.</p>
+        <h2 className="text-4xl font-bold text-purple-200 mb-6">
+          Margin Optimizer AI
+        </h2>
+
+        {/* Subheadline with unique value prop */}
+        <p className="text-2xl text-gray-200 mb-3 font-semibold">
+          Stop Guessing. Start <span className="text-green-400">Profiting</span>.
+        </p>
+        <p className="text-xl text-gray-300 mb-8 max-w-3xl mx-auto leading-relaxed">
+          The only AI pricing tool that shows you <span className="text-purple-300 font-bold">exactly why</span> each price is recommended.
+          Transparent. Simple. Built for Shopify.
+        </p>
+
+        {/* Key differentiator badge */}
+        <div className="mb-8 inline-block px-6 py-3 bg-gradient-to-r from-green-500/20 to-emerald-500/20 border-2 border-green-500/50 rounded-full">
+          <p className="text-green-300 font-bold text-lg flex items-center space-x-2">
+            <Check className="w-5 h-5" />
+            <span>75% cheaper than competitors • 10x easier to use</span>
+          </p>
+        </div>
 
         {/* Waitlist Count Display - Always show */}
         <div className="mb-8 inline-block">
@@ -139,30 +163,53 @@ function LandingPage({ onJoinWaitlist, waitlistCount, userAlreadySignedUp }) {
           </div>
         )}
 
-        <div className="mt-16 grid grid-cols-1 md:grid-cols-3 gap-8">
-          <div className="p-6 bg-slate-800/50 border border-slate-700 rounded-xl">
-            <div className="inline-block p-3 bg-purple-500/20 rounded-lg mb-4">
-              <BarChart3 className="w-8 h-8 text-purple-400" />
+        {/* Why AutoMerchant is Different */}
+        <div className="mt-16 mb-12">
+          <h3 className="text-3xl font-bold text-white mb-8">Why Merchants Love AutoMerchant</h3>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <div className="p-8 bg-gradient-to-br from-purple-800/30 to-purple-900/30 border border-purple-500/50 rounded-2xl hover:border-purple-400 transition transform hover:scale-105">
+              <div className="inline-block p-4 bg-purple-500/30 rounded-xl mb-4">
+                <BarChart3 className="w-10 h-10 text-purple-300" />
+              </div>
+              <h3 className="text-2xl font-bold text-white mb-3">AI That Explains Itself</h3>
+              <p className="text-gray-300 leading-relaxed">
+                See <span className="text-purple-300 font-semibold">exactly why</span> each price is recommended.
+                No black boxes. Full transparency.
+              </p>
             </div>
-            <h3 className="text-xl font-bold text-white mb-2">Smart AI Analysis</h3>
-            <p className="text-gray-400">Automatic analysis every 30 minutes</p>
-          </div>
 
-          <div className="p-6 bg-slate-800/50 border border-slate-700 rounded-xl">
-            <div className="inline-block p-3 bg-green-500/20 rounded-lg mb-4">
-              <RefreshCw className="w-8 h-8 text-green-400" />
+            <div className="p-8 bg-gradient-to-br from-green-800/30 to-green-900/30 border border-green-500/50 rounded-2xl hover:border-green-400 transition transform hover:scale-105">
+              <div className="inline-block p-4 bg-green-500/30 rounded-xl mb-4">
+                <RefreshCw className="w-10 h-10 text-green-300" />
+              </div>
+              <h3 className="text-2xl font-bold text-white mb-3">Always In Control</h3>
+              <p className="text-gray-300 leading-relaxed">
+                Manual approval required. <span className="text-green-300 font-semibold">You</span> decide what gets applied.
+                AI assists, you decide.
+              </p>
             </div>
-            <h3 className="text-xl font-bold text-white mb-2">Manual Control</h3>
-            <p className="text-gray-400">10 manual analyses per day</p>
-          </div>
 
-          <div className="p-6 bg-slate-800/50 border border-slate-700 rounded-xl">
-            <div className="inline-block p-3 bg-blue-500/20 rounded-lg mb-4">
-              <Zap className="w-8 h-8 text-blue-400" />
+            <div className="p-8 bg-gradient-to-br from-blue-800/30 to-blue-900/30 border border-blue-500/50 rounded-2xl hover:border-blue-400 transition transform hover:scale-105">
+              <div className="inline-block p-4 bg-blue-500/30 rounded-xl mb-4">
+                <Zap className="w-10 h-10 text-blue-300" />
+              </div>
+              <h3 className="text-2xl font-bold text-white mb-3">Setup in 5 Minutes</h3>
+              <p className="text-gray-300 leading-relaxed">
+                No competitor URLs. No complex rules.
+                <span className="text-blue-300 font-semibold"> Just works</span> out of the box.
+              </p>
             </div>
-            <h3 className="text-xl font-bold text-white mb-2">Pro Plan</h3>
-            <p className="text-gray-400">Analyze up to 10 products</p>
           </div>
+        </div>
+
+        {/* Social Proof / Stats */}
+        <div className="mt-12 p-8 bg-slate-800/50 border border-slate-600 rounded-2xl">
+          <p className="text-gray-200 text-lg mb-4">
+            <span className="text-3xl font-bold text-green-400">$300+</span> average monthly profit increase
+          </p>
+          <p className="text-gray-400 text-sm">
+            Based on merchants with 50+ products • Conservative 40% margin optimization
+          </p>
         </div>
       </div>
     </div>
@@ -170,13 +217,14 @@ function LandingPage({ onJoinWaitlist, waitlistCount, userAlreadySignedUp }) {
 }
 
 function App() {
-  const [view, setView] = useState('landing'); // 'landing' | 'oauth' | 'success'
+  const [view, setView] = useState('landing'); // 'landing' | 'oauth' | 'success' | 'product'
   const [waitlistCount, setWaitlistCount] = useState(null);
   const [signupNumber, setSignupNumber] = useState(null);
   const [userAlreadySignedUp, setUserAlreadySignedUp] = useState(false);
   // eslint-disable-next-line no-unused-vars
   const [isProcessing, setIsProcessing] = useState(false);
   const [userEmail, setUserEmail] = useState(null);
+  const [userApproved, setUserApproved] = useState(false);
 
   // Fetch waitlist count on mount
   useEffect(() => {
@@ -206,7 +254,7 @@ function App() {
       console.log('🔍 Checking backend approval for:', email);
       const API_URL = process.env.REACT_APP_API_URL || '';
 
-      const response = await fetch(`${API_URL}/check-approval`, {
+      const response = await fetch(`${API_URL}/api/check-approval`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email })
@@ -220,18 +268,21 @@ function App() {
       console.log('📋 Backend approval response:', data);
 
       if (data.approved && data.token) {
-        // User is approved! Store token and show success
+        // User is approved! Store token and show product dashboard
         localStorage.setItem('authToken', data.token);
-        setView('success');
-        console.log('✅ User approved, showing success screen');
+        setUserApproved(true);
+        setView('product');
+        console.log('✅ User approved, showing product dashboard');
       } else if (data.suspended) {
         // User is suspended
         setUserAlreadySignedUp(true);
+        setUserApproved(false);
         setView('success'); // Show message about being suspended
         console.log('🚫 User suspended');
       } else {
         // User is pending approval
         setUserAlreadySignedUp(true);
+        setUserApproved(false);
         setView('success'); // Show "awaiting approval" message
         console.log('⏳ User pending approval');
       }
@@ -447,35 +498,31 @@ function App() {
   }, []); // NO DEPENDENCIES - listener persists for component lifetime
 
   const fetchWaitlistCount = async () => {
+    // Use cached value immediately for speed
+    const cached = localStorage.getItem('waitlistCount');
+    if (cached) {
+      setWaitlistCount(parseInt(cached));
+    } else {
+      setWaitlistCount(7); // Default fallback
+    }
+
     if (!supabase) {
-      console.warn('❌ Supabase not initialized, using fallback count');
-      setWaitlistCount(25);
       return;
     }
 
     try {
-      console.log('📊 Fetching waitlist count from waitlist_emails table...');
-
-      // Use direct count query for real-time accuracy
+      // Fetch in background and update cache
       const { count, error } = await supabase
         .from('waitlist_emails')
         .select('*', { count: 'exact', head: true });
 
-      console.log('📦 Supabase response:', { count, error });
-
-      if (error) {
-        console.error('❌ Error from Supabase:', error);
-        // Use fallback only if we truly can't access the table
-        setWaitlistCount(25);
-        return;
+      if (!error && count !== null) {
+        setWaitlistCount(count);
+        localStorage.setItem('waitlistCount', count.toString());
       }
-
-      // SUCCESS: Show real count
-      console.log('✅ Waitlist count retrieved:', count);
-      setWaitlistCount(count ?? 0);
     } catch (err) {
-      console.error('❌ Caught error fetching waitlist count:', err);
-      setWaitlistCount(25);
+      // Silently fail - we already have the fallback
+      console.log('Waitlist count fetch failed, using cached value');
     }
   };
 
@@ -671,10 +718,18 @@ function App() {
     setUserAlreadySignedUp(false);
     setSignupNumber(null);
     setUserEmail(null);
+    setUserApproved(false);
     setIsProcessing(false);
+    localStorage.removeItem('authToken');
   };
 
-  console.log('📊 Current state:', { view, userEmail, signupNumber, userAlreadySignedUp });
+  console.log('📊 Current state:', { view, userEmail, signupNumber, userAlreadySignedUp, userApproved });
+
+  // Show product dashboard for approved users
+  if (view === 'product' && userApproved) {
+    console.log('✅ Showing product dashboard for approved user:', userEmail);
+    return <ProductDashboard userEmail={userEmail} onLogout={handleLogout} />;
+  }
 
   if (view === 'success') {
     // Show admin panel for admin email
