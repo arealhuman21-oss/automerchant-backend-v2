@@ -981,9 +981,54 @@ app.get('/api/shopify/install', async (req, res) => {
 
 app.get('/api/shopify/callback', async (req, res) => {
   try {
-    const { shop, code, hmac, state } = req.query;
+    const { shop, code, hmac, state, host, timestamp } = req.query;
 
-    // Validate required parameters
+    // ============================================
+    // HANDLE CUSTOM APP INSTALL (NO CODE PARAMETER)
+    // ============================================
+    // Custom distribution apps send: hmac, shop, host, timestamp (NO code)
+    // This is the initial install request - we need to redirect to OAuth
+    if (!code && shop && hmac) {
+      console.log('🔐 [Custom App Install] Detected custom app install request (no code)');
+      console.log(`   Shop: ${shop}`);
+      console.log(`   HMAC: ${hmac}`);
+      console.log(`   Host: ${host}`);
+      console.log(`   Timestamp: ${timestamp}`);
+
+      // Try to extract app_id from state if available
+      let app_id = null;
+      if (state && state.includes(':')) {
+        const parts = state.split(':');
+        app_id = parts[1] || null;
+      }
+
+      // If no app_id in state, look up by shop domain
+      if (!app_id) {
+        console.log('🔍 No app_id in state, looking up by shop domain...');
+        const { data: app, error } = await supabase
+          .from('shopify_apps')
+          .select('id')
+          .eq('shop_domain', shop)
+          .eq('status', 'active')
+          .single();
+
+        if (!error && app) {
+          app_id = app.id;
+          console.log(`✅ Found app_id ${app_id} for shop ${shop}`);
+        } else {
+          // Default to app_id 16 if not found
+          app_id = 16;
+          console.log(`⚠️  No app found for shop ${shop}, defaulting to app_id ${app_id}`);
+        }
+      }
+
+      // Redirect to /api/shopify/install to start OAuth flow
+      const installUrl = `/api/shopify/install?shop=${encodeURIComponent(shop)}&app_id=${app_id}`;
+      console.log(`🔄 Redirecting to OAuth install: ${installUrl}`);
+      return res.redirect(installUrl);
+    }
+
+    // Validate required parameters for OAuth callback
     if (!shop || !code || !hmac) {
       return res.status(400).json({
         error: 'Missing required parameters',
@@ -1253,6 +1298,17 @@ app.post('/api/products/sync', authenticateToken, async (req, res) => {
       });
     });
 
+    // Get shop and app_id from database
+    const { data: shopData } = await supabase
+      .from('shops')
+      .select('shop_domain, app_id')
+      .eq('user_id', req.user.id)
+      .eq('is_active', true)
+      .single();
+
+    const shopDomain = shopData?.shop_domain || shop;
+    const appId = shopData?.app_id || null;
+
     let syncedCount = 0;
     for (const product of response.data.products) {
       const variant = product.variants[0];
@@ -1265,6 +1321,8 @@ app.post('/api/products/sync', authenticateToken, async (req, res) => {
         .from('products')
         .upsert({
           user_id: req.user.id,
+          shop_domain: shopDomain,
+          app_id: appId,
           shopify_product_id: product.id.toString(),
           shopify_variant_id: variantId,
           title: product.title,
@@ -1385,15 +1443,17 @@ async function runAnalysisForUser(userId) {
 
   const { data: decreaseHistory, error: historyError } = await supabase
     .from('price_changes')
-    .select('product_id')
+    .select('product_id, old_price, new_price')
     .eq('user_id', userId)
-    .gte('created_at', thirtyDaysAgo.toISOString())
-    .lt('new_price', supabase.raw('old_price'));
+    .gte('created_at', thirtyDaysAgo.toISOString());
 
   const priceDecreaseHistory = {};
   if (!historyError && decreaseHistory) {
+    // Filter for actual price decreases in JavaScript
     decreaseHistory.forEach(row => {
-      priceDecreaseHistory[row.product_id] = (priceDecreaseHistory[row.product_id] || 0) + 1;
+      if (row.new_price < row.old_price) {
+        priceDecreaseHistory[row.product_id] = (priceDecreaseHistory[row.product_id] || 0) + 1;
+      }
     });
   }
 
@@ -1511,14 +1571,14 @@ app.get('/api/analysis/status', authenticateToken, async (req, res) => {
       throw countError;
     }
 
-    const todayStart = new Date();
-    todayStart.setHours(0, 0, 0, 0);
+    // Use 24-hour rolling window instead of midnight reset
+    const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
 
     const { count: manualUsedToday, error: manualError } = await supabase
       .from('manual_analyses')
       .select('*', { count: 'exact', head: true })
       .eq('user_id', req.user.id)
-      .gte('triggered_at', todayStart.toISOString());
+      .gte('triggered_at', twentyFourHoursAgo.toISOString());
 
     if (manualError) {
       throw manualError;
@@ -1558,14 +1618,14 @@ app.get('/api/analysis/status', authenticateToken, async (req, res) => {
 
 app.post('/api/analysis/run-now', authenticateToken, async (req, res) => {
   try {
-    const todayStart = new Date();
-    todayStart.setHours(0, 0, 0, 0);
+    // Use 24-hour rolling window instead of midnight reset
+    const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
 
     const { count: manualUsedToday, error: manualError } = await supabase
       .from('manual_analyses')
       .select('*', { count: 'exact', head: true })
       .eq('user_id', req.user.id)
-      .gte('triggered_at', todayStart.toISOString());
+      .gte('triggered_at', twentyFourHoursAgo.toISOString());
 
     if (manualError) {
       throw manualError;
@@ -1574,7 +1634,7 @@ app.post('/api/analysis/run-now', authenticateToken, async (req, res) => {
     if ((manualUsedToday || 0) >= 10) {
       return res.status(429).json({
         error: 'Daily limit reached',
-        message: 'You have used all 10 manual analyses for today. Limit resets at midnight or wait for automatic analysis.'
+        message: 'You have used all 10 manual analyses in the last 24 hours. Wait for older analyses to expire or use automatic analysis.'
       });
     }
 
@@ -1825,6 +1885,70 @@ app.post('/api/recommendations/reject', authenticateToken, async (req, res) => {
   } catch (error) {
     console.error('Recommendation rejection error:', error);
     res.status(500).json({ error: 'Failed to dismiss recommendation' });
+  }
+});
+
+app.post('/api/recommendations/:id/apply', authenticateToken, async (req, res) => {
+  const recId = req.params.id;
+  const { productId, newPrice } = req.body;
+
+  try {
+    console.log(`🔄 Applying recommendation ${recId} for product ${productId}: new price $${newPrice}`);
+
+    // Get product and shop info
+    const { data: product, error: productError } = await supabase
+      .from('products')
+      .select('*, shopify_product_id, shopify_variant_id, shop_domain')
+      .eq('id', productId)
+      .eq('user_id', req.user.id)
+      .single();
+
+    if (productError || !product) {
+      throw new Error('Product not found');
+    }
+
+    // Get shop access token
+    const { data: shop, error: shopError } = await supabase
+      .from('shops')
+      .select('access_token, shop_domain')
+      .eq('shop_domain', product.shop_domain)
+      .eq('is_active', true)
+      .single();
+
+    if (shopError || !shop) {
+      throw new Error('Shop not found or not active');
+    }
+
+    // Update price in Shopify
+    console.log(`📤 Updating Shopify product ${product.shopify_product_id} variant ${product.shopify_variant_id} to $${newPrice}`);
+
+    await axios.put(
+      `https://${shop.shop_domain}/admin/api/2024-01/variants/${product.shopify_variant_id}.json`,
+      { variant: { id: product.shopify_variant_id, price: newPrice.toString() } },
+      { headers: { 'X-Shopify-Access-Token': shop.access_token } }
+    );
+
+    console.log(`✅ Shopify price updated successfully`);
+
+    // Update product in database
+    await supabase
+      .from('products')
+      .update({ price: newPrice, updated_at: new Date().toISOString() })
+      .eq('id', productId);
+
+    // Delete the recommendation
+    await supabase
+      .from('recommendations')
+      .delete()
+      .eq('id', recId)
+      .eq('user_id', req.user.id);
+
+    console.log(`✅ Recommendation ${recId} applied and removed`);
+
+    res.json({ success: true, message: 'Price updated successfully on Shopify!' });
+  } catch (error) {
+    console.error('Apply recommendation error:', error.response?.data || error.message);
+    res.status(500).json({ error: error.message || 'Failed to apply recommendation' });
   }
 });
 
@@ -2098,25 +2222,169 @@ app.get('/api/orders', authenticateToken, async (req, res) => {
 
     const orders = response.data.orders.map(order => ({
       id: order.id,
-      orderNumber: order.order_number,
-      customerName: order.customer ? `${order.customer.first_name} ${order.customer.last_name}` : 'Guest',
+      order_number: order.order_number,
+      customer_name: order.customer ? `${order.customer.first_name} ${order.customer.last_name}` : 'Guest',
       email: order.email,
-      totalPrice: order.total_price,
-      lineItemsCount: order.line_items?.length || 0,
+      total_price: order.total_price,
+      line_items_count: order.line_items?.length || 0,
       items: order.line_items?.map(item => ({
         title: item.title,
         quantity: item.quantity,
         price: item.price
       })) || [],
-      financialStatus: order.financial_status,
-      fulfillmentStatus: order.fulfillment_status || 'unfulfilled',
-      createdAt: order.created_at
+      financial_status: order.financial_status,
+      fulfillment_status: order.fulfillment_status || 'unfulfilled',
+      created_at: order.created_at
     }));
 
     res.json({ orders });
   } catch (error) {
     console.error('Orders fetch error:', error.response?.data || error);
     res.status(500).json({ error: 'Failed to fetch orders' });
+  }
+});
+
+// ============ ALIAS ROUTES (For Frontend Compatibility) ============
+
+// Alias for /api/analytics/dashboard
+app.get('/api/stats', authenticateToken, async (req, res) => {
+  try {
+    const { shop, accessToken } = await getShopifyCredentials(req, supabase);
+
+    // Fetch basic stats
+    const thirtyDaysAgo = new Date();
+    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+
+    const ordersResponse = await axios.get(
+      `https://${shop}/admin/api/2024-01/orders.json?status=any&created_at_min=${thirtyDaysAgo.toISOString()}&limit=250`,
+      { headers: { 'X-Shopify-Access-Token': accessToken } }
+    );
+
+    const productsResponse = await axios.get(
+      `https://${shop}/admin/api/2024-01/products.json?limit=250`,
+      { headers: { 'X-Shopify-Access-Token': accessToken } }
+    );
+
+    const orders = ordersResponse.data.orders || [];
+    const products = productsResponse.data.products || [];
+
+    const totalRevenue = orders.reduce((sum, order) => sum + parseFloat(order.total_price || 0), 0);
+    const totalOrders = orders.length;
+    const totalProducts = products.length;
+    const avgOrderValue = totalOrders > 0 ? totalRevenue / totalOrders : 0;
+
+    res.json({
+      revenue: totalRevenue.toFixed(2),
+      orders: totalOrders,
+      products: totalProducts,
+      averageOrderValue: avgOrderValue.toFixed(2),
+      profitIncrease: 0 // Will be calculated when AI recommendations are implemented
+    });
+  } catch (error) {
+    console.error('Stats fetch error:', error.response?.data || error.message);
+    res.status(500).json({ error: 'Failed to fetch stats' });
+  }
+});
+
+// Alias for /api/analysis/run-now - Auto-select products with cost price
+app.post('/api/analyze', authenticateToken, async (req, res) => {
+  try {
+    console.log('\n🤖 ============ AI ANALYSIS STARTED ============');
+    console.log(`User ID: ${req.user.id}`);
+
+    // Check 24-hour rolling window limit
+    const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
+    const { count: manualUsedToday, error: manualError } = await supabase
+      .from('manual_analyses')
+      .select('*', { count: 'exact', head: true })
+      .eq('user_id', req.user.id)
+      .gte('triggered_at', twentyFourHoursAgo.toISOString());
+
+    if (manualError) throw manualError;
+
+    if ((manualUsedToday || 0) >= 10) {
+      console.log(`❌ User ${req.user.id} has reached daily limit (${manualUsedToday}/10)`);
+      return res.status(429).json({
+        success: false,
+        error: 'Daily limit reached',
+        message: 'You have used all 10 manual analyses in the last 24 hours. Wait for older analyses to expire or use automatic analysis.',
+        manualUsed: manualUsedToday,
+        manualRemaining: 0
+      });
+    }
+
+    // Auto-select all products with cost price set for analysis
+    const { data: products, error: productsError } = await supabase
+      .from('products')
+      .select('*')
+      .eq('user_id', req.user.id)
+      .gt('cost_price', 0);
+
+    if (productsError) throw productsError;
+
+    console.log(`📦 Found ${products.length} products with cost price set`);
+
+    if (products.length === 0) {
+      console.log(`❌ No products with cost price set for user ${req.user.id}`);
+      return res.status(400).json({
+        success: false,
+        error: 'No cost prices set',
+        message: 'Please set cost price for at least one product before running AI analysis. Cost price is required to calculate optimal pricing.',
+        recommendations: []
+      });
+    }
+
+    // Mark all products with cost price as selected for analysis
+    const productIds = products.map(p => p.id);
+    const { error: updateError } = await supabase
+      .from('products')
+      .update({ selected_for_analysis: true })
+      .in('id', productIds);
+
+    if (updateError) {
+      console.error('Error selecting products:', updateError);
+    } else {
+      console.log(`✅ Auto-selected ${productIds.length} products for analysis`);
+    }
+
+    // Run the analysis using the existing comprehensive algorithm
+    const recommendationsCreated = await runAnalysisForUser(req.user.id);
+
+    // Log this manual analysis
+    const { error: insertError } = await supabase
+      .from('manual_analyses')
+      .insert({
+        user_id: req.user.id,
+        products_analyzed: productIds.length
+      });
+
+    if (insertError) {
+      console.error('Error logging manual analysis:', insertError);
+    }
+
+    const remaining = 10 - (manualUsedToday || 0) - 1;
+
+    // Get the recommendations that were just created
+    const { data: recommendations, error: recError } = await supabase
+      .from('recommendations')
+      .select('*')
+      .eq('user_id', req.user.id)
+      .order('created_at', { ascending: false });
+
+    console.log(`\n✅ Analysis complete! Generated ${recommendationsCreated} recommendations`);
+    console.log(`   Manual analyses used: ${(manualUsedToday || 0) + 1}/10, remaining: ${remaining}`);
+    console.log('============================================\n');
+
+    res.json({
+      success: true,
+      recommendations: recommendations || [],
+      message: `Analysis complete! ${recommendationsCreated} recommendations generated.`,
+      manualRemaining: remaining,
+      manualUsed: (manualUsedToday || 0) + 1
+    });
+  } catch (error) {
+    console.error('Analysis trigger error:', error.message);
+    res.status(500).json({ error: 'Failed to trigger analysis' });
   }
 });
 
