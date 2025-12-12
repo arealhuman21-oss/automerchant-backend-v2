@@ -114,20 +114,39 @@ function LandingPage({ onJoinWaitlist, waitlistCount, userAlreadySignedUp }) {
         </h2>
 
         {/* Subheadline with unique value prop */}
-        <p className="text-2xl text-gray-200 mb-3 font-semibold">
-          Stop Guessing. Start <span className="text-green-400">Profiting</span>.
-        </p>
-        <p className="text-xl text-gray-300 mb-8 max-w-3xl mx-auto leading-relaxed">
-          The only AI pricing tool that shows you <span className="text-purple-300 font-bold">exactly why</span> each price is recommended.
-          Transparent. Simple. Built for Shopify.
-        </p>
-
-        {/* Key differentiator badge */}
-        <div className="mb-8 inline-block px-6 py-3 bg-gradient-to-r from-green-500/20 to-emerald-500/20 border-2 border-green-500/50 rounded-full">
-          <p className="text-green-300 font-bold text-lg flex items-center space-x-2">
-            <Check className="w-5 h-5" />
-            <span>75% cheaper than competitors • 10x easier to use</span>
+        <div className="space-y-4 mb-8">
+          <p className="text-3xl text-white font-bold">
+            Finally, an AI you can <span className="text-green-400">actually trust</span>
           </p>
+          <p className="text-xl text-gray-300 max-w-3xl mx-auto leading-relaxed">
+            Tired of pricing tools that work like a black box?
+            <br />
+            <span className="text-purple-300 font-bold">See exactly why</span> each price is recommended.
+            <br />
+            <span className="text-pink-300 font-semibold">Learn from AI.</span> Don't just blindly follow it.
+          </p>
+        </div>
+
+        {/* Eye-catching differentiators */}
+        <div className="mb-8 flex flex-wrap items-center justify-center gap-4">
+          <div className="inline-block px-5 py-2 bg-gradient-to-r from-green-500/20 to-emerald-500/20 border-2 border-green-500/50 rounded-full">
+            <p className="text-green-300 font-bold text-base flex items-center space-x-2">
+              <Check className="w-5 h-5" />
+              <span>Transparent AI</span>
+            </p>
+          </div>
+          <div className="inline-block px-5 py-2 bg-gradient-to-r from-purple-500/20 to-pink-500/20 border-2 border-purple-500/50 rounded-full">
+            <p className="text-purple-300 font-bold text-base flex items-center space-x-2">
+              <Check className="w-5 h-5" />
+              <span>Manual Approval</span>
+            </p>
+          </div>
+          <div className="inline-block px-5 py-2 bg-gradient-to-r from-blue-500/20 to-cyan-500/20 border-2 border-blue-500/50 rounded-full">
+            <p className="text-blue-300 font-bold text-base flex items-center space-x-2">
+              <Check className="w-5 h-5" />
+              <span>5min Setup</span>
+            </p>
+          </div>
         </div>
 
         {/* Waitlist Count Display - Always show */}
@@ -165,7 +184,8 @@ function LandingPage({ onJoinWaitlist, waitlistCount, userAlreadySignedUp }) {
 
         {/* Why AutoMerchant is Different */}
         <div className="mt-16 mb-12">
-          <h3 className="text-3xl font-bold text-white mb-8">Why Merchants Love AutoMerchant</h3>
+          <h3 className="text-3xl font-bold text-white mb-4">What Makes Us Different?</h3>
+          <p className="text-gray-400 text-lg mb-8">Spoiler: We're not like the others</p>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
             <div className="p-8 bg-gradient-to-br from-purple-800/30 to-purple-900/30 border border-purple-500/50 rounded-2xl hover:border-purple-400 transition transform hover:scale-105">
               <div className="inline-block p-4 bg-purple-500/30 rounded-xl mb-4">
@@ -202,14 +222,46 @@ function LandingPage({ onJoinWaitlist, waitlistCount, userAlreadySignedUp }) {
           </div>
         </div>
 
-        {/* Social Proof / Stats */}
-        <div className="mt-12 p-8 bg-slate-800/50 border border-slate-600 rounded-2xl">
-          <p className="text-gray-200 text-lg mb-4">
-            <span className="text-3xl font-bold text-green-400">$300+</span> average monthly profit increase
-          </p>
-          <p className="text-gray-400 text-sm">
-            Based on merchants with 50+ products • Conservative 40% margin optimization
-          </p>
+        {/* Unique Value Prop - What Makes Us Different */}
+        <div className="mt-12 space-y-6">
+          {/* The Big Problem */}
+          <div className="p-8 bg-red-900/20 border-2 border-red-500/50 rounded-2xl">
+            <p className="text-xl text-red-200 font-semibold mb-3">
+              ❌ Other pricing tools are a BLACK BOX
+            </p>
+            <p className="text-gray-300 text-lg">
+              They change your prices with ZERO explanation. You have no idea if their AI is helping or hurting your business.
+            </p>
+          </div>
+
+          {/* Our Solution */}
+          <div className="p-8 bg-gradient-to-br from-green-900/30 to-emerald-900/30 border-2 border-green-500/70 rounded-2xl">
+            <p className="text-2xl text-green-200 font-bold mb-3">
+              ✅ AutoMerchant shows you EXACTLY WHY
+            </p>
+            <div className="bg-slate-900/50 border border-green-500/30 rounded-xl p-6 mb-4 text-left">
+              <p className="text-gray-400 text-sm mb-2">Example Recommendation:</p>
+              <p className="text-green-300 font-mono text-sm leading-relaxed">
+                "🛡️ MARGIN TOO LOW: Current margin 25% is below healthy minimum of 30%.
+                Raising price from $100 to $120 (+20%) to achieve 40% target margin while
+                staying within safety limits."
+              </p>
+            </div>
+            <p className="text-gray-200 text-lg">
+              <span className="text-green-300 font-bold">You see the math.</span> You understand the reasoning.
+              You stay in control. <span className="text-purple-300 font-bold">No other tool does this.</span>
+            </p>
+          </div>
+
+          {/* The Challenge */}
+          <div className="p-8 bg-gradient-to-r from-purple-900/30 to-pink-900/30 border-2 border-purple-500/50 rounded-2xl">
+            <p className="text-2xl font-bold text-white mb-3">
+              🚀 Join the first 100 merchants who value transparency
+            </p>
+            <p className="text-gray-300 text-lg">
+              Early access opens soon. Be part of the movement to bring honesty back to AI pricing.
+            </p>
+          </div>
         </div>
       </div>
     </div>
