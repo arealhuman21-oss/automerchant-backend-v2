@@ -899,7 +899,7 @@ function ProductDashboard({ userEmail, onLogout }) {
                       setError(null);
                       await api.call('/api/products/sync', { method: 'POST' });
                       await loadDashboardData();
-                      setMessage('Products synced successfully! Sales data updated.');
+                      // Success - data reloaded
                     } catch (err) {
                       setError('Failed to sync products: ' + (err.message || 'Unknown error'));
                     } finally {
