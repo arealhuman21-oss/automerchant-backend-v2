@@ -618,6 +618,13 @@ app.post('/api/login', authLimiter, async (req, res) => {
 
 // Check user approval status (for waitlist OAuth flow)
 app.post('/api/check-approval', async (req, res) => {
+  // CRITICAL: Ensure CORS headers are set for this endpoint
+  const origin = req.headers.origin || 'https://automerchant.vercel.app';
+  res.setHeader('Access-Control-Allow-Origin', origin);
+  res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+  res.setHeader('Access-Control-Allow-Credentials', 'true');
+
   const { email } = req.body;
 
   if (!email) {
