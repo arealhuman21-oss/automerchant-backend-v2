@@ -297,6 +297,7 @@ function ProductDashboard({ userEmail, onLogout }) {
     return tried === 'true';
   });
   const [connectionCheckComplete, setConnectionCheckComplete] = useState(false);
+  const [selectedProductIds, setSelectedProductIds] = useState([]);
   const [showNewRecommendationsAlert, setShowNewRecommendationsAlert] = useState(false);
   const [newRecommendationsCount, setNewRecommendationsCount] = useState(0);
 
@@ -419,6 +420,16 @@ function ProductDashboard({ userEmail, onLogout }) {
     return () => clearInterval(interval);
   }, [lastAutoAnalysis, shopifyConnected, analysisStatus.analyzing]);
 
+  // Auto-select products when products change (for ≤10 products)
+  useEffect(() => {
+    if (products.length > 0 && products.length <= 10) {
+      // Auto-select all products with cost price set
+      const productsWithCost = products.filter(p => p.cost_price > 0).map(p => p.id);
+      setSelectedProductIds(productsWithCost);
+      console.log(`✅ Auto-selected ${productsWithCost.length} products (≤10 total products)`);
+    }
+  }, [products]);
+
   const loadAnalysisStatus = async () => {
     try {
       console.log('🔍 Loading analysis status from API...');
@@ -448,11 +459,13 @@ function ProductDashboard({ userEmail, onLogout }) {
     setError(null);
     try {
       // Use Promise.allSettled to handle partial failures gracefully
+      // Add cache-busting timestamp to prevent stale data
+      const cacheBust = `?t=${Date.now()}`;
       const results = await Promise.allSettled([
-        api.call('/api/products'),
-        api.call('/api/recommendations'),
-        api.call('/api/orders'),
-        api.call('/api/stats')
+        api.call(`/api/products${cacheBust}`),
+        api.call(`/api/recommendations${cacheBust}`),
+        api.call(`/api/orders${cacheBust}`),
+        api.call(`/api/stats${cacheBust}`)
       ]);
 
       // Extract data with fallbacks for failed requests
@@ -483,13 +496,17 @@ function ProductDashboard({ userEmail, onLogout }) {
         }
       }
 
-      // CRITICAL: Auto-sync products on first dashboard load to get fresh sales data
-      // This ensures pagination fix fetches ALL orders, not just cached data
-      const hasAutoSyncedThisSession = sessionStorage.getItem('hasAutoSynced');
-      if (!hasAutoSyncedThisSession && shopifyConnected && !forceSync) {
-        console.log('🔄 Auto-syncing products on dashboard load to fetch latest sales data...');
+      // CRITICAL: Auto-sync products to get fresh sales data
+      // Sync every 5 minutes instead of once per session to prevent stale data
+      const lastSyncTime = sessionStorage.getItem('lastSyncTime');
+      const now = Date.now();
+      const fiveMinutes = 5 * 60 * 1000;
+      const shouldSync = !lastSyncTime || (now - parseInt(lastSyncTime)) > fiveMinutes;
+
+      if (shouldSync && shopifyConnected && !forceSync) {
+        console.log('🔄 Auto-syncing products to fetch latest sales data...');
         try {
-          sessionStorage.setItem('hasAutoSynced', 'true');
+          sessionStorage.setItem('lastSyncTime', now.toString());
           await api.call('/api/products/sync', { method: 'POST' });
           console.log('✅ Products auto-synced successfully, reloading dashboard...');
           // Reload after sync to show fresh data
@@ -575,9 +592,21 @@ function ProductDashboard({ userEmail, onLogout }) {
       return;
     }
 
+    // Validation for >10 products case
+    if (products.length > 10 && selectedProductIds.length === 0) {
+      setError('⚠️ Please select at least one product to analyze. Check the boxes next to products you want to analyze.');
+      setTimeout(() => setError(null), 5000);
+      return;
+    }
+
     try {
       setAnalysisStatus({ ...analysisStatus, analyzing: true });
-      const result = await api.call('/api/analyze', { method: 'POST' });
+      const result = await api.call('/api/analyze', {
+        method: 'POST',
+        body: JSON.stringify({
+          productIds: products.length > 10 ? selectedProductIds : productsWithCost.map(p => p.id)
+        })
+      });
 
       // Update analysis status with backend response
       setAnalysisStatus({
