@@ -1692,6 +1692,11 @@ async function runAnalysisForUser(userId) {
 // ============ MANUAL ANALYSIS WITH DAILY LIMIT ============
 
 app.get('/api/analysis/status', authenticateToken, async (req, res) => {
+  // Prevent caching of analysis status
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, private');
+  res.setHeader('Pragma', 'no-cache');
+  res.setHeader('Expires', '0');
+
   try {
     const { count: selectedCount, error: countError } = await supabase
       .from('products')
