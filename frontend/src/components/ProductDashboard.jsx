@@ -410,7 +410,7 @@ function ProductDashboard({ userEmail, onLogout }) {
         const newTime = Date.now();
         setLastAutoAnalysis(newTime);
         localStorage.setItem('lastAutoAnalysis', newTime.toString());
-        setAnalysisStatus({ analyzing: false, timeRemaining: 1800 });
+        setAnalysisStatus(prev => ({ ...prev, analyzing: false, timeRemaining: 1800 }));
 
         // Auto-analysis runs every 30 minutes (manual limits are tracked separately on backend with 24hr rolling window)
       }
@@ -421,15 +421,25 @@ function ProductDashboard({ userEmail, onLogout }) {
 
   const loadAnalysisStatus = async () => {
     try {
-      const data = await api.call('/api/analysis/status');
-      setAnalysisStatus({
+      console.log('🔍 Loading analysis status from API...');
+      // Add cache-busting query parameter to prevent stale data
+      const cacheBuster = Date.now();
+      const data = await api.call(`/api/analysis/status?_=${cacheBuster}`);
+      console.log('📊 API Response:', data);
+      console.log('   manualUsedToday:', data.manualUsedToday);
+      console.log('   manualRemaining:', data.manualRemaining);
+
+      const newStatus = {
         analyzing: data.analyzing || false,
         timeRemaining: data.timeRemaining || 0,
         manualUsed: data.manualUsedToday || 0,
         manualRemaining: data.manualRemaining || 10
-      });
+      };
+
+      console.log('✅ Setting analysis status to:', newStatus);
+      setAnalysisStatus(newStatus);
     } catch (err) {
-      console.error('Failed to load analysis status:', err);
+      console.error('❌ Failed to load analysis status:', err);
     }
   };
 
