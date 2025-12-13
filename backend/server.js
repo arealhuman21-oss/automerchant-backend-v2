@@ -1288,15 +1288,22 @@ app.post('/api/products/sync', authenticateToken, async (req, res) => {
     const variantSales = {};
     const variantRevenue = {};
 
+    console.log(`📦 Processing ${orders.length} orders from last 30 days`);
+
     orders.forEach(order => {
       order.line_items?.forEach(item => {
         const variantId = item.variant_id?.toString();
         if (variantId) {
-          variantSales[variantId] = (variantSales[variantId] || 0) + (item.quantity || 0);
-          variantRevenue[variantId] = (variantRevenue[variantId] || 0) + (parseFloat(item.price) * item.quantity);
+          const quantity = item.quantity || 0;
+          const revenue = parseFloat(item.price) * quantity;
+          variantSales[variantId] = (variantSales[variantId] || 0) + quantity;
+          variantRevenue[variantId] = (variantRevenue[variantId] || 0) + revenue;
+          console.log(`  ✅ Variant ${variantId}: +${quantity} units, +$${revenue.toFixed(2)}`);
         }
       });
     });
+
+    console.log(`📊 Sales aggregated for ${Object.keys(variantSales).length} variants:`, variantSales);
 
     // Get shop and app_id from database
     const { data: shopData } = await supabase
@@ -1310,6 +1317,8 @@ app.post('/api/products/sync', authenticateToken, async (req, res) => {
     const appId = shopData?.app_id || null;
 
     let syncedCount = 0;
+    console.log(`\n🔄 Syncing ${response.data.products.length} products...`);
+
     for (const product of response.data.products) {
       const variant = product.variants[0];
       const variantId = variant.id.toString();
@@ -1317,37 +1326,122 @@ app.post('/api/products/sync', authenticateToken, async (req, res) => {
       const totalRevenue = variantRevenue[variantId] || 0;
       const salesVelocity = totalSales / 30;
 
-      const { error: upsertError } = await supabase
+      console.log(`\n📦 ${product.title}`);
+      console.log(`   Variant ID: ${variantId}`);
+      console.log(`   Sales (30d): ${totalSales} units`);
+      console.log(`   Revenue (30d): $${totalRevenue.toFixed(2)}`);
+      console.log(`   Velocity: ${salesVelocity.toFixed(3)} units/day`);
+
+      const productData = {
+        user_id: req.user.id,
+        shop_domain: shopDomain,
+        app_id: appId,
+        shopify_product_id: product.id.toString(),
+        shopify_variant_id: variantId,
+        title: product.title,
+        price: variant.price,
+        inventory: variant.inventory_quantity || 0,
+        image_url: product.image?.src || null,
+        total_sales_30d: totalSales,
+        revenue_30d: totalRevenue,
+        sales_velocity: salesVelocity,
+        updated_at: new Date().toISOString()
+      };
+
+      const { error: upsertError, data: upsertData } = await supabase
         .from('products')
-        .upsert({
-          user_id: req.user.id,
-          shop_domain: shopDomain,
-          app_id: appId,
-          shopify_product_id: product.id.toString(),
-          shopify_variant_id: variantId,
-          title: product.title,
-          price: variant.price,
-          inventory: variant.inventory_quantity || 0,
-          image_url: product.image?.src || null,
-          total_sales_30d: totalSales,
-          revenue_30d: totalRevenue,
-          sales_velocity: salesVelocity,
-          updated_at: new Date().toISOString()
-        }, {
+        .upsert(productData, {
           onConflict: 'user_id,shopify_variant_id'
-        });
+        })
+        .select();
 
       if (upsertError) {
-        console.error('Error upserting product:', upsertError);
+        console.error('❌ Error upserting product:', upsertError);
       } else {
+        console.log('   ✅ Saved to database');
         syncedCount++;
       }
     }
+
+    console.log(`\n✅ Sync complete: ${syncedCount}/${response.data.products.length} products`);
 
     res.json({ success: true, message: `Synced ${syncedCount} products`, count: syncedCount });
   } catch (error) {
     console.error('Product sync error:', error.response?.data || error);
     res.status(500).json({ error: 'Failed to sync products' });
+  }
+});
+
+// DEBUG ENDPOINT: Check sales calculation
+app.get('/api/debug/sales-check', authenticateToken, async (req, res) => {
+  try {
+    const { shop, accessToken } = await getShopifyCredentials(req, supabase);
+
+    // Get orders from last 30 days
+    const thirtyDaysAgo = new Date();
+    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+
+    const ordersResponse = await axios.get(
+      `https://${shop}/admin/api/2024-01/orders.json?status=any&created_at_min=${thirtyDaysAgo.toISOString()}&limit=250`,
+      { headers: { 'X-Shopify-Access-Token': accessToken } }
+    );
+
+    const orders = ordersResponse.data.orders || [];
+    const variantSales = {};
+    const variantDetails = {};
+
+    orders.forEach(order => {
+      order.line_items?.forEach(item => {
+        const variantId = item.variant_id?.toString();
+        if (variantId) {
+          if (!variantSales[variantId]) {
+            variantSales[variantId] = 0;
+            variantDetails[variantId] = {
+              productTitle: item.title,
+              variantTitle: item.variant_title,
+              totalQuantity: 0,
+              totalRevenue: 0,
+              orders: []
+            };
+          }
+          const quantity = item.quantity || 0;
+          const revenue = parseFloat(item.price) * quantity;
+          variantSales[variantId] += quantity;
+          variantDetails[variantId].totalQuantity += quantity;
+          variantDetails[variantId].totalRevenue += revenue;
+          variantDetails[variantId].orders.push({
+            orderId: order.id,
+            orderName: order.name,
+            quantity,
+            price: item.price,
+            revenue
+          });
+        }
+      });
+    });
+
+    // Get products from database
+    const { data: dbProducts } = await supabase
+      .from('products')
+      .select('*')
+      .eq('user_id', req.user.id);
+
+    res.json({
+      ordersFound: orders.length,
+      variantsWithSales: Object.keys(variantSales).length,
+      salesByVariant: variantDetails,
+      productsInDatabase: dbProducts?.length || 0,
+      databaseProducts: dbProducts?.map(p => ({
+        title: p.title,
+        variantId: p.shopify_variant_id,
+        sales30d: p.total_sales_30d,
+        revenue30d: p.revenue_30d,
+        velocity: p.sales_velocity
+      }))
+    });
+  } catch (error) {
+    console.error('Debug sales check error:', error);
+    res.status(500).json({ error: 'Failed to check sales' });
   }
 });
 
