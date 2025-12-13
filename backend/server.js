@@ -177,11 +177,21 @@ const authenticateToken = (req, res, next) => {
 };
 
 // ============================================
-// WORLD-CLASS PRICING ALGORITHM
+// BACKEND PRICING ALGORITHM - RULE-COMPLIANT MVP
 // ============================================
+//
+// ABSOLUTE RULES (NON-NEGOTIABLE):
+// 1. Inventory may NEVER initiate a pricing decision
+// 2. Data reliability must be evaluated BEFORE pricing logic
+// 3. LOW reliability → PROTECTIVE ACTIONS ONLY
+// 4. One product → one recommendation → one reason
+// 5. Follow exact decision order: Safety → Mispricing → Otherwise (no change)
 
 async function analyzeProduct(product, allProducts, userSettings, recentOrderData = {}, priceDecreaseHistory = {}) {
 
+  // ============================================
+  // STEP 1: PARSE RAW DATA
+  // ============================================
   const costPrice = parseFloat(product.cost_price) || 0;
   const currentPrice = parseFloat(product.price);
   const salesVelocity = parseFloat(product.sales_velocity) || 0;
@@ -189,63 +199,131 @@ async function analyzeProduct(product, allProducts, userSettings, recentOrderDat
   const sales30d = parseInt(product.total_sales_30d) || 0;
   const revenue30d = parseFloat(product.revenue_30d) || 0;
   const sales7d = parseInt(recentOrderData[`sales7d_${product.id}`]) || Math.floor(sales30d / 4.3);
-  const recentVelocity = sales7d / 7;
 
-  // Get decrease history for this product
   const decreasesThisMonth = priceDecreaseHistory[product.id] || 0;
   const daysSinceLastAnalysis = product.last_analyzed_at
     ? (Date.now() - new Date(product.last_analyzed_at)) / (1000 * 60 * 60 * 24)
     : 999;
 
-  console.log(`   [ALGORITHM] Parsed values: cost=$${costPrice}, price=$${currentPrice}, margin=${costPrice > 0 ? (((currentPrice - costPrice) / currentPrice) * 100).toFixed(1) : 'N/A'}%`);
+  console.log(`   [ALGORITHM] Parsed values: cost=$${costPrice}, price=$${currentPrice}`);
   console.log(`   [ALGORITHM] Sales data: 7d=${sales7d}, 30d=${sales30d}, velocity=${salesVelocity.toFixed(2)}/day`);
-  console.log(`   [ALGORITHM] Protection: ${decreasesThisMonth}/3 decreases this month, ${daysSinceLastAnalysis.toFixed(1)} days since analysis`);
 
-  if (costPrice <= 0) {
-    console.log(`   [ALGORITHM] ❌ SKIPPED: No cost price set (cost_price=${product.cost_price})`);
-    return { shouldChangePrice: false, error: 'Cost price required' };
+  // ============================================
+  // STEP 2: DATA RELIABILITY CLASSIFICATION
+  // ============================================
+  // MUST happen BEFORE any pricing logic
+
+  let dataReliability = 'HIGH';
+  const reliabilityIssues = [];
+
+  // LOW reliability if ANY are true:
+  if (!costPrice || costPrice <= 0) {
+    dataReliability = 'LOW';
+    reliabilityIssues.push('cost_price missing or zero');
   }
 
+  // Extremely low lifetime sales (less than 5 total)
+  if (sales30d < 5 && revenue30d < 50) {
+    dataReliability = 'LOW';
+    reliabilityIssues.push('insufficient sales history (< 5 units)');
+  }
+
+  // Invalid inventory (negative, absurdly large, or clearly fake)
+  if (inventory < 0 || inventory > 100000) {
+    dataReliability = 'LOW';
+    reliabilityIssues.push(`invalid inventory (${inventory})`);
+  }
+
+  // MEDIUM if some concerns but not critical
+  if (dataReliability === 'HIGH' && sales30d < 20) {
+    dataReliability = 'MEDIUM';
+    reliabilityIssues.push('limited sales data (< 20 units)');
+  }
+
+  console.log(`   [DATA RELIABILITY] ${dataReliability} ${reliabilityIssues.length > 0 ? `(${reliabilityIssues.join(', ')})` : ''}`);
+
+  // ============================================
+  // STEP 3: LOW RELIABILITY → PROTECTIVE ONLY
+  // ============================================
+  if (dataReliability === 'LOW') {
+    console.log(`   [ALGORITHM] ⚠️ LOW data reliability - PROTECTIVE ACTIONS ONLY`);
+
+    // ALLOWED: Prevent selling below cost
+    if (currentPrice < costPrice) {
+      const emergencyPrice = costPrice * 1.5;
+      const increasePercent = ((emergencyPrice - currentPrice) / currentPrice * 100).toFixed(1);
+      return {
+        shouldChangePrice: true,
+        recommendedPrice: emergencyPrice,
+        reasoning: `🚨 EMERGENCY: Selling BELOW cost ($${currentPrice.toFixed(2)} < $${costPrice.toFixed(2)}). Raising to $${emergencyPrice.toFixed(2)} (+${increasePercent}%) to achieve 50% margin and stop losses. [Data reliability: LOW - protective action only]`,
+        urgency: 'CRITICAL',
+        confidence: 100,
+        priceChange: emergencyPrice - currentPrice,
+        changePercent: (emergencyPrice - currentPrice) / currentPrice * 100
+      };
+    }
+
+    // ALLOWED: Raise to minimum safe margin (25%)
+    const currentMargin = ((currentPrice - costPrice) / currentPrice) * 100;
+    if (currentMargin < 25) {
+      const safePrice = costPrice / (1 - 0.30); // 30% margin
+      const cappedPrice = Math.min(safePrice, currentPrice * 1.20); // Max 20% increase
+      const increasePercent = ((cappedPrice - currentPrice) / currentPrice * 100).toFixed(1);
+      return {
+        shouldChangePrice: true,
+        recommendedPrice: cappedPrice,
+        reasoning: `🛡️ MARGIN TOO LOW: Current ${currentMargin.toFixed(1)}% margin is below safe minimum. Raising to $${cappedPrice.toFixed(2)} (+${increasePercent}%) to achieve 30% protective margin. [Data reliability: LOW - ${reliabilityIssues.join(', ')}]`,
+        urgency: 'HIGH',
+        confidence: 90,
+        priceChange: cappedPrice - currentPrice,
+        changePercent: (cappedPrice - currentPrice) / currentPrice * 100
+      };
+    }
+
+    // FORBIDDEN with LOW data: decreases, experiments, aggressive increases
+    console.log(`   [ALGORITHM] ✓ LOW reliability + safe margin → DO NOTHING`);
+    return {
+      shouldChangePrice: false,
+      reasoning: `⚠️ INSUFFICIENT DATA: Cannot make confident pricing recommendation due to: ${reliabilityIssues.join(', ')}. Current price $${currentPrice.toFixed(2)} (${currentMargin.toFixed(1)}% margin) appears safe. Need more sales history for optimization.`,
+      confidence: 40
+    };
+  }
+
+  // ============================================
+  // STEP 4: CALCULATE PRICING VARIABLES
+  // ============================================
   const currentMargin = ((currentPrice - costPrice) / currentPrice) * 100;
-  const currentProfit = currentPrice - costPrice;
   const currentMarkup = currentPrice / costPrice;
-  const daysOfStock = salesVelocity > 0 ? inventory / salesVelocity : 999;
 
   // CONFIGURATION
   const MIN_MARGIN_PERCENT = 30;
   const MAX_MARGIN_PERCENT = 70;
-  const HEALTHY_MARGIN_FLOOR = 35;
-  const HEALTHY_MARGIN_CEILING = 60;
   const TARGET_MARGIN = parseFloat(userSettings.target_margin) || 40;
-
   const MAX_MARKUP_RATIO = 5.0;
   const SUSPICIOUS_MARKUP = 10.0;
+  const MAX_INCREASE_PERCENT = 0.20; // 20%
+  const MAX_DECREASE_PERCENT = 0.25; // 25%
+  const ZERO_SALES_THRESHOLD_7D = 0;
 
-  const MAX_INCREASE_PERCENT = 0.20;
-  const MAX_DECREASE_PERCENT = 0.25;
+  console.log(`   [ALGORITHM] Margin: ${currentMargin.toFixed(1)}%, Markup: ${currentMarkup.toFixed(1)}x`);
 
-  const VERY_HIGH_VELOCITY = 2.0;
-  const HIGH_VELOCITY = 1.0;
-  const MEDIUM_VELOCITY = 0.5;
-  const LOW_VELOCITY = 0.2;
-  const ZERO_SALES_THRESHOLD = 0.1;
+  // ============================================
+  // STEP 5: PRICING DECISION ORDER (DO NOT VIOLATE)
+  // ============================================
 
-  const CRITICAL_LOW_STOCK = 14;
-  const LOW_STOCK = 30;
-  const HEALTHY_STOCK = 60;
-  const OVERSTOCK = 90;
+  // ------------------------------------------
+  // DECISION ORDER 1: SAFETY CHECKS
+  // ------------------------------------------
 
-  // CRITICAL SAFEGUARDS
-
-  // SAFEGUARD 0: Selling BELOW cost (critical emergency)
+  // Safety Check A: Selling BELOW cost
   if (currentPrice < costPrice) {
-    console.log(`   [ALGORITHM] 🚨 CRITICAL: Selling BELOW cost! Price $${currentPrice} < Cost $${costPrice}`);
+    console.log(`   [ALGORITHM] 🚨 SAFETY VIOLATION: Below cost`);
     const emergencyPrice = costPrice * 1.5;
     const increasePercent = ((emergencyPrice - currentPrice) / currentPrice * 100).toFixed(1);
     return {
       shouldChangePrice: true,
       recommendedPrice: emergencyPrice,
-      reasoning: `🚨 EMERGENCY: Currently selling BELOW cost! Cost: $${costPrice.toFixed(2)}, Price: $${currentPrice.toFixed(2)}. Raising to $${emergencyPrice.toFixed(2)} (+${increasePercent}%) to achieve 50% margin minimum and stop losses immediately.`,
+      reasoning: `🚨 CRITICAL: Selling BELOW cost! Cost: $${costPrice.toFixed(2)}, Price: $${currentPrice.toFixed(2)}. Raising to $${emergencyPrice.toFixed(2)} (+${increasePercent}%) to achieve 50% margin and stop losses immediately.`,
       urgency: 'CRITICAL',
       confidence: 100,
       priceChange: emergencyPrice - currentPrice,
@@ -253,15 +331,24 @@ async function analyzeProduct(product, allProducts, userSettings, recentOrderDat
     };
   }
 
-  // SAFEGUARD 1: Margin caps
+  // Safety Check B: Margin dangerously low
   if (currentMargin < MIN_MARGIN_PERCENT) {
+    console.log(`   [ALGORITHM] 🛡️ SAFETY: Margin too low (${currentMargin.toFixed(1)}%)`);
     const targetPrice = costPrice / (1 - (TARGET_MARGIN / 100));
     const cappedPrice = Math.min(targetPrice, currentPrice * (1 + MAX_INCREASE_PERCENT));
     const increasePercent = ((cappedPrice - currentPrice) / currentPrice * 100).toFixed(1);
+
+    // Inventory can only REINFORCE this decision (add minor confidence boost)
+    // It CANNOT initiate or determine price magnitude
+    let inventoryNote = '';
+    if (inventory < 30 && salesVelocity > 0.5) {
+      inventoryNote = ' Low stock reinforces this protective action.';
+    }
+
     return {
       shouldChangePrice: true,
       recommendedPrice: cappedPrice,
-      reasoning: `🛡️ MARGIN TOO LOW: Current margin ${currentMargin.toFixed(1)}% is below healthy minimum of ${MIN_MARGIN_PERCENT}%. Raising price to $${cappedPrice.toFixed(2)} (+${increasePercent}%) to achieve ${TARGET_MARGIN}% target margin while staying within ${MAX_INCREASE_PERCENT * 100}% max increase limit.`,
+      reasoning: `🛡️ MARGIN TOO LOW: Current margin ${currentMargin.toFixed(1)}% is below healthy minimum of ${MIN_MARGIN_PERCENT}%. Raising price to $${cappedPrice.toFixed(2)} (+${increasePercent}%) to achieve ${TARGET_MARGIN}% target margin while staying within ${MAX_INCREASE_PERCENT * 100}% max increase limit.${inventoryNote}`,
       urgency: 'HIGH',
       confidence: 95,
       priceChange: cappedPrice - currentPrice,
@@ -269,29 +356,72 @@ async function analyzeProduct(product, allProducts, userSettings, recentOrderDat
     };
   }
 
-  if (currentMargin > MAX_MARGIN_PERCENT) {
+  // ------------------------------------------
+  // DECISION ORDER 2: OBVIOUS MISPRICING
+  // ------------------------------------------
+
+  // Mispricing A: Zero sales for 7+ days (with sufficient data quality)
+  if (sales7d === 0 && daysSinceLastAnalysis >= 7 && dataReliability === 'HIGH') {
+    console.log(`   [ALGORITHM] 📉 MISPRICING: Zero sales for 7+ days`);
+
+    // PROTECTION: Max 3 decreases per month
+    if (decreasesThisMonth >= 3) {
+      console.log(`   [ALGORITHM] ⚠️ BLOCKED: Price decrease limit reached (${decreasesThisMonth}/3)`);
+      return {
+        shouldChangePrice: false,
+        reasoning: `⚠️ NO SALES IN 7 DAYS: Zero recent sales detected, but already made ${decreasesThisMonth} price decreases this month (max 3 for safety). Will retry next month. Current: $${currentPrice.toFixed(2)} (${currentMargin.toFixed(1)}% margin).`,
+        confidence: 65
+      };
+    }
+
+    // GRADUAL DISCOVERY: 10% → 15% → 20%
+    let discountPercent = 0.10;
+    if (decreasesThisMonth === 1) discountPercent = 0.15;
+    if (decreasesThisMonth === 2) discountPercent = 0.20;
+
+    const testPrice = currentPrice * (1 - discountPercent);
+    const finalPrice = Math.max(testPrice, costPrice * 1.30); // Never below 30% margin
+    const actualDecrease = ((currentPrice - finalPrice) / currentPrice * 100).toFixed(1);
+
+    return {
+      shouldChangePrice: true,
+      recommendedPrice: finalPrice,
+      reasoning: `📉 ZERO SALES IN 7 DAYS (Attempt ${decreasesThisMonth + 1}/3): No recent sales. Testing ${actualDecrease}% price reduction to $${finalPrice.toFixed(2)} to discover optimal price point. Maintains 30%+ margin. ${3 - decreasesThisMonth - 1} attempts remaining this month.`,
+      urgency: 'HIGH',
+      confidence: 75,
+      priceChange: finalPrice - currentPrice,
+      changePercent: (finalPrice - currentPrice) / currentPrice * 100,
+      isDecrease: true
+    };
+  }
+
+  // Mispricing B: Extremely high margin + slow demand
+  if (currentMargin > MAX_MARGIN_PERCENT && salesVelocity < 0.5) {
+    console.log(`   [ALGORITHM] 💸 MISPRICING: Very high margin (${currentMargin.toFixed(1)}%) + slow sales`);
     const targetPrice = costPrice / (1 - (TARGET_MARGIN / 100));
     const cappedPrice = Math.max(targetPrice, currentPrice * (1 - MAX_DECREASE_PERCENT));
     const decreasePercent = ((currentPrice - cappedPrice) / currentPrice * 100).toFixed(1);
+
     return {
       shouldChangePrice: true,
       recommendedPrice: cappedPrice,
-      reasoning: `🛡️ MARGIN TOO HIGH: Current margin ${currentMargin.toFixed(1)}% is above sustainable maximum of ${MAX_MARGIN_PERCENT}%. Lowering price to $${cappedPrice.toFixed(2)} (-${decreasePercent}%) to achieve ${TARGET_MARGIN}% target margin, improve conversion rates, and maintain competitive positioning.`,
+      reasoning: `💸 MARGIN TOO HIGH + SLOW SALES: Current margin ${currentMargin.toFixed(1)}% is above sustainable maximum of ${MAX_MARGIN_PERCENT}% and sales are slow (${salesVelocity.toFixed(2)} units/day). Lowering to $${cappedPrice.toFixed(2)} (-${decreasePercent}%) to achieve ${TARGET_MARGIN}% target margin and stimulate demand.`,
       urgency: 'MEDIUM',
-      confidence: 90,
+      confidence: 85,
       priceChange: cappedPrice - currentPrice,
       changePercent: (cappedPrice - currentPrice) / currentPrice * 100
     };
   }
 
-  // SAFEGUARD 2: Pricing error detection
+  // Mispricing C: Suspicious markup (pricing error detection)
   if (currentMarkup > SUSPICIOUS_MARKUP) {
+    console.log(`   [ALGORITHM] ⚠️ MISPRICING: Suspicious markup (${currentMarkup.toFixed(1)}x)`);
     const reasonablePrice = costPrice * MAX_MARKUP_RATIO;
     const decreasePercent = ((currentPrice - reasonablePrice) / currentPrice * 100).toFixed(1);
     return {
       shouldChangePrice: true,
       recommendedPrice: reasonablePrice,
-      reasoning: `⚠️ PRICING ERROR DETECTED: Current markup of ${currentMarkup.toFixed(1)}x (price $${currentPrice.toFixed(2)} vs cost $${costPrice.toFixed(2)}) suggests possible pricing mistake. Recommending $${reasonablePrice.toFixed(2)} (-${decreasePercent}%), which is a ${MAX_MARKUP_RATIO}x markup - still profitable but more realistic for market.`,
+      reasoning: `⚠️ PRICING ERROR: Current markup of ${currentMarkup.toFixed(1)}x suggests possible mistake (price $${currentPrice.toFixed(2)} vs cost $${costPrice.toFixed(2)}). Recommending $${reasonablePrice.toFixed(2)} (-${decreasePercent}%), which is a ${MAX_MARKUP_RATIO}x markup - still profitable but more realistic.`,
       urgency: 'HIGH',
       confidence: 85,
       priceChange: reasonablePrice - currentPrice,
@@ -299,223 +429,24 @@ async function analyzeProduct(product, allProducts, userSettings, recentOrderDat
     };
   }
 
-  // SAFEGUARD 3: 7-Day Zero Sales with Gradual Price Discovery
-  // Only triggers if: 0 sales in 7 days + analyzed at least 7 days ago + under monthly decrease limit
-  if (sales7d === 0 && daysSinceLastAnalysis >= 7) {
-    console.log(`   [ALGORITHM] 📉 7-DAY ZERO SALES DETECTED`);
+  // ------------------------------------------
+  // DECISION ORDER 3: OTHERWISE → NO CHANGE
+  // ------------------------------------------
 
-    // PROTECTION: Max 3 decreases per month
-    if (decreasesThisMonth >= 3) {
-      console.log(`   [ALGORITHM] ⚠️ BLOCKED: Already made ${decreasesThisMonth} decreases this month (max 3)`);
-      return {
-        shouldChangePrice: false,
-        reasoning: `⚠️ PRICE DECREASE LIMIT REACHED: No sales in 7 days, but already made ${decreasesThisMonth} price decreases this month. Waiting until next month to avoid over-reacting to market conditions. Current price: $${currentPrice.toFixed(2)} (${currentMargin.toFixed(1)}% margin).`,
-        confidence: 65
-      };
-    }
+  console.log(`   [ALGORITHM] ✓ No safety issues, no obvious mispricing → DO NOTHING`);
 
-    // GRADUAL DISCOVERY: Start with 10% decrease, then 15%, then 20%
-    let discountPercent;
-    if (decreasesThisMonth === 0) {
-      discountPercent = 0.10; // First attempt: 10% off
-    } else if (decreasesThisMonth === 1) {
-      discountPercent = 0.15; // Second attempt: 15% off
-    } else {
-      discountPercent = 0.20; // Final attempt: 20% off
-    }
-
-    const testPrice = currentPrice * (1 - discountPercent);
-    const finalPrice = Math.max(testPrice, costPrice * 1.3); // Never below 30% margin
-    const actualDecrease = ((currentPrice - finalPrice) / currentPrice * 100).toFixed(1);
-
-    console.log(`   [ALGORITHM] 💡 Gradual discovery: Attempt ${decreasesThisMonth + 1}/3, reducing ${(discountPercent * 100).toFixed(0)}%`);
-
-    return {
-      shouldChangePrice: true,
-      recommendedPrice: finalPrice,
-      reasoning: `📉 NO SALES IN 7 DAYS (Attempt ${decreasesThisMonth + 1}/3): Zero sales in past week. Testing ${actualDecrease}% price reduction to $${finalPrice.toFixed(2)} to discover optimal price point. Maintains 30%+ margin. If this doesn't work, will try again in 7 days (${3 - decreasesThisMonth - 1} attempts remaining this month).`,
-      urgency: 'HIGH',
-      confidence: 75,
-      priceChange: finalPrice - currentPrice,
-      changePercent: (finalPrice - currentPrice) / currentPrice * 100,
-      isDecrease: true // Flag for tracking
-    };
+  // Inventory can provide context notes, but NEVER initiates change
+  let statusNote = '';
+  if (inventory < 30 && salesVelocity > 1.0) {
+    statusNote = ` Low stock (${inventory} units, ~${(inventory / salesVelocity).toFixed(0)} days at current velocity) - monitor for restocking.`;
+  } else if (inventory > 90 && salesVelocity < 0.5) {
+    statusNote = ` High inventory (${inventory} units) with slow sales - consider promotions or bundling.`;
   }
-
-  // DECISION TREE: Velocity-based pricing decisions
-
-  // SCENARIO 1: VERY HIGH VELOCITY
-  if (salesVelocity >= VERY_HIGH_VELOCITY) {
-    if (inventory <= CRITICAL_LOW_STOCK || daysOfStock < 7) {
-      const urgentIncrease = currentPrice * 1.15;
-      const cappedPrice = Math.min(urgentIncrease, currentPrice * (1 + MAX_INCREASE_PERCENT));
-      const increasePercent = ((cappedPrice - currentPrice) / currentPrice * 100).toFixed(1);
-
-      return {
-        shouldChangePrice: true,
-        recommendedPrice: cappedPrice,
-        reasoning: `🔥 HIGH DEMAND + CRITICAL LOW STOCK: Selling ${salesVelocity.toFixed(2)} units/day with only ${inventory} units left (~${daysOfStock.toFixed(0)} days of stock). Raising price to $${cappedPrice.toFixed(2)} (+${increasePercent}%) to maximize profit on remaining inventory and slow demand until restock.`,
-        urgency: 'URGENT',
-        confidence: 95,
-        priceChange: cappedPrice - currentPrice,
-        changePercent: (cappedPrice - currentPrice) / currentPrice * 100
-      };
-    }
-
-    if (currentMargin < TARGET_MARGIN) {
-      const optimalPrice = costPrice / (1 - (TARGET_MARGIN / 100));
-      const cappedPrice = Math.min(optimalPrice, currentPrice * (1 + MAX_INCREASE_PERCENT));
-      const increasePercent = ((cappedPrice - currentPrice) / currentPrice * 100).toFixed(1);
-
-      return {
-        shouldChangePrice: true,
-        recommendedPrice: cappedPrice,
-        reasoning: `📈 STRONG DEMAND + MARGIN OPTIMIZATION: Product is selling very well at ${salesVelocity.toFixed(2)} units/day (recent: ${recentVelocity.toFixed(2)}/day). Current ${currentMargin.toFixed(1)}% margin can be improved. Raising to $${cappedPrice.toFixed(2)} (+${increasePercent}%) to achieve ${TARGET_MARGIN}% target margin while demand remains high.`,
-        urgency: 'MEDIUM',
-        confidence: 88,
-        priceChange: cappedPrice - currentPrice,
-        changePercent: (cappedPrice - currentPrice) / currentPrice * 100
-      };
-    }
-
-    return {
-      shouldChangePrice: false,
-      reasoning: `✅ OPTIMAL PERFORMANCE: Product is selling excellently at ${salesVelocity.toFixed(2)} units/day with healthy ${currentMargin.toFixed(1)}% margin. Price of $${currentPrice.toFixed(2)} is in the sweet spot - maintain current pricing.`,
-      confidence: 92
-    };
-  }
-
-  // SCENARIO 2: HIGH VELOCITY
-  if (salesVelocity >= HIGH_VELOCITY) {
-    if (currentMargin < HEALTHY_MARGIN_FLOOR) {
-      const improvedPrice = costPrice / (1 - (TARGET_MARGIN / 100));
-      const cappedPrice = Math.min(improvedPrice, currentPrice * (1 + MAX_INCREASE_PERCENT));
-      const increasePercent = ((cappedPrice - currentPrice) / currentPrice * 100).toFixed(1);
-
-      return {
-        shouldChangePrice: true,
-        recommendedPrice: cappedPrice,
-        reasoning: `💰 GOOD SALES, THIN MARGIN: Selling ${salesVelocity.toFixed(2)} units/day but only ${currentMargin.toFixed(1)}% margin. Raising to $${cappedPrice.toFixed(2)} (+${increasePercent}%) to improve profitability to ${TARGET_MARGIN}% while maintaining strong demand.`,
-        urgency: 'MEDIUM',
-        confidence: 85,
-        priceChange: cappedPrice - currentPrice,
-        changePercent: (cappedPrice - currentPrice) / currentPrice * 100
-      };
-    }
-
-    if (inventory > OVERSTOCK) {
-      return {
-        shouldChangePrice: false,
-        reasoning: `✅ CLEARING INVENTORY: Strong sales of ${salesVelocity.toFixed(2)} units/day with ${inventory} units in stock (${daysOfStock.toFixed(0)} days). Current price $${currentPrice.toFixed(2)} is working well to move inventory. Maintain pricing.`,
-        confidence: 87
-      };
-    }
-
-    return {
-      shouldChangePrice: false,
-      reasoning: `✅ STRONG PERFORMANCE: Selling ${salesVelocity.toFixed(2)} units/day with healthy ${currentMargin.toFixed(1)}% margin. Price of $${currentPrice.toFixed(2)} is performing well. No changes needed.`,
-      confidence: 90
-    };
-  }
-
-  // SCENARIO 3: MEDIUM VELOCITY
-  if (salesVelocity >= MEDIUM_VELOCITY) {
-    if (inventory <= LOW_STOCK && currentMargin < TARGET_MARGIN) {
-      const balancedPrice = costPrice / (1 - (TARGET_MARGIN / 100));
-      const cappedPrice = Math.min(balancedPrice, currentPrice * (1 + MAX_INCREASE_PERCENT));
-      const increasePercent = ((cappedPrice - currentPrice) / currentPrice * 100).toFixed(1);
-
-      return {
-        shouldChangePrice: true,
-        recommendedPrice: cappedPrice,
-        reasoning: `⚖️ MODERATE DEMAND + LIMITED STOCK: Selling ${salesVelocity.toFixed(2)} units/day with ${inventory} units left (~${daysOfStock.toFixed(0)} days). Raising to $${cappedPrice.toFixed(2)} (+${increasePercent}%) to improve margin to ${TARGET_MARGIN}% and extend inventory runway.`,
-        urgency: 'MEDIUM',
-        confidence: 82,
-        priceChange: cappedPrice - currentPrice,
-        changePercent: (cappedPrice - currentPrice) / currentPrice * 100
-      };
-    }
-
-    if (inventory > OVERSTOCK) {
-      const clearancePrice = currentPrice * 0.92;
-      const minPrice = costPrice * 1.3;
-      const finalPrice = Math.max(clearancePrice, minPrice);
-      const decreasePercent = ((currentPrice - finalPrice) / currentPrice * 100).toFixed(1);
-
-      return {
-        shouldChangePrice: true,
-        recommendedPrice: finalPrice,
-        reasoning: `📦 OVERSTOCK SITUATION: ${inventory} units in stock (~${daysOfStock.toFixed(0)} days) with moderate sales of ${salesVelocity.toFixed(2)} units/day. Lowering price to $${finalPrice.toFixed(2)} (-${decreasePercent}%) to accelerate sales and reduce holding costs while maintaining healthy margin.`,
-        urgency: 'MEDIUM',
-        confidence: 80,
-        priceChange: finalPrice - currentPrice,
-        changePercent: (finalPrice - currentPrice) / currentPrice * 100
-      };
-    }
-
-    return {
-      shouldChangePrice: false,
-      reasoning: `✅ STEADY PERFORMANCE: Moderate sales of ${salesVelocity.toFixed(2)} units/day with ${currentMargin.toFixed(1)}% margin. Current price $${currentPrice.toFixed(2)} is working adequately. Monitor and maintain.`,
-      confidence: 78
-    };
-  }
-
-  // SCENARIO 4: LOW VELOCITY
-  if (salesVelocity >= LOW_VELOCITY) {
-    if (currentMargin > HEALTHY_MARGIN_CEILING) {
-      const competitivePrice = costPrice / (1 - (TARGET_MARGIN / 100));
-      const finalPrice = Math.max(competitivePrice, currentPrice * (1 - MAX_DECREASE_PERCENT));
-      const decreasePercent = ((currentPrice - finalPrice) / currentPrice * 100).toFixed(1);
-
-      return {
-        shouldChangePrice: true,
-        recommendedPrice: finalPrice,
-        reasoning: `💸 SLOW SALES + HIGH MARGIN: Only ${salesVelocity.toFixed(2)} units/day with ${currentMargin.toFixed(1)}% margin suggests price resistance. Lowering to $${finalPrice.toFixed(2)} (-${decreasePercent}%) to hit ${TARGET_MARGIN}% target margin and stimulate demand. Recent 7-day velocity: ${recentVelocity.toFixed(2)}/day.`,
-        urgency: 'MEDIUM',
-        confidence: 85,
-        priceChange: finalPrice - currentPrice,
-        changePercent: (finalPrice - currentPrice) / currentPrice * 100
-      };
-    }
-
-    if (inventory > HEALTHY_STOCK) {
-      const discountPrice = currentPrice * 0.88;
-      const minPrice = costPrice * 1.3;
-      const finalPrice = Math.max(discountPrice, minPrice);
-      const decreasePercent = ((currentPrice - finalPrice) / currentPrice * 100).toFixed(1);
-
-      return {
-        shouldChangePrice: true,
-        recommendedPrice: finalPrice,
-        reasoning: `⚠️ SLOW MOVEMENT + EXCESS INVENTORY: ${inventory} units with only ${salesVelocity.toFixed(2)} sales/day (~${daysOfStock.toFixed(0)} days of stock). Lowering to $${finalPrice.toFixed(2)} (-${decreasePercent}%) to accelerate turnover and prevent long-term holding costs.`,
-        urgency: 'HIGH',
-        confidence: 83,
-        priceChange: finalPrice - currentPrice,
-        changePercent: (finalPrice - currentPrice) / currentPrice * 100
-      };
-    }
-
-    return {
-      shouldChangePrice: false,
-      reasoning: `⚠️ MONITOR CLOSELY: Slow sales (${salesVelocity.toFixed(2)} units/day) but limited inventory (${inventory} units, ~${daysOfStock.toFixed(0)} days). Margin at ${currentMargin.toFixed(1)}%. Consider price adjustment if sales don't improve.`,
-      confidence: 70
-    };
-  }
-
-  // SCENARIO 5: VERY LOW/ZERO VELOCITY
-  const drasticDiscount = currentPrice * 0.75;
-  const minPrice = costPrice * 1.25;
-  const emergencyPrice = Math.max(drasticDiscount, minPrice);
-  const decreasePercent = ((currentPrice - emergencyPrice) / currentPrice * 100).toFixed(1);
 
   return {
-    shouldChangePrice: true,
-    recommendedPrice: emergencyPrice,
-    reasoning: `🚨 CRITICAL: Very slow movement (${salesVelocity.toFixed(3)} units/day, ${sales30d} sales in 30 days). Current price $${currentPrice.toFixed(2)} isn't working. Recommending aggressive ${decreasePercent}% reduction to $${emergencyPrice.toFixed(2)} to restart sales momentum while maintaining minimum 25% margin.`,
-    urgency: 'HIGH',
-    confidence: 78,
-    priceChange: emergencyPrice - currentPrice,
-    changePercent: (emergencyPrice - currentPrice) / currentPrice * 100
+    shouldChangePrice: false,
+    reasoning: `✅ PRICE IS APPROPRIATE: Current price $${currentPrice.toFixed(2)} with ${currentMargin.toFixed(1)}% margin is performing adequately. Sales: ${salesVelocity.toFixed(2)} units/day (${sales30d} in 30 days). No pricing changes needed at this time.${statusNote}`,
+    confidence: 80 + (dataReliability === 'HIGH' ? 10 : 0)
   };
 }
 
