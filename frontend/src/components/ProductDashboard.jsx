@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Zap, Check, RefreshCw, TrendingUp, Package, DollarSign, AlertCircle, LogOut, Settings, X, Wifi, WifiOff, BarChart3, Activity, ShoppingCart, Calendar, Clock, TrendingDown } from 'lucide-react';
+import { Zap, Check, RefreshCw, TrendingUp, Package, DollarSign, AlertCircle, LogOut, Settings, X, Wifi, WifiOff, BarChart3, Activity, ShoppingCart, Clock, Search, CheckSquare, Square } from 'lucide-react';
 
 // API URL - automatically uses production URL when deployed
 const API_URL = process.env.REACT_APP_API_URL || '';
@@ -300,6 +300,8 @@ function ProductDashboard({ userEmail, onLogout }) {
   const [selectedProductIds, setSelectedProductIds] = useState([]);
   const [showNewRecommendationsAlert, setShowNewRecommendationsAlert] = useState(false);
   const [newRecommendationsCount, setNewRecommendationsCount] = useState(0);
+  const [productSearchQuery, setProductSearchQuery] = useState('');
+  const [expandedRecommendation, setExpandedRecommendation] = useState(null);
 
   useEffect(() => {
     initializeDashboard();
@@ -581,6 +583,32 @@ function ProductDashboard({ userEmail, onLogout }) {
     } catch (err) {
       setError(err.message);
     }
+  };
+
+  const toggleProductSelection = (productId) => {
+    setSelectedProductIds(prev => {
+      if (prev.includes(productId)) {
+        return prev.filter(id => id !== productId);
+      } else {
+        // Limit to 50 products
+        if (prev.length >= 50) {
+          setError('⚠️ Maximum 50 products can be selected for analysis');
+          setTimeout(() => setError(null), 3000);
+          return prev;
+        }
+        return [...prev, productId];
+      }
+    });
+  };
+
+  const selectAllProducts = () => {
+    const productsWithCost = products.filter(p => p.cost_price > 0);
+    const idsToSelect = productsWithCost.slice(0, 50).map(p => p.id);
+    setSelectedProductIds(idsToSelect);
+  };
+
+  const clearAllSelections = () => {
+    setSelectedProductIds([]);
   };
 
   const runAnalysis = async () => {
@@ -987,6 +1015,77 @@ function ProductDashboard({ userEmail, onLogout }) {
               </div>
             </div>
 
+            {/* Product Selection UI - Shows only when >10 products */}
+            {products.length > 10 && (
+              <div className="mb-8 p-6 border-2 border-purple-500/50 bg-purple-900/20 rounded-xl">
+                <div className="mb-4">
+                  <h3 className="text-2xl font-bold text-white mb-2">Select Products to Analyze</h3>
+                  <p className="text-gray-300">
+                    You have {products.length} products. Select up to 50 to analyze. Only products with cost prices set can be selected.
+                  </p>
+                  <p className="text-sm text-gray-400 mt-1">
+                    ℹ️ We limit analysis to 50 products at a time to ensure fast, accurate recommendations.
+                  </p>
+                </div>
+
+                {/* Search and Selection Controls */}
+                <div className="mb-4 space-y-3">
+                  {/* Search Bar */}
+                  <div className="relative">
+                    <Search className="absolute left-3 top-3 w-5 h-5 text-gray-400" />
+                    <input
+                      type="text"
+                      placeholder="🔍 Search products..."
+                      value={productSearchQuery}
+                      onChange={(e) => setProductSearchQuery(e.target.value)}
+                      className="w-full pl-10 pr-4 py-3 bg-slate-800 border border-slate-600 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:border-purple-500 focus:ring-2 focus:ring-purple-500/20"
+                    />
+                  </div>
+
+                  {/* Select All / Clear All Buttons */}
+                  <div className="flex items-center justify-between">
+                    <div className="flex gap-3">
+                      <button
+                        onClick={selectAllProducts}
+                        className="px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg font-semibold transition flex items-center space-x-2"
+                      >
+                        <CheckSquare className="w-4 h-4" />
+                        <span>Select First 50 (with cost price)</span>
+                      </button>
+                      <button
+                        onClick={clearAllSelections}
+                        className="px-4 py-2 bg-slate-600 hover:bg-slate-700 text-white rounded-lg font-semibold transition flex items-center space-x-2"
+                      >
+                        <Square className="w-4 h-4" />
+                        <span>Clear All</span>
+                      </button>
+                    </div>
+                    <div className="text-white font-semibold">
+                      {selectedProductIds.length} / 50 selected
+                    </div>
+                  </div>
+                </div>
+
+                {/* Info Message */}
+                {selectedProductIds.length > 0 && (
+                  <div className="p-4 bg-blue-500/10 border border-blue-500/30 rounded-lg">
+                    <p className="text-blue-300 text-sm">
+                      ✓ {selectedProductIds.length} product{selectedProductIds.length !== 1 ? 's' : ''} selected. Click "Run AI Analysis Now" above to analyze.
+                    </p>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Auto-select message for ≤10 products */}
+            {products.length > 0 && products.length <= 10 && (
+              <div className="mb-6 p-4 bg-blue-500/10 border border-blue-500/30 rounded-lg">
+                <p className="text-blue-300 font-medium">
+                  ✅ All {products.length} products will be analyzed automatically (products with cost prices set)
+                </p>
+              </div>
+            )}
+
             {/* Products List Section */}
             <div className="mb-8">
               <h3 className="text-2xl font-bold text-white mb-4">Your Products</h3>
@@ -1012,8 +1111,45 @@ function ProductDashboard({ userEmail, onLogout }) {
                 </div>
               ) : (
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                  {products.map((product) => (
-                    <div key={product.id} className="bg-gradient-to-br from-slate-800/80 to-slate-800/40 border border-slate-700 rounded-xl p-6 hover:border-purple-500/50 transition">
+                  {products
+                    .filter(product =>
+                      product.title.toLowerCase().includes(productSearchQuery.toLowerCase())
+                    )
+                    .map((product) => {
+                      const isSelected = selectedProductIds.includes(product.id);
+                      const canBeSelected = product.cost_price > 0;
+                      const showCheckbox = products.length > 10;
+
+                      return (
+                    <div
+                      key={product.id}
+                      className={`bg-gradient-to-br from-slate-800/80 to-slate-800/40 border rounded-xl p-6 transition ${
+                        isSelected ? 'border-purple-500 shadow-lg shadow-purple-500/20' : 'border-slate-700 hover:border-purple-500/50'
+                      }`}
+                    >
+                      {/* Checkbox for >10 products */}
+                      {showCheckbox && (
+                        <div className="mb-3">
+                          <label className="flex items-center space-x-3 cursor-pointer group">
+                            <div
+                              onClick={() => canBeSelected && toggleProductSelection(product.id)}
+                              className={`w-6 h-6 rounded border-2 flex items-center justify-center transition ${
+                                canBeSelected
+                                  ? isSelected
+                                    ? 'bg-purple-600 border-purple-600'
+                                    : 'border-slate-500 group-hover:border-purple-500'
+                                  : 'border-slate-700 bg-slate-800 cursor-not-allowed opacity-50'
+                              }`}
+                            >
+                              {isSelected && <Check className="w-4 h-4 text-white" />}
+                            </div>
+                            <span className={`text-sm font-medium ${canBeSelected ? 'text-white' : 'text-gray-500'}`}>
+                              {isSelected ? 'Selected for analysis' : canBeSelected ? 'Select for analysis' : 'Set cost price first'}
+                            </span>
+                          </label>
+                        </div>
+                      )}
+
                       <div className="mb-4">
                         {product.image_url ? (
                           <img src={product.image_url} alt={product.title} className="w-full h-48 object-cover rounded-lg mb-4" />
@@ -1055,7 +1191,8 @@ function ProductDashboard({ userEmail, onLogout }) {
                         <span>Set Cost Price</span>
                       </button>
                     </div>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
             </div>
@@ -1065,81 +1202,199 @@ function ProductDashboard({ userEmail, onLogout }) {
               <div>
                 <h3 className="text-2xl font-bold text-white mb-4">AI Recommendations</h3>
                 <div className="space-y-4">
-                  {recommendations.map((rec) => (
-                    <div key={rec.id} className="p-6 bg-gradient-to-br from-purple-600/20 to-pink-600/20 border border-purple-500/30 rounded-xl relative">
-                      <button
-                        onClick={() => rejectRecommendation(rec.id, rec.product_id)}
-                        className="absolute top-4 right-4 p-2 hover:bg-slate-700/50 rounded-lg transition"
-                        title="Dismiss recommendation"
-                      >
-                        <X className="w-5 h-5 text-gray-400 hover:text-white" />
-                      </button>
-                      <div className="flex items-start justify-between mb-4 pr-12">
-                        <div className="flex-1">
+                  {recommendations.map((rec) => {
+                    const isExpanded = expandedRecommendation === rec.id;
+                    const product = products.find(p => p.id === rec.product_id);
+                    const priceChange = parseFloat(rec.recommended_price) - parseFloat(rec.current_price);
+                    const isIncrease = priceChange > 0;
+                    const changePercent = (Math.abs(priceChange) / parseFloat(rec.current_price)) * 100;
+
+                    return (
+                    <div key={rec.id} className={`p-6 bg-gradient-to-br rounded-xl relative transition border-2 ${
+                      rec.urgency === 'CRITICAL' ? 'from-red-900/30 to-red-900/10 border-red-500/50' :
+                      rec.urgency === 'URGENT' ? 'from-orange-900/30 to-orange-900/10 border-orange-500/50' :
+                      rec.urgency === 'HIGH' ? 'from-yellow-900/30 to-yellow-900/10 border-yellow-500/50' :
+                      'from-purple-600/20 to-pink-600/20 border-purple-500/30'
+                    }`}>
+                      {/* Header with Product Image and Title */}
+                      <div className="flex items-start gap-4 mb-4">
+                        {product?.image_url && (
+                          <img
+                            src={product.image_url}
+                            alt={rec.title}
+                            className="w-20 h-20 object-cover rounded-lg flex-shrink-0"
+                          />
+                        )}
+                        <div className="flex-1 pr-12">
+                          <div className="flex items-center gap-2 mb-2">
+                            <span className={`px-3 py-1 rounded-full text-xs font-bold ${
+                              rec.urgency === 'CRITICAL' ? 'bg-red-500 text-white' :
+                              rec.urgency === 'URGENT' ? 'bg-orange-500 text-white' :
+                              rec.urgency === 'HIGH' ? 'bg-yellow-500 text-black' :
+                              'bg-blue-500 text-white'
+                            }`}>
+                              {rec.urgency === 'CRITICAL' ? '🚨' : rec.urgency === 'URGENT' ? '⚠️' : rec.urgency === 'HIGH' ? '📊' : '💡'} {rec.urgency}
+                            </span>
+                            <span className="px-3 py-1 rounded-full text-xs font-bold bg-slate-900/50 text-white">
+                              {rec.confidence}% Confidence
+                            </span>
+                          </div>
                           <h4 className="text-xl font-bold text-white mb-2">{rec.title}</h4>
-                          <p className="text-gray-300 text-sm leading-relaxed">{rec.reasoning}</p>
                         </div>
-                        <div className="text-right ml-6">
-                          <p className="text-gray-400 text-sm mb-1">Current Price</p>
-                          <p className="text-white font-bold text-2xl mb-3">${parseFloat(rec.current_price).toFixed(2)}</p>
-                          <p className="text-gray-400 text-sm mb-1">Recommended Price</p>
-                          <p className={`font-bold text-3xl ${
-                            parseFloat(rec.recommended_price) > parseFloat(rec.current_price) ? 'text-green-400' : 'text-red-400'
-                          }`}>${parseFloat(rec.recommended_price).toFixed(2)}</p>
-                          <p className={`text-xs mt-1 font-semibold ${
-                            parseFloat(rec.recommended_price) > parseFloat(rec.current_price) ? 'text-green-300' : 'text-red-300'
-                          }`}>
-                            {parseFloat(rec.recommended_price) > parseFloat(rec.current_price) ? '↑' : '↓'}
-                            ${Math.abs(parseFloat(rec.recommended_price) - parseFloat(rec.current_price)).toFixed(2)}
-                            ({((Math.abs(parseFloat(rec.recommended_price) - parseFloat(rec.current_price)) / parseFloat(rec.current_price)) * 100).toFixed(1)}%)
+                        <button
+                          onClick={() => rejectRecommendation(rec.id, rec.product_id)}
+                          className="absolute top-4 right-4 p-2 hover:bg-slate-700/50 rounded-lg transition"
+                          title="Dismiss recommendation"
+                        >
+                          <X className="w-5 h-5 text-gray-400 hover:text-white" />
+                        </button>
+                      </div>
+
+                      {/* Recommendation Summary */}
+                      <div className="bg-slate-900/50 border border-slate-700 rounded-lg p-5 mb-4">
+                        <div className="flex items-center justify-between mb-3">
+                          <p className="text-gray-400 text-sm font-semibold">Recommended Action:</p>
+                          <p className={`text-2xl font-bold ${isIncrease ? 'text-green-400' : 'text-yellow-400'}`}>
+                            {isIncrease ? '📈 Increase Price' : '📉 Lower Price'}
                           </p>
                         </div>
+                        <div className="flex items-center justify-between p-4 bg-slate-800 rounded-lg">
+                          <div>
+                            <p className="text-gray-400 text-sm">New Price:</p>
+                            <p className="text-3xl font-bold text-white">
+                              ${parseFloat(rec.recommended_price).toFixed(2)}
+                            </p>
+                          </div>
+                          <div className="text-center px-4">
+                            <p className="text-gray-400 text-sm">Change:</p>
+                            <p className={`text-2xl font-bold ${isIncrease ? 'text-green-400' : 'text-yellow-400'}`}>
+                              {isIncrease ? '+' : '-'}${Math.abs(priceChange).toFixed(2)}
+                            </p>
+                            <p className="text-sm text-gray-400">({changePercent.toFixed(1)}%)</p>
+                          </div>
+                          <div className="text-right">
+                            <p className="text-gray-400 text-sm">Current:</p>
+                            <p className="text-2xl font-bold text-white">
+                              ${parseFloat(rec.current_price).toFixed(2)}
+                            </p>
+                          </div>
+                        </div>
                       </div>
-                      <div className="flex items-center justify-between pt-4 border-t border-purple-500/30">
-                        <div className="flex items-center space-x-4">
-                          <div className="px-3 py-1 bg-slate-900/50 rounded-lg">
-                            <span className="text-gray-400 text-xs">Urgency: </span>
-                            <span className={`font-semibold text-sm ${
-                              rec.urgency === 'CRITICAL' ? 'text-red-400' :
-                              rec.urgency === 'URGENT' ? 'text-orange-400' :
-                              rec.urgency === 'HIGH' ? 'text-yellow-400' : 'text-green-400'
-                            }`}>{rec.urgency}</span>
+
+                      {/* Reasoning */}
+                      <div className="bg-purple-950/30 border border-purple-500/30 rounded-lg p-4 mb-4">
+                        <p className="text-sm text-purple-300 font-semibold mb-2">💡 Why this recommendation:</p>
+                        <p className="text-gray-200 leading-relaxed">{rec.reasoning}</p>
+                      </div>
+
+                      {/* Expandable Details */}
+                      <button
+                        onClick={() => setExpandedRecommendation(isExpanded ? null : rec.id)}
+                        className="w-full text-left px-4 py-3 bg-slate-800/50 hover:bg-slate-800 rounded-lg transition flex items-center justify-between mb-4"
+                      >
+                        <span className="text-blue-300 font-semibold">
+                          {isExpanded ? '📖 Hide' : '📖 Show'} Detailed Analysis
+                        </span>
+                        <span className="text-2xl">{isExpanded ? '▲' : '▼'}</span>
+                      </button>
+
+                      {isExpanded && product && (
+                        <div className="mb-4 p-5 bg-slate-900/70 border border-slate-700 rounded-lg space-y-4">
+                          <div>
+                            <p className="text-sm text-gray-400 mb-2">📊 Current Metrics:</p>
+                            <div className="grid grid-cols-2 gap-3 text-sm">
+                              <div className="p-3 bg-slate-800 rounded">
+                                <p className="text-gray-400">Cost Price</p>
+                                <p className="text-white font-bold">${product.cost_price?.toFixed(2) || 'Not set'}</p>
+                              </div>
+                              <div className="p-3 bg-slate-800 rounded">
+                                <p className="text-gray-400">Current Margin</p>
+                                <p className="text-white font-bold">
+                                  {product.cost_price ? `${(((parseFloat(rec.current_price) - product.cost_price) / parseFloat(rec.current_price)) * 100).toFixed(1)}%` : 'N/A'}
+                                </p>
+                              </div>
+                              <div className="p-3 bg-slate-800 rounded">
+                                <p className="text-gray-400">Sales (30d)</p>
+                                <p className="text-white font-bold">{product.total_sales_30d || 0} units</p>
+                              </div>
+                              <div className="p-3 bg-slate-800 rounded">
+                                <p className="text-gray-400">Velocity</p>
+                                <p className="text-white font-bold">
+                                  {(product.sales_velocity || 0).toFixed(2)} units/day
+                                </p>
+                              </div>
+                            </div>
                           </div>
-                          <div className="px-3 py-1 bg-slate-900/50 rounded-lg">
-                            <span className="text-gray-400 text-xs">Confidence: </span>
-                            <span className="text-white font-semibold text-sm">{rec.confidence}%</span>
+                          <div>
+                            <p className="text-sm text-gray-400 mb-2">⚙️ You Control:</p>
+                            <p className="text-sm text-gray-300">
+                              This is a <strong>recommendation only</strong>. You decide whether to apply it.
+                              You can also manually adjust the price to any value you prefer in Shopify.
+                            </p>
                           </div>
                         </div>
-                        <div className="flex items-center space-x-3">
-                          <button
-                            onClick={() => rejectRecommendation(rec.id, rec.product_id)}
-                            className="px-6 py-2 bg-slate-700 text-white rounded-lg font-semibold hover:bg-slate-600 transition flex items-center space-x-2"
-                          >
-                            <X className="w-4 h-4" />
-                            <span>Reject</span>
-                          </button>
-                          <button
-                            onClick={() => applyRecommendation(rec.id, rec.product_id, parseFloat(rec.recommended_price))}
-                            className="px-6 py-2 bg-green-600 text-white rounded-lg font-semibold hover:bg-green-700 transition flex items-center space-x-2 shadow-lg shadow-green-500/20"
-                          >
-                            <Check className="w-4 h-4" />
-                            <span>Apply to Shopify</span>
-                          </button>
-                        </div>
+                      )}
+
+                      {/* Action Buttons */}
+                      <div className="flex items-center space-x-3">
+                        <button
+                          onClick={() => rejectRecommendation(rec.id, rec.product_id)}
+                          className="px-6 py-3 bg-slate-700 text-white rounded-lg font-semibold hover:bg-slate-600 transition flex items-center space-x-2"
+                        >
+                          <X className="w-4 h-4" />
+                          <span>Reject</span>
+                        </button>
+                        <button
+                          onClick={() => applyRecommendation(rec.id, rec.product_id, parseFloat(rec.recommended_price))}
+                          className="flex-1 px-6 py-3 bg-gradient-to-r from-green-600 to-emerald-600 text-white rounded-lg font-bold hover:from-green-700 hover:to-emerald-700 transition flex items-center justify-center space-x-2 shadow-lg shadow-green-500/20"
+                        >
+                          <Check className="w-5 h-5" />
+                          <span>Apply This Price to Shopify</span>
+                        </button>
                       </div>
                     </div>
-                  ))}
+                    );
+                  })}
                 </div>
               </div>
-            ) : products.some(p => p.last_analyzed_at) && (
-              <div className="p-6 bg-green-500/10 border border-green-500/30 rounded-xl">
-                <div className="flex items-start space-x-3">
-                  <Check className="w-6 h-6 text-green-400 flex-shrink-0 mt-1" />
-                  <div>
-                    <h3 className="text-green-300 font-semibold mb-1">All Prices Optimized!</h3>
-                    <p className="text-green-200/80 text-sm">Your selected products are currently at optimal prices. No recommendations at this time.</p>
+            ) : products.some(p => p.last_analyzed_at) ? (
+              <div className="p-8 bg-green-500/10 border-2 border-green-500/30 rounded-xl text-center">
+                <div className="flex flex-col items-center">
+                  <div className="text-6xl mb-4">✅</div>
+                  <h3 className="text-2xl font-bold text-white mb-2">All Prices Look Good!</h3>
+                  <p className="text-gray-300 mb-4 max-w-md">
+                    Our AI analyzed your products and didn't find any urgent pricing issues.
+                  </p>
+                  <div className="max-w-md bg-slate-900/50 border border-green-500/20 rounded-lg p-5 text-left">
+                    <p className="text-sm text-gray-400 mb-2">This could mean:</p>
+                    <ul className="text-sm text-gray-300 space-y-1">
+                      <li>• Your margins are healthy (30%+)</li>
+                      <li>• No products are selling below cost</li>
+                      <li>• Sales velocity looks reasonable</li>
+                    </ul>
                   </div>
+                  <p className="text-sm text-gray-500 mt-4">
+                    We'll keep monitoring. Check back after more sales data comes in.
+                  </p>
                 </div>
+              </div>
+            ) : (
+              <div className="p-8 bg-blue-500/10 border-2 border-blue-500/30 rounded-xl text-center">
+                <div className="text-6xl mb-4">💡</div>
+                <h3 className="text-2xl font-bold text-white mb-2">Ready to Get Started?</h3>
+                <p className="text-gray-300 mb-4 max-w-md mx-auto">
+                  Set cost prices for your products and run your first AI analysis to get pricing recommendations.
+                </p>
+                <button
+                  onClick={runAnalysis}
+                  disabled={products.filter(p => p.cost_price > 0).length === 0}
+                  className="px-8 py-3 bg-purple-600 hover:bg-purple-700 disabled:bg-slate-700 disabled:cursor-not-allowed text-white rounded-lg font-bold transition"
+                >
+                  Run First Analysis
+                </button>
+                <p className="text-sm text-gray-500 mt-3">
+                  {products.filter(p => p.cost_price > 0).length === 0 && '⚠️ Set cost prices first'}
+                </p>
               </div>
             )}
           </>
