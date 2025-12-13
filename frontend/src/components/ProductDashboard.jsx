@@ -473,16 +473,30 @@ function ProductDashboard({ userEmail, onLogout }) {
         }
       }
 
-      // Auto-sync products if empty and shopify is connected
-      if ((productsData.products || []).length === 0 && shopifyConnected && !forceSync) {
-        console.log('📦 No products found, triggering auto-sync...');
+      // CRITICAL: Auto-sync products on first dashboard load to get fresh sales data
+      // This ensures pagination fix fetches ALL orders, not just cached data
+      const hasAutoSyncedThisSession = sessionStorage.getItem('hasAutoSynced');
+      if (!hasAutoSyncedThisSession && shopifyConnected && !forceSync) {
+        console.log('🔄 Auto-syncing products on dashboard load to fetch latest sales data...');
+        try {
+          sessionStorage.setItem('hasAutoSynced', 'true');
+          await api.call('/api/products/sync', { method: 'POST' });
+          console.log('✅ Products auto-synced successfully, reloading dashboard...');
+          // Reload after sync to show fresh data
+          setTimeout(() => loadDashboardData(true), 2000);
+        } catch (syncErr) {
+          console.error('❌ Auto-sync failed:', syncErr);
+          // Continue loading with cached data
+        }
+      } else if ((productsData.products || []).length === 0 && shopifyConnected && !forceSync) {
+        // Fallback: If no products at all, still try to sync
+        console.log('📦 No products found, triggering sync...');
         try {
           await api.call('/api/products/sync', { method: 'POST' });
           console.log('✅ Products synced, reloading...');
-          // Reload after sync
           setTimeout(() => loadDashboardData(true), 2000);
         } catch (syncErr) {
-          console.error('Auto-sync failed:', syncErr);
+          console.error('Sync failed:', syncErr);
         }
       }
 
