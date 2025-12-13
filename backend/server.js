@@ -1264,6 +1264,46 @@ app.get('/api/products', authenticateToken, async (req, res) => {
   }
 });
 
+// CRITICAL FIX: Fetch ALL orders using cursor-based pagination
+async function fetchAllOrdersPaginated(shop, accessToken, thirtyDaysAgo) {
+  let allOrders = [];
+  let url = `https://${shop}/admin/api/2024-01/orders.json?status=any&created_at_min=${thirtyDaysAgo.toISOString()}&limit=250`;
+  let pageCount = 0;
+
+  console.log('🔄 Fetching all orders with pagination...');
+
+  while (url) {
+    pageCount++;
+    console.log(`   Page ${pageCount}: Fetching ${url}`);
+
+    const response = await axios.get(url, {
+      headers: { 'X-Shopify-Access-Token': accessToken }
+    });
+
+    const pageOrders = response.data.orders || [];
+    allOrders = allOrders.concat(pageOrders);
+    console.log(`   ✅ Page ${pageCount}: Got ${pageOrders.length} orders (Total so far: ${allOrders.length})`);
+
+    // Parse Link header for next page (Shopify pagination)
+    const linkHeader = response.headers['link'];
+    if (linkHeader) {
+      const nextMatch = linkHeader.match(/<([^>]+)>;\s*rel="next"/);
+      url = nextMatch ? nextMatch[1] : null;
+    } else {
+      url = null;
+    }
+
+    // Safety limit: prevent infinite loops
+    if (pageCount > 100) {
+      console.warn('⚠️ Reached 100 pages, stopping pagination');
+      break;
+    }
+  }
+
+  console.log(`📦 TOTAL ORDERS FETCHED: ${allOrders.length} orders across ${pageCount} page(s)`);
+  return allOrders;
+}
+
 app.post('/api/products/sync', authenticateToken, async (req, res) => {
   try {
     // ============================================
@@ -1279,12 +1319,8 @@ app.post('/api/products/sync', authenticateToken, async (req, res) => {
     const thirtyDaysAgo = new Date();
     thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
 
-    const ordersResponse = await axios.get(
-      `https://${shop}/admin/api/2024-01/orders.json?status=any&created_at_min=${thirtyDaysAgo.toISOString()}&limit=250`,
-      { headers: { 'X-Shopify-Access-Token': accessToken } }
-    );
-
-    const orders = ordersResponse.data.orders || [];
+    // CRITICAL FIX: Use paginated fetch to get ALL orders (not just 250)
+    const orders = await fetchAllOrdersPaginated(shop, accessToken, thirtyDaysAgo);
     const variantSales = {};
     const variantRevenue = {};
 
@@ -1377,16 +1413,11 @@ app.get('/api/debug/sales-check', authenticateToken, async (req, res) => {
   try {
     const { shop, accessToken } = await getShopifyCredentials(req, supabase);
 
-    // Get orders from last 30 days
+    // Get orders from last 30 days (WITH PAGINATION)
     const thirtyDaysAgo = new Date();
     thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
 
-    const ordersResponse = await axios.get(
-      `https://${shop}/admin/api/2024-01/orders.json?status=any&created_at_min=${thirtyDaysAgo.toISOString()}&limit=250`,
-      { headers: { 'X-Shopify-Access-Token': accessToken } }
-    );
-
-    const orders = ordersResponse.data.orders || [];
+    const orders = await fetchAllOrdersPaginated(shop, accessToken, thirtyDaysAgo);
     const variantSales = {};
     const variantDetails = {};
 
@@ -1979,6 +2010,31 @@ app.post('/api/recommendations/reject', authenticateToken, async (req, res) => {
   } catch (error) {
     console.error('Recommendation rejection error:', error);
     res.status(500).json({ error: 'Failed to dismiss recommendation' });
+  }
+});
+
+// FIX: Add parameterized reject endpoint (frontend calls /api/recommendations/:id/reject)
+app.post('/api/recommendations/:id/reject', authenticateToken, async (req, res) => {
+  const recId = req.params.id;
+  try {
+    console.log(`❌ Rejecting recommendation ${recId}`);
+
+    // Delete recommendation by ID
+    const { error } = await supabase
+      .from('recommendations')
+      .delete()
+      .eq('id', recId)
+      .eq('user_id', req.user.id);
+
+    if (error) {
+      throw error;
+    }
+
+    console.log(`✅ Recommendation ${recId} rejected successfully`);
+    res.json({ success: true, message: 'Recommendation rejected' });
+  } catch (error) {
+    console.error('Recommendation rejection error:', error);
+    res.status(500).json({ error: 'Failed to reject recommendation' });
   }
 });
 
