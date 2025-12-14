@@ -93,30 +93,38 @@ function SuccessPage({ signupNumber, onLogout, userEmail }) {
   );
 }
 
-// Landing Page Component
+// Landing Page Component with Advanced Animations
 function LandingPage({ onJoinWaitlist, waitlistCount, userAlreadySignedUp }) {
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 flex flex-col items-center justify-center p-4">
-      <div className="text-center max-w-4xl">
-        {/* Animated Logo/Icon */}
-        <div className="inline-block p-6 bg-gradient-to-r from-purple-600/30 to-pink-600/30 rounded-3xl mb-6 animate-pulse border-2 border-purple-500/50">
-          <Zap className="w-24 h-24 text-purple-300" />
-        </div>
+    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 relative overflow-hidden">
+      {/* Animated Background Elements */}
+      <div className="absolute inset-0 overflow-hidden pointer-events-none">
+        <div className="absolute top-20 left-10 w-72 h-72 bg-purple-500/10 rounded-full blur-3xl animate-pulse"></div>
+        <div className="absolute bottom-20 right-10 w-96 h-96 bg-pink-500/10 rounded-full blur-3xl animate-pulse" style={{animationDelay: '1s'}}></div>
+        <div className="absolute top-1/2 left-1/2 w-80 h-80 bg-blue-500/10 rounded-full blur-3xl animate-pulse" style={{animationDelay: '2s'}}></div>
+      </div>
 
-        {/* Main Headline */}
-        <h1 className="text-7xl font-black text-white mb-4 tracking-tight">
-          <span className="text-transparent bg-clip-text bg-gradient-to-r from-purple-400 via-pink-400 to-purple-400 animate-gradient">
-            AutoMerchant
-          </span>
-        </h1>
-        <h2 className="text-4xl font-bold text-purple-200 mb-6">
-          Margin Optimizer AI
-        </h2>
+      <div className="relative flex flex-col items-center justify-center min-h-screen p-4">
+        <div className="text-center max-w-4xl">
+          {/* Animated Logo/Icon with Float Effect */}
+          <div className="inline-block p-6 bg-gradient-to-r from-purple-600/30 to-pink-600/30 rounded-3xl mb-6 border-2 border-purple-500/50 animate-float shadow-2xl shadow-purple-500/50">
+            <Zap className="w-24 h-24 text-purple-300 animate-pulse-slow" />
+          </div>
+
+          {/* Main Headline with Gradient Animation */}
+          <h1 className="text-7xl font-black text-white mb-4 tracking-tight animate-fade-in-up">
+            <span className="text-transparent bg-clip-text bg-gradient-to-r from-purple-400 via-pink-400 to-purple-400 bg-[length:200%_auto] animate-gradient-flow">
+              AutoMerchant
+            </span>
+          </h1>
+          <h2 className="text-4xl font-bold text-purple-200 mb-6 animate-fade-in-up" style={{animationDelay: '0.1s'}}>
+            Margin Optimizer AI
+          </h2>
 
         {/* Subheadline with unique value prop */}
-        <div className="space-y-4 mb-8">
+        <div className="space-y-4 mb-8 animate-fade-in-up" style={{animationDelay: '0.2s'}}>
           <p className="text-3xl text-white font-bold">
-            Finally, an AI you can <span className="text-green-400">actually trust</span>
+            Finally, an AI you can <span className="text-green-400 animate-pulse-glow">actually trust</span>
           </p>
           <p className="text-xl text-gray-300 max-w-3xl mx-auto leading-relaxed">
             Tired of pricing tools that work like a black box?
@@ -127,21 +135,21 @@ function LandingPage({ onJoinWaitlist, waitlistCount, userAlreadySignedUp }) {
           </p>
         </div>
 
-        {/* Eye-catching differentiators */}
+        {/* Eye-catching differentiators with stagger animation */}
         <div className="mb-8 flex flex-wrap items-center justify-center gap-4">
-          <div className="inline-block px-5 py-2 bg-gradient-to-r from-green-500/20 to-emerald-500/20 border-2 border-green-500/50 rounded-full">
+          <div className="inline-block px-5 py-2 bg-gradient-to-r from-green-500/20 to-emerald-500/20 border-2 border-green-500/50 rounded-full animate-fade-in-up hover:scale-110 transition-transform duration-300 hover:shadow-lg hover:shadow-green-500/50" style={{animationDelay: '0.3s'}}>
             <p className="text-green-300 font-bold text-base flex items-center space-x-2">
               <Check className="w-5 h-5" />
               <span>Transparent AI</span>
             </p>
           </div>
-          <div className="inline-block px-5 py-2 bg-gradient-to-r from-purple-500/20 to-pink-500/20 border-2 border-purple-500/50 rounded-full">
+          <div className="inline-block px-5 py-2 bg-gradient-to-r from-purple-500/20 to-pink-500/20 border-2 border-purple-500/50 rounded-full animate-fade-in-up hover:scale-110 transition-transform duration-300 hover:shadow-lg hover:shadow-purple-500/50" style={{animationDelay: '0.4s'}}>
             <p className="text-purple-300 font-bold text-base flex items-center space-x-2">
               <Check className="w-5 h-5" />
               <span>Manual Approval</span>
             </p>
           </div>
-          <div className="inline-block px-5 py-2 bg-gradient-to-r from-blue-500/20 to-cyan-500/20 border-2 border-blue-500/50 rounded-full">
+          <div className="inline-block px-5 py-2 bg-gradient-to-r from-blue-500/20 to-cyan-500/20 border-2 border-blue-500/50 rounded-full animate-fade-in-up hover:scale-110 transition-transform duration-300 hover:shadow-lg hover:shadow-blue-500/50" style={{animationDelay: '0.5s'}}>
             <p className="text-blue-300 font-bold text-base flex items-center space-x-2">
               <Check className="w-5 h-5" />
               <span>5min Setup</span>
@@ -175,53 +183,56 @@ function LandingPage({ onJoinWaitlist, waitlistCount, userAlreadySignedUp }) {
             </p>
           </div>
         ) : (
-          <div className="mb-8">
+          <div className="mb-8 animate-fade-in-up" style={{animationDelay: '0.6s'}}>
             <div className="flex items-center justify-center space-x-4 mb-4">
               <button
                 onClick={onJoinWaitlist}
-                className="px-10 py-5 bg-gradient-to-r from-purple-600 to-pink-600 text-white rounded-xl font-bold text-xl hover:from-purple-700 hover:to-pink-700 transition transform hover:scale-105 shadow-2xl shadow-purple-500/50"
+                className="group relative px-10 py-5 bg-gradient-to-r from-purple-600 to-pink-600 text-white rounded-xl font-bold text-xl overflow-hidden transition-all duration-300 hover:scale-105 hover:shadow-2xl hover:shadow-purple-500/50 animate-pulse-button"
               >
-                🚀 Join Waitlist
+                <span className="relative z-10 flex items-center gap-2">
+                  🚀 Join Waitlist
+                </span>
+                <div className="absolute inset-0 bg-gradient-to-r from-pink-600 to-purple-600 opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
               </button>
             </div>
             <p className="text-gray-400 text-sm">
-              Already approved? <button className="text-purple-400 hover:text-purple-300 underline font-semibold" onClick={onJoinWaitlist}>Sign in here</button>
+              Already approved? <button className="text-purple-400 hover:text-purple-300 underline font-semibold transition-colors" onClick={onJoinWaitlist}>Sign in here</button>
             </p>
           </div>
         )}
 
         {/* Why AutoMerchant is Different */}
-        <div className="mt-16 mb-12">
+        <div className="mt-16 mb-12 animate-fade-in-up" style={{animationDelay: '0.7s'}}>
           <h3 className="text-3xl font-bold text-white mb-4">What Makes Us Different?</h3>
           <p className="text-gray-400 text-lg mb-8">Spoiler: We're not like the others</p>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-            <div className="p-8 bg-gradient-to-br from-purple-800/30 to-purple-900/30 border border-purple-500/50 rounded-2xl hover:border-purple-400 transition transform hover:scale-105">
-              <div className="inline-block p-4 bg-purple-500/30 rounded-xl mb-4">
+            <div className="group p-8 bg-gradient-to-br from-purple-800/30 to-purple-900/30 border border-purple-500/50 rounded-2xl hover:border-purple-400 transition-all duration-300 transform hover:scale-105 hover:-translate-y-2 hover:shadow-2xl hover:shadow-purple-500/30">
+              <div className="inline-block p-4 bg-purple-500/30 rounded-xl mb-4 transition-transform duration-300 group-hover:rotate-6 group-hover:scale-110">
                 <BarChart3 className="w-10 h-10 text-purple-300" />
               </div>
-              <h3 className="text-2xl font-bold text-white mb-3">AI That Explains Itself</h3>
+              <h3 className="text-2xl font-bold text-white mb-3 group-hover:text-purple-300 transition-colors">AI That Explains Itself</h3>
               <p className="text-gray-300 leading-relaxed">
                 See <span className="text-purple-300 font-semibold">exactly why</span> each price is recommended.
                 No black boxes. Full transparency.
               </p>
             </div>
 
-            <div className="p-8 bg-gradient-to-br from-green-800/30 to-green-900/30 border border-green-500/50 rounded-2xl hover:border-green-400 transition transform hover:scale-105">
-              <div className="inline-block p-4 bg-green-500/30 rounded-xl mb-4">
+            <div className="group p-8 bg-gradient-to-br from-green-800/30 to-green-900/30 border border-green-500/50 rounded-2xl hover:border-green-400 transition-all duration-300 transform hover:scale-105 hover:-translate-y-2 hover:shadow-2xl hover:shadow-green-500/30">
+              <div className="inline-block p-4 bg-green-500/30 rounded-xl mb-4 transition-transform duration-300 group-hover:rotate-6 group-hover:scale-110">
                 <RefreshCw className="w-10 h-10 text-green-300" />
               </div>
-              <h3 className="text-2xl font-bold text-white mb-3">Always In Control</h3>
+              <h3 className="text-2xl font-bold text-white mb-3 group-hover:text-green-300 transition-colors">Always In Control</h3>
               <p className="text-gray-300 leading-relaxed">
                 Manual approval required. <span className="text-green-300 font-semibold">You</span> decide what gets applied.
                 AI assists, you decide.
               </p>
             </div>
 
-            <div className="p-8 bg-gradient-to-br from-blue-800/30 to-blue-900/30 border border-blue-500/50 rounded-2xl hover:border-blue-400 transition transform hover:scale-105">
-              <div className="inline-block p-4 bg-blue-500/30 rounded-xl mb-4">
+            <div className="group p-8 bg-gradient-to-br from-blue-800/30 to-blue-900/30 border border-blue-500/50 rounded-2xl hover:border-blue-400 transition-all duration-300 transform hover:scale-105 hover:-translate-y-2 hover:shadow-2xl hover:shadow-blue-500/30">
+              <div className="inline-block p-4 bg-blue-500/30 rounded-xl mb-4 transition-transform duration-300 group-hover:rotate-6 group-hover:scale-110">
                 <Zap className="w-10 h-10 text-blue-300" />
               </div>
-              <h3 className="text-2xl font-bold text-white mb-3">Setup in 5 Minutes</h3>
+              <h3 className="text-2xl font-bold text-white mb-3 group-hover:text-blue-300 transition-colors">Setup in 5 Minutes</h3>
               <p className="text-gray-300 leading-relaxed">
                 No competitor URLs. No complex rules.
                 <span className="text-blue-300 font-semibold"> Just works</span> out of the box.
