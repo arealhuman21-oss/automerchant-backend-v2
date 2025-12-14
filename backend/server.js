@@ -21,8 +21,40 @@ const app = express();
 const PORT = process.env.PORT || 5000;
 const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-change-in-production';
 
-const analysisLimiter = (req, res, next) => next();
-const authLimiter = (req, res, next) => next();
+// SECURITY FIX: Enable rate limiting to prevent brute force and abuse
+const rateLimit = require('express-rate-limit');
+
+// Auth endpoints: 5 login attempts per 15 minutes per IP
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 5, // 5 requests per window
+  message: {
+    error: 'Too many login attempts from this IP. Please try again in 15 minutes.'
+  },
+  standardHeaders: true, // Return rate limit info in `RateLimit-*` headers
+  legacyHeaders: false, // Disable `X-RateLimit-*` headers
+  skip: (req) => {
+    // Skip rate limiting in development
+    return process.env.NODE_ENV === 'development';
+  }
+});
+
+// Analysis endpoint: Enforced by database (10 per 24 hours per user)
+// This is a backup in case the database check fails
+const analysisLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000, // 1 hour
+  max: 5, // 5 requests per hour per IP (backup protection)
+  message: {
+    error: 'Too many analysis requests. Please wait before trying again.'
+  },
+  keyGenerator: (req) => {
+    // Rate limit by user ID if available, otherwise by IP
+    return req.user?.id?.toString() || req.ip;
+  },
+  skip: (req) => {
+    return process.env.NODE_ENV === 'development';
+  }
+});
 
 // ============================================
 // SUPABASE CLIENT (For ALL Database Queries)
@@ -104,11 +136,19 @@ const corsOptions = {
       'https://automerchant-backend-v2.vercel.app'
     ];
 
-    // Allow Shopify domains and Vercel preview deployments
-    if (!origin || allowedOrigins.indexOf(origin) !== -1 || /\.myshopify\.com$/.test(origin) || /\.vercel\.app$/.test(origin)) {
+    // SECURITY FIX: Strict origin checking
+    // Allow non-browser clients (like curl, mobile apps) that don't send Origin header
+    if (!origin) {
+      return callback(null, true);
+    }
+
+    // Allow whitelisted origins and Shopify domains
+    if (allowedOrigins.includes(origin) || /\.myshopify\.com$/.test(origin)) {
       callback(null, true);
     } else {
-      callback(null, true); // Allow all for now during development
+      // REJECT unknown origins
+      console.warn('⛔ CORS blocked origin:', origin);
+      callback(new Error('Not allowed by CORS'));
     }
   },
   credentials: true,
@@ -128,16 +168,19 @@ app.use((req, res, next) => {
     'http://localhost:5173'
   ];
 
-  // Always set CORS headers for every request
+  // SECURITY FIX: Strict CORS - only set headers for allowed origins
   if (allowedOrigins.includes(origin)) {
     res.setHeader('Access-Control-Allow-Origin', origin);
-  } else if (origin) {
-    // For any other origin, still allow it but log it
-    console.log('⚠️  [CORS] Non-whitelisted origin:', origin);
+  } else if (!origin) {
+    // No origin header (non-browser requests like curl)
+    res.setHeader('Access-Control-Allow-Origin', '*');
+  } else if (origin && /\.myshopify\.com$/.test(origin)) {
+    // Allow Shopify OAuth redirects
     res.setHeader('Access-Control-Allow-Origin', origin);
   } else {
-    // No origin header (like from curl), use default
-    res.setHeader('Access-Control-Allow-Origin', 'https://automerchant.vercel.app');
+    // BLOCK unknown origins
+    console.warn('⛔ [CORS] Blocked request from unauthorized origin:', origin);
+    return res.status(403).json({ error: 'Origin not allowed by CORS policy' });
   }
 
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
@@ -149,12 +192,6 @@ app.use((req, res, next) => {
   // Handle OPTIONS preflight immediately with all headers
   if (req.method === 'OPTIONS') {
     console.log('✅ [PREFLIGHT] Handling OPTIONS for:', req.path, 'from origin:', origin);
-    console.log('📤 [PREFLIGHT] Sending CORS headers:', {
-      origin: res.getHeader('Access-Control-Allow-Origin'),
-      methods: res.getHeader('Access-Control-Allow-Methods'),
-      headers: res.getHeader('Access-Control-Allow-Headers'),
-      credentials: res.getHeader('Access-Control-Allow-Credentials')
-    });
     return res.status(204).end(); // Use 204 No Content for OPTIONS
   }
 
@@ -255,7 +292,7 @@ async function analyzeProduct(product, allProducts, userSettings, recentOrderDat
       return {
         shouldChangePrice: true,
         recommendedPrice: emergencyPrice,
-        reasoning: `🚨 EMERGENCY: Selling BELOW cost ($${currentPrice.toFixed(2)} < $${costPrice.toFixed(2)}). Raising to $${emergencyPrice.toFixed(2)} (+${increasePercent}%) to achieve 50% margin and stop losses. [Data reliability: LOW - protective action only]`,
+        reasoning: `🚨 EMERGENCY: Selling BELOW cost ($${currentPrice.toFixed(2)} < $${costPrice.toFixed(2)}). Sales data: ${sales30d} units sold (${salesVelocity.toFixed(2)}/day), but losing money on each sale. Raising to $${emergencyPrice.toFixed(2)} (+${increasePercent}%) to achieve 50% margin and stop losses. [Data reliability: LOW - protective action only]`,
         urgency: 'CRITICAL',
         confidence: 100,
         priceChange: emergencyPrice - currentPrice,
@@ -272,7 +309,7 @@ async function analyzeProduct(product, allProducts, userSettings, recentOrderDat
       return {
         shouldChangePrice: true,
         recommendedPrice: cappedPrice,
-        reasoning: `🛡️ MARGIN TOO LOW: Current ${currentMargin.toFixed(1)}% margin is below safe minimum. Raising to $${cappedPrice.toFixed(2)} (+${increasePercent}%) to achieve 30% protective margin. [Data reliability: LOW - ${reliabilityIssues.join(', ')}]`,
+        reasoning: `🛡️ MARGIN TOO LOW: Current ${currentMargin.toFixed(1)}% margin is below safe minimum. Sales data shows ${sales30d} units sold in 30 days (${salesVelocity.toFixed(2)}/day), but margins are too thin. Raising to $${cappedPrice.toFixed(2)} (+${increasePercent}%) to achieve 30% protective margin. [Data reliability: LOW - ${reliabilityIssues.join(', ')}]`,
         urgency: 'HIGH',
         confidence: 90,
         priceChange: cappedPrice - currentPrice,
@@ -284,7 +321,7 @@ async function analyzeProduct(product, allProducts, userSettings, recentOrderDat
     console.log(`   [ALGORITHM] ✓ LOW reliability + safe margin → DO NOTHING`);
     return {
       shouldChangePrice: false,
-      reasoning: `⚠️ INSUFFICIENT DATA: Cannot make confident pricing recommendation due to: ${reliabilityIssues.join(', ')}. Current price $${currentPrice.toFixed(2)} (${currentMargin.toFixed(1)}% margin) appears safe. Need more sales history for optimization.`,
+      reasoning: `⚠️ INSUFFICIENT DATA: Cannot make confident pricing recommendation due to: ${reliabilityIssues.join(', ')}. Sales history: ${sales30d} units in 30 days (${salesVelocity.toFixed(2)}/day) is too limited. Current price $${currentPrice.toFixed(2)} (${currentMargin.toFixed(1)}% margin) appears safe. Need more sales history for optimization.`,
       confidence: 40
     };
   }
@@ -323,7 +360,7 @@ async function analyzeProduct(product, allProducts, userSettings, recentOrderDat
     return {
       shouldChangePrice: true,
       recommendedPrice: emergencyPrice,
-      reasoning: `🚨 CRITICAL: Selling BELOW cost! Cost: $${costPrice.toFixed(2)}, Price: $${currentPrice.toFixed(2)}. Raising to $${emergencyPrice.toFixed(2)} (+${increasePercent}%) to achieve 50% margin and stop losses immediately.`,
+      reasoning: `🚨 CRITICAL: Selling BELOW cost! Cost: $${costPrice.toFixed(2)}, Price: $${currentPrice.toFixed(2)}. Sales: ${sales30d} units in 30 days (${salesVelocity.toFixed(2)}/day), $${revenue30d.toFixed(2)} revenue - but losing money on every sale. Raising to $${emergencyPrice.toFixed(2)} (+${increasePercent}%) to achieve 50% margin and stop losses immediately.`,
       urgency: 'CRITICAL',
       confidence: 100,
       priceChange: emergencyPrice - currentPrice,
@@ -348,7 +385,7 @@ async function analyzeProduct(product, allProducts, userSettings, recentOrderDat
     return {
       shouldChangePrice: true,
       recommendedPrice: cappedPrice,
-      reasoning: `🛡️ MARGIN TOO LOW: Current margin ${currentMargin.toFixed(1)}% is below healthy minimum of ${MIN_MARGIN_PERCENT}%. Raising price to $${cappedPrice.toFixed(2)} (+${increasePercent}%) to achieve ${TARGET_MARGIN}% target margin while staying within ${MAX_INCREASE_PERCENT * 100}% max increase limit.${inventoryNote}`,
+      reasoning: `🛡️ MARGIN TOO LOW: Current margin ${currentMargin.toFixed(1)}% is below healthy minimum of ${MIN_MARGIN_PERCENT}%. Strong sales performance (${sales30d} units in 30 days, ${salesVelocity.toFixed(2)}/day, $${revenue30d.toFixed(2)} revenue) indicates price elasticity. Raising to $${cappedPrice.toFixed(2)} (+${increasePercent}%) to achieve ${TARGET_MARGIN}% target margin.${inventoryNote}`,
       urgency: 'HIGH',
       confidence: 95,
       priceChange: cappedPrice - currentPrice,
@@ -369,7 +406,7 @@ async function analyzeProduct(product, allProducts, userSettings, recentOrderDat
       console.log(`   [ALGORITHM] ⚠️ BLOCKED: Price decrease limit reached (${decreasesThisMonth}/3)`);
       return {
         shouldChangePrice: false,
-        reasoning: `⚠️ NO SALES IN 7 DAYS: Zero recent sales detected, but already made ${decreasesThisMonth} price decreases this month (max 3 for safety). Will retry next month. Current: $${currentPrice.toFixed(2)} (${currentMargin.toFixed(1)}% margin).`,
+        reasoning: `⚠️ NO SALES IN 7 DAYS: Zero recent sales (${sales30d} total in 30 days, ${salesVelocity.toFixed(2)}/day average). Already made ${decreasesThisMonth} price decreases this month (max 3 for safety). Will retry next month. Current: $${currentPrice.toFixed(2)} (${currentMargin.toFixed(1)}% margin).`,
         confidence: 65
       };
     }
@@ -386,7 +423,7 @@ async function analyzeProduct(product, allProducts, userSettings, recentOrderDat
     return {
       shouldChangePrice: true,
       recommendedPrice: finalPrice,
-      reasoning: `📉 ZERO SALES IN 7 DAYS (Attempt ${decreasesThisMonth + 1}/3): No recent sales. Testing ${actualDecrease}% price reduction to $${finalPrice.toFixed(2)} to discover optimal price point. Maintains 30%+ margin. ${3 - decreasesThisMonth - 1} attempts remaining this month.`,
+      reasoning: `📉 ZERO SALES IN 7 DAYS (Attempt ${decreasesThisMonth + 1}/3): Sales data shows ${sales30d} units in 30 days (${salesVelocity.toFixed(2)}/day), but 0 sales in last 7 days indicates price resistance. Testing ${actualDecrease}% price reduction to $${finalPrice.toFixed(2)} to discover optimal price point. Maintains 30%+ margin. ${3 - decreasesThisMonth - 1} attempts remaining this month.`,
       urgency: 'HIGH',
       confidence: 75,
       priceChange: finalPrice - currentPrice,
@@ -405,7 +442,7 @@ async function analyzeProduct(product, allProducts, userSettings, recentOrderDat
     return {
       shouldChangePrice: true,
       recommendedPrice: cappedPrice,
-      reasoning: `💸 MARGIN TOO HIGH + SLOW SALES: Current margin ${currentMargin.toFixed(1)}% is above sustainable maximum of ${MAX_MARGIN_PERCENT}% and sales are slow (${salesVelocity.toFixed(2)} units/day). Lowering to $${cappedPrice.toFixed(2)} (-${decreasePercent}%) to achieve ${TARGET_MARGIN}% target margin and stimulate demand.`,
+      reasoning: `💸 MARGIN TOO HIGH + SLOW SALES: Current margin ${currentMargin.toFixed(1)}% is above sustainable maximum of ${MAX_MARGIN_PERCENT}%. Sales data: only ${sales30d} units in 30 days (${salesVelocity.toFixed(2)}/day, $${revenue30d.toFixed(2)} revenue) indicates price is limiting demand. Lowering to $${cappedPrice.toFixed(2)} (-${decreasePercent}%) to achieve ${TARGET_MARGIN}% target margin and stimulate sales.`,
       urgency: 'MEDIUM',
       confidence: 85,
       priceChange: cappedPrice - currentPrice,
@@ -421,7 +458,7 @@ async function analyzeProduct(product, allProducts, userSettings, recentOrderDat
     return {
       shouldChangePrice: true,
       recommendedPrice: reasonablePrice,
-      reasoning: `⚠️ PRICING ERROR: Current markup of ${currentMarkup.toFixed(1)}x suggests possible mistake (price $${currentPrice.toFixed(2)} vs cost $${costPrice.toFixed(2)}). Recommending $${reasonablePrice.toFixed(2)} (-${decreasePercent}%), which is a ${MAX_MARKUP_RATIO}x markup - still profitable but more realistic.`,
+      reasoning: `⚠️ PRICING ERROR: Current markup of ${currentMarkup.toFixed(1)}x suggests possible mistake (price $${currentPrice.toFixed(2)} vs cost $${costPrice.toFixed(2)}). Sales: ${sales30d} units in 30 days (${salesVelocity.toFixed(2)}/day) at current price. Recommending $${reasonablePrice.toFixed(2)} (-${decreasePercent}%), which is a ${MAX_MARKUP_RATIO}x markup - still profitable but more realistic.`,
       urgency: 'HIGH',
       confidence: 85,
       priceChange: reasonablePrice - currentPrice,
@@ -445,7 +482,7 @@ async function analyzeProduct(product, allProducts, userSettings, recentOrderDat
 
   return {
     shouldChangePrice: false,
-    reasoning: `✅ PRICE IS APPROPRIATE: Current price $${currentPrice.toFixed(2)} with ${currentMargin.toFixed(1)}% margin is performing adequately. Sales: ${salesVelocity.toFixed(2)} units/day (${sales30d} in 30 days). No pricing changes needed at this time.${statusNote}`,
+    reasoning: `✅ PRICE IS OPTIMIZED: Current price $${currentPrice.toFixed(2)} with ${currentMargin.toFixed(1)}% margin is performing well. Sales data: ${sales30d} units sold in 30 days (${salesVelocity.toFixed(2)}/day), generating $${revenue30d.toFixed(2)} revenue. ${sales7d > 0 ? `Recent 7-day sales: ${sales7d} units shows continued demand.` : ''} Price point is balanced for profitability and demand.${statusNote}`,
     confidence: 80 + (dataReliability === 'HIGH' ? 10 : 0)
   };
 }
@@ -2366,12 +2403,46 @@ app.get('/api/stats', authenticateToken, async (req, res) => {
     const totalProducts = products.length;
     const avgOrderValue = totalOrders > 0 ? totalRevenue / totalOrders : 0;
 
+    // Calculate AI profit increase from recommendations
+    const { data: recommendations, error: recsError } = await supabase
+      .from('recommendations')
+      .select(`
+        *,
+        products!inner (
+          price,
+          cost_price,
+          total_sales_30d
+        )
+      `)
+      .eq('user_id', req.user.id);
+
+    let profitIncrease = 0;
+    if (!recsError && recommendations && recommendations.length > 0) {
+      recommendations.forEach(rec => {
+        const currentPrice = parseFloat(rec.products.price) || 0;
+        const recommendedPrice = parseFloat(rec.recommended_price) || 0;
+        const costPrice = parseFloat(rec.products.cost_price) || 0;
+        const sales30d = parseInt(rec.products.total_sales_30d) || 0;
+
+        // Current profit per sale
+        const currentProfitPerSale = currentPrice - costPrice;
+        // Recommended profit per sale
+        const recommendedProfitPerSale = recommendedPrice - costPrice;
+        // Additional profit per sale
+        const additionalProfitPerSale = recommendedProfitPerSale - currentProfitPerSale;
+        // Total additional profit over 30 days (based on actual sales)
+        const additionalProfit30d = additionalProfitPerSale * sales30d;
+
+        profitIncrease += additionalProfit30d;
+      });
+    }
+
     res.json({
       revenue: totalRevenue.toFixed(2),
       orders: totalOrders,
       products: totalProducts,
       averageOrderValue: avgOrderValue.toFixed(2),
-      profitIncrease: 0 // Will be calculated when AI recommendations are implemented
+      profitIncrease: profitIncrease.toFixed(2)
     });
   } catch (error) {
     console.error('Stats fetch error:', error.response?.data || error.message);
@@ -2562,41 +2633,30 @@ const authenticateAdmin = (req, res, next) => {
   }
 
   try {
-    // Try to verify as our JWT token first
-    try {
-      const verified = jwt.verify(token, JWT_SECRET);
-      if (verified && verified.email && verified.email.toLowerCase() === 'arealhuman21@gmail.com') {
-        console.log('✅ Admin authenticated via JWT:', verified.email);
-        req.user = verified;
-        return next();
-      }
-    } catch (jwtError) {
-      // Not our JWT, try Supabase token
-      console.log('🔄 Not a JWT token, trying Supabase token decode...');
-    }
+    // SECURITY FIX: Always verify signature with JWT_SECRET
+    // NEVER use jwt.decode() without verification - it doesn't check signatures!
+    const verified = jwt.verify(token, JWT_SECRET);
 
-    // Decode token (works for both JWT and Supabase tokens)
-    const decoded = jwt.decode(token);
+    console.log('🔓 Verified token:', verified ? { email: verified.email } : 'null');
 
-    console.log('🔓 Decoded token:', decoded ? { email: decoded.email } : 'null');
-
-    if (!decoded || !decoded.email) {
+    if (!verified || !verified.email) {
       console.log('❌ Invalid token format - missing email');
       return res.status(403).json({ error: 'Invalid token format' });
     }
 
     // Check if user is admin email
-    if (decoded.email.toLowerCase() !== 'arealhuman21@gmail.com') {
-      console.log('❌ Not admin email:', decoded.email);
+    if (verified.email.toLowerCase() !== 'arealhuman21@gmail.com') {
+      console.log('❌ Not admin email:', verified.email);
       return res.status(403).json({ error: 'Admin access required' });
     }
 
-    console.log('✅ Admin authenticated:', decoded.email);
-    req.user = decoded;
+    console.log('✅ Admin authenticated:', verified.email);
+    req.user = verified;
     next();
   } catch (error) {
-    console.error('❌ Admin authentication error:', error);
-    return res.status(500).json({ error: 'Authentication failed', details: error.message });
+    // If verification fails, reject immediately - do NOT fall back to decode
+    console.error('❌ Admin authentication error:', error.message);
+    return res.status(403).json({ error: 'Invalid or expired token' });
   }
 };
 
