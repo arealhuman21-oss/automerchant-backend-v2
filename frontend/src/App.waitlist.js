@@ -507,6 +507,7 @@ function LandingPage({ onJoinWaitlist, waitlistCount, userAlreadySignedUp }) {
             🚀 Join Waitlist Now
           </button>
         </div>
+        </div>
       </div>
     </div>
   );
