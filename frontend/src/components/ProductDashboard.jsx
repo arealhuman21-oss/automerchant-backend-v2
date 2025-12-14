@@ -270,6 +270,40 @@ function CountdownTimer({ timeRemaining, onRefresh }) {
   );
 }
 
+function ResetCountdownTimer({ timeUntilReset, onRefresh }) {
+  const [time, setTime] = useState(timeUntilReset);
+
+  useEffect(() => {
+    setTime(timeUntilReset);
+  }, [timeUntilReset]);
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setTime((prev) => {
+        if (prev <= 1) {
+          onRefresh();
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [onRefresh]);
+
+  const hours = Math.floor(time / 3600);
+  const minutes = Math.floor((time % 3600) / 60);
+  const seconds = time % 60;
+
+  return (
+    <div className="flex items-center space-x-2">
+      <RefreshCw className="w-4 h-4 text-green-400" />
+      <span className="text-gray-400 text-sm">
+        Resets in: {hours.toString().padStart(2, '0')}:{minutes.toString().padStart(2, '0')}:{seconds.toString().padStart(2, '0')}
+      </span>
+    </div>
+  );
+}
+
 function ProductDashboard({ userEmail, onLogout }) {
   const [activeTab, setActiveTab] = useState('dashboard');
   const [products, setProducts] = useState([]);
@@ -283,7 +317,7 @@ function ProductDashboard({ userEmail, onLogout }) {
   const [showSettings, setShowSettings] = useState(false);
   const [showCostPriceModal, setShowCostPriceModal] = useState(false);
   const [selectedProduct, setSelectedProduct] = useState(null);
-  const [analysisStatus, setAnalysisStatus] = useState({ analyzing: false, timeRemaining: 1800, manualUsed: 0, manualRemaining: 10 }); // 30 minutes in seconds
+  const [analysisStatus, setAnalysisStatus] = useState({ analyzing: false, timeRemaining: 1800, manualUsed: 0, manualRemaining: 10, timeUntilReset: 0, resetTime: null }); // 30 minutes in seconds
   const [showAnalysisResults, setShowAnalysisResults] = useState(false);
   const [analysisResults, setAnalysisResults] = useState(null);
   const [lastAutoAnalysis, setLastAutoAnalysis] = useState(() => {
@@ -446,7 +480,9 @@ function ProductDashboard({ userEmail, onLogout }) {
         analyzing: data.analyzing || false,
         timeRemaining: data.timeRemaining || 0,
         manualUsed: data.manualUsedToday || 0,
-        manualRemaining: data.manualRemaining || 10
+        manualRemaining: data.manualRemaining || 10,
+        timeUntilReset: data.timeUntilReset || 0,
+        resetTime: data.resetTime || null
       };
 
       console.log('✅ Setting analysis status to:', newStatus);
@@ -662,7 +698,8 @@ function ProductDashboard({ userEmail, onLogout }) {
 
   const calculateAIProfit = () => {
     if (!stats) return '0.00';
-    return parseFloat(stats.profitIncrease || 0).toFixed(2);
+    // Try totalAIProfit first (new field), fallback to profitIncrease (old field)
+    return parseFloat(stats.totalAIProfit || stats.profitIncrease || 0).toFixed(2);
   };
 
   const handleLogout = async () => {
@@ -960,12 +997,20 @@ function ProductDashboard({ userEmail, onLogout }) {
                 <div className="flex-1 bg-slate-800/50 border border-slate-700 rounded-lg p-4">
                   <div className="flex items-center space-x-3">
                     <Activity className="w-5 h-5 text-purple-400" />
-                    <div>
-                      <p className="text-gray-400 text-sm">Manual Analyses (24hr)</p>
+                    <div className="flex-1">
+                      <p className="text-gray-400 text-sm">Manual Analyses Today</p>
                       <p className="text-white text-xl font-bold">
                         {analysisStatus.manualUsed || 0}/10
                         {(analysisStatus.manualRemaining || 10) === 0 && <span className="text-red-400 text-sm ml-2">(Limit Reached)</span>}
                       </p>
+                      {analysisStatus.timeUntilReset > 0 && (
+                        <div className="mt-2">
+                          <ResetCountdownTimer
+                            timeUntilReset={Number(analysisStatus.timeUntilReset)}
+                            onRefresh={loadAnalysisStatus}
+                          />
+                        </div>
+                      )}
                     </div>
                   </div>
                 </div>
