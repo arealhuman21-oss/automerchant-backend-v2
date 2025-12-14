@@ -168,7 +168,7 @@ app.use((req, res, next) => {
     'http://localhost:5173'
   ];
 
-  // SECURITY FIX: Strict CORS - only set headers for allowed origins
+  // SECURITY: Strict CORS - only set headers for allowed origins
   if (allowedOrigins.includes(origin)) {
     res.setHeader('Access-Control-Allow-Origin', origin);
   } else if (!origin) {
@@ -178,9 +178,10 @@ app.use((req, res, next) => {
     // Allow Shopify OAuth redirects
     res.setHeader('Access-Control-Allow-Origin', origin);
   } else {
-    // BLOCK unknown origins
-    console.warn('⛔ [CORS] Blocked request from unauthorized origin:', origin);
-    return res.status(403).json({ error: 'Origin not allowed by CORS policy' });
+    // Unknown origin - don't set CORS header, browser will block
+    console.warn('⛔ [CORS] Unknown origin (browser will block):', origin);
+    // Don't return here - let the request continue but without CORS headers
+    // Browser will block it when it sees no Access-Control-Allow-Origin header
   }
 
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
