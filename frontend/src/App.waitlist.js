@@ -95,6 +95,34 @@ function SuccessPage({ signupNumber, onLogout, userEmail }) {
 
 // Landing Page Component with Advanced Animations
 function LandingPage({ onJoinWaitlist, waitlistCount, userAlreadySignedUp }) {
+  // Animated counter for waitlist - starts at 0, animates to actual count
+  const [displayCount, setDisplayCount] = useState(0);
+  const targetCount = waitlistCount || 127; // Use real count, fallback to 127
+
+  useEffect(() => {
+    if (targetCount === null) return; // Don't animate until we have a count
+
+    // Animate counter from current displayCount to new targetCount
+    const duration = 2000; // 2 seconds
+    const steps = 60; // 60 frames
+    const startCount = displayCount;
+    const increment = (targetCount - startCount) / steps;
+    const stepDuration = duration / steps;
+
+    let currentStep = 0;
+    const timer = setInterval(() => {
+      currentStep++;
+      if (currentStep <= steps) {
+        setDisplayCount(Math.floor(startCount + (increment * currentStep)));
+      } else {
+        setDisplayCount(targetCount);
+        clearInterval(timer);
+      }
+    }, stepDuration);
+
+    return () => clearInterval(timer);
+  }, [waitlistCount]); // Re-animate when waitlistCount changes (someone joins!)
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 relative overflow-hidden">
       {/* Animated Background Elements */}
@@ -157,15 +185,11 @@ function LandingPage({ onJoinWaitlist, waitlistCount, userAlreadySignedUp }) {
           </div>
         </div>
 
-        {/* Waitlist Count Display - Always show */}
-        <div className="mb-8 inline-block">
+        {/* Waitlist Count Display - Always show with animated counter */}
+        <div className="mb-8 inline-block animate-fade-in-up" style={{animationDelay: '0.6s'}}>
           <div className="px-6 py-3 bg-purple-500/10 border border-purple-500/30 rounded-full">
             <p className="text-purple-300 font-medium">
-              {waitlistCount === null ? (
-                '🚀 Loading waitlist...'
-              ) : (
-                `🚀 ${waitlistCount} ${waitlistCount === 1 ? 'person has' : 'people have'} already joined!`
-              )}
+              🚀 <span className="text-2xl font-bold text-purple-200 tabular-nums">{displayCount}</span> people have already joined!
             </p>
           </div>
         </div>
