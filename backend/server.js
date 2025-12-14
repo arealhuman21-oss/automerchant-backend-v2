@@ -2229,23 +2229,35 @@ app.get('/api/analytics/dashboard', authenticateToken, async (req, res) => {
     // 1. Calculate historical profit from applied price changes
     const { data: priceChanges, error: pcError } = await supabase
       .from('price_changes')
-      .select(`
-        *,
-        products!inner (
-          cost_price,
-          total_sales_30d
-        )
-      `)
+      .select('*')
       .eq('user_id', req.user.id)
       .gte('created_at', new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString()); // Last 30 days
 
     let historicalProfit = 0;
     if (!pcError && priceChanges && priceChanges.length > 0) {
+      // Get product data for price changes
+      const productIds = [...new Set(priceChanges.map(pc => pc.product_id))];
+      const { data: products } = await supabase
+        .from('products')
+        .select('id, cost_price, total_sales_30d')
+        .in('id', productIds)
+        .eq('user_id', req.user.id);
+
+      const productMap = {};
+      if (products) {
+        products.forEach(p => {
+          productMap[p.id] = p;
+        });
+      }
+
       priceChanges.forEach(change => {
+        const product = productMap[change.product_id];
+        if (!product) return;
+
         const oldPrice = parseFloat(change.old_price) || 0;
         const newPrice = parseFloat(change.new_price) || 0;
-        const costPrice = parseFloat(change.products?.cost_price) || 0;
-        const sales30d = parseInt(change.products?.total_sales_30d) || 0;
+        const costPrice = parseFloat(product.cost_price) || 0;
+        const sales30d = parseInt(product.total_sales_30d) || 0;
 
         // Calculate profit improvement from this price change
         const oldProfit = oldPrice - costPrice;
