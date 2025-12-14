@@ -43,13 +43,13 @@ const authLimiter = rateLimit({
 // This is a backup in case the database check fails
 const analysisLimiter = rateLimit({
   windowMs: 60 * 60 * 1000, // 1 hour
-  max: 5, // 5 requests per hour per IP (backup protection)
+  max: 5, // 5 requests per hour per user (backup protection)
   message: {
     error: 'Too many analysis requests. Please wait before trying again.'
   },
   keyGenerator: (req) => {
-    // Rate limit by user ID if available, otherwise by IP
-    return req.user?.id?.toString() || req.ip;
+    // Rate limit by user ID (analysis endpoint requires auth, so user is always present)
+    return req.user?.id?.toString() || 'anonymous';
   },
   skip: (req) => {
     return process.env.NODE_ENV === 'development';
