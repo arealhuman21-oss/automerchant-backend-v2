@@ -1677,20 +1677,25 @@ app.get('/api/analysis/status', authenticateToken, async (req, res) => {
       throw countError;
     }
 
-    // Use 24-hour rolling window instead of midnight reset
-    const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
+    // Get start of today (midnight) for daily reset
+    const now = new Date();
+    const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0);
 
     const { count: manualUsedToday, error: manualError } = await supabase
       .from('manual_analyses')
       .select('*', { count: 'exact', head: true })
       .eq('user_id', req.user.id)
-      .gte('triggered_at', twentyFourHoursAgo.toISOString());
+      .gte('triggered_at', startOfToday.toISOString());
 
     if (manualError) {
       throw manualError;
     }
 
     const manualRemaining = Math.max(0, 10 - (manualUsedToday || 0));
+
+    // Calculate time until midnight (reset time)
+    const endOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
+    const timeUntilReset = Math.max(0, Math.floor((endOfToday - now) / 1000));
 
     const { data: scheduleData, error: scheduleError } = await supabase
       .from('analysis_schedule')
@@ -1703,7 +1708,6 @@ app.get('/api/analysis/status', authenticateToken, async (req, res) => {
 
     if (!scheduleError && scheduleData && scheduleData.next_analysis_due) {
       nextAnalysisDue = new Date(scheduleData.next_analysis_due);
-      const now = new Date();
       timeRemaining = Math.max(0, Math.floor((nextAnalysisDue - now) / 1000));
     }
 
@@ -1714,7 +1718,9 @@ app.get('/api/analysis/status', authenticateToken, async (req, res) => {
       manualUsedToday: manualUsedToday || 0,
       manualRemaining,
       timeRemaining,
-      nextAnalysisDue
+      nextAnalysisDue,
+      timeUntilReset,
+      resetTime: endOfToday.toISOString()
     });
   } catch (error) {
     console.error('Analysis status error:', error);
@@ -1724,23 +1730,28 @@ app.get('/api/analysis/status', authenticateToken, async (req, res) => {
 
 app.post('/api/analysis/run-now', authenticateToken, async (req, res) => {
   try {
-    // Use 24-hour rolling window instead of midnight reset
-    const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
+    // Get start of today (midnight) for daily reset
+    const now = new Date();
+    const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0);
 
     const { count: manualUsedToday, error: manualError } = await supabase
       .from('manual_analyses')
       .select('*', { count: 'exact', head: true })
       .eq('user_id', req.user.id)
-      .gte('triggered_at', twentyFourHoursAgo.toISOString());
+      .gte('triggered_at', startOfToday.toISOString());
 
     if (manualError) {
       throw manualError;
     }
 
     if ((manualUsedToday || 0) >= 10) {
+      // Calculate time until midnight
+      const endOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
+      const hoursUntilReset = Math.ceil((endOfToday - now) / (1000 * 60 * 60));
+
       return res.status(429).json({
         error: 'Daily limit reached',
-        message: 'You have used all 10 manual analyses in the last 24 hours. Wait for older analyses to expire or use automatic analysis.'
+        message: `You have used all 10 manual analyses today. Resets at midnight (in ${hoursUntilReset} hours).`
       });
     }
 
@@ -2195,24 +2206,70 @@ app.get('/api/analytics/dashboard', authenticateToken, async (req, res) => {
       .select('*', { count: 'exact', head: true })
       .eq('user_id', req.user.id);
 
-    const { data: profitData, error: profitError } = await supabase
-      .from('price_changes')
-      .select('profit_impact')
+    // Calculate potential monthly AI profit increase from pending recommendations
+    const { data: recommendations, error: recsError } = await supabase
+      .from('recommendations')
+      .select(`
+        *,
+        products!inner (
+          price,
+          cost_price,
+          total_sales_30d
+        )
+      `)
       .eq('user_id', req.user.id);
 
-    const aiProfitImpact = profitData?.reduce((sum, row) => sum + (parseFloat(row.profit_impact) || 0), 0) || 0;
+    let totalAIProfit = 0;
+    if (!recsError && recommendations && recommendations.length > 0) {
+      recommendations.forEach(rec => {
+        const currentPrice = parseFloat(rec.products.price) || 0;
+        const recommendedPrice = parseFloat(rec.recommended_price) || 0;
+        const costPrice = parseFloat(rec.products.cost_price) || 0;
+        const sales30d = parseInt(rec.products.total_sales_30d) || 0;
+
+        // Current profit per sale
+        const currentProfitPerSale = currentPrice - costPrice;
+        // Recommended profit per sale
+        const recommendedProfitPerSale = recommendedPrice - costPrice;
+        // Additional profit per sale
+        const additionalProfitPerSale = recommendedProfitPerSale - currentProfitPerSale;
+        // Total additional monthly profit (based on actual sales in last 30 days)
+        const additionalProfitMonthly = additionalProfitPerSale * sales30d;
+
+        totalAIProfit += additionalProfitMonthly;
+      });
+    }
 
     const { count: priceChangesCount } = await supabase
       .from('price_changes')
       .select('*', { count: 'exact', head: true })
       .eq('user_id', req.user.id);
 
+    // Also get total revenue for ROI calculator
+    const { data: products } = await supabase
+      .from('products')
+      .select('revenue_30d')
+      .eq('user_id', req.user.id);
+
+    const totalRevenue = products?.reduce((sum, p) => sum + (parseFloat(p.revenue_30d) || 0), 0) || 0;
+
+    // Count products analyzed (with last_analyzed_at not null)
+    const { count: productsAnalyzed } = await supabase
+      .from('products')
+      .select('*', { count: 'exact', head: true })
+      .eq('user_id', req.user.id)
+      .not('last_analyzed_at', 'is', null);
+
     res.json({
       totalProducts: totalProducts || 0,
       productsWithCost: productsWithCost || 0,
       recommendationsCount: recommendationsCount || 0,
-      aiProfitImpact,
-      priceChangesCount: priceChangesCount || 0
+      totalAIProfit: parseFloat(totalAIProfit.toFixed(2)),
+      priceChangesCount: priceChangesCount || 0,
+      totalRevenue: parseFloat(totalRevenue.toFixed(2)),
+      productsAnalyzed: productsAnalyzed || 0,
+      totalOrders: 0,
+      avgOrderValue: 0
     });
   } catch (error) {
     console.error('Dashboard analytics error:', error);
@@ -2616,7 +2673,7 @@ app.get('/api/test-auth', authenticateToken, async (req, res) => {
 // ============ ADMIN PANEL - MULTI-APP MANAGEMENT ============
 
 // Admin authentication middleware
-const authenticateAdmin = (req, res, next) => {
+const authenticateAdmin = async (req, res, next) => {
   // Skip authentication for OPTIONS requests (CORS preflight)
   if (req.method === 'OPTIONS') {
     console.log('✅ Skipping auth for OPTIONS preflight request');
@@ -2633,12 +2690,35 @@ const authenticateAdmin = (req, res, next) => {
     return res.status(401).json({ error: 'Access token required' });
   }
 
+  // Try Supabase token verification first
   try {
-    // SECURITY FIX: Always verify signature with JWT_SECRET
-    // NEVER use jwt.decode() without verification - it doesn't check signatures!
+    console.log('🔐 Attempting Supabase token verification...');
+    const { data: { user }, error } = await supabase.auth.getUser(token);
+
+    if (!error && user && user.email) {
+      console.log('🔓 Supabase token verified:', user.email);
+
+      // Check if user is admin email
+      if (user.email.toLowerCase() === 'arealhuman21@gmail.com') {
+        console.log('✅ Admin authenticated via Supabase:', user.email);
+        req.user = { email: user.email };
+        return next();
+      } else {
+        console.log('❌ Not admin email:', user.email);
+        return res.status(403).json({ error: 'Admin access required' });
+      }
+    }
+
+    console.log('⚠️ Supabase verification failed, trying fallback JWT...');
+  } catch (supabaseError) {
+    console.log('⚠️ Supabase error:', supabaseError.message);
+  }
+
+  // Fallback to JWT verification (for fallback tokens created by frontend)
+  try {
     const verified = jwt.verify(token, JWT_SECRET);
 
-    console.log('🔓 Verified token:', verified ? { email: verified.email } : 'null');
+    console.log('🔓 Fallback JWT verified:', verified ? { email: verified.email } : 'null');
 
     if (!verified || !verified.email) {
       console.log('❌ Invalid token format - missing email');
@@ -2651,11 +2731,10 @@ const authenticateAdmin = (req, res, next) => {
       return res.status(403).json({ error: 'Admin access required' });
     }
 
-    console.log('✅ Admin authenticated:', verified.email);
+    console.log('✅ Admin authenticated via fallback JWT:', verified.email);
     req.user = verified;
     next();
   } catch (error) {
-    // If verification fails, reject immediately - do NOT fall back to decode
     console.error('❌ Admin authentication error:', error.message);
     return res.status(403).json({ error: 'Invalid or expired token' });
   }

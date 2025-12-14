@@ -386,6 +386,46 @@ function CountdownTimer({ timeRemaining, onRefresh }) {
   );
 }
 
+function ResetCountdownTimer({ timeUntilReset, onRefresh }) {
+  const [time, setTime] = useState(timeUntilReset);
+
+  useEffect(() => {
+    setTime(timeUntilReset);
+  }, [timeUntilReset]);
+
+  useEffect(() => {
+    if (time <= 0) {
+      onRefresh();
+      return;
+    }
+
+    const interval = setInterval(() => {
+      setTime(prev => {
+        if (prev <= 1) {
+          onRefresh();
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+
+    return () => clearInterval(interval);
+  }, [time, onRefresh]);
+
+  const hours = Math.floor(time / 3600);
+  const minutes = Math.floor((time % 3600) / 60);
+  const seconds = time % 60;
+
+  return (
+    <InlineStack gap="200" blockAlign="center">
+      <Icon source={RefreshIcon} tone="success" />
+      <Text variant="bodyMd" tone="subdued" as="span">
+        Resets in: {hours.toString().padStart(2, '0')}:{minutes.toString().padStart(2, '0')}:{seconds.toString().padStart(2, '0')}
+      </Text>
+    </InlineStack>
+  );
+}
+
 function App({ colorScheme = 'light', setColorScheme = () => {} }) {
   const [view, setView] = useState('landing');
   const [user, setUser] = useState(null);
@@ -594,7 +634,9 @@ function App({ colorScheme = 'light', setColorScheme = () => {} }) {
       canAnalyze: true,
       nextAnalysisDue: null,
       manualUsedToday: 0,
-      manualRemaining: 10
+      manualRemaining: 10,
+      timeUntilReset: 0,
+      resetTime: null
     });
 
     useEffect(() => {
@@ -893,9 +935,17 @@ function App({ colorScheme = 'light', setColorScheme = () => {} }) {
                         </BlockStack>
 
                         <InlineStack gap="200">
-                          <Badge tone="magic">
-                            {analysisStatus.manualRemaining}/10 manual analyses today
-                          </Badge>
+                          <BlockStack gap="100">
+                            <Badge tone="magic">
+                              {analysisStatus.manualRemaining}/10 manual analyses today
+                            </Badge>
+                            {analysisStatus.timeUntilReset > 0 && (
+                              <ResetCountdownTimer
+                                timeUntilReset={Number(analysisStatus.timeUntilReset)}
+                                onRefresh={loadAnalysisStatus}
+                              />
+                            )}
+                          </BlockStack>
 
                           {analysisStatus.timeRemaining > 0 && (
                             <Box padding="200" background="bg-surface-secondary" borderRadius="200">
@@ -1174,6 +1224,12 @@ function App({ colorScheme = 'light', setColorScheme = () => {} }) {
                           progress={(analysisStatus.manualUsedToday / 10) * 100}
                           tone="magic"
                         />
+                        {analysisStatus.timeUntilReset > 0 && (
+                          <ResetCountdownTimer
+                            timeUntilReset={Number(analysisStatus.timeUntilReset)}
+                            onRefresh={loadAnalysisStatus}
+                          />
+                        )}
                       </BlockStack>
                     </BlockStack>
                   </Card>
