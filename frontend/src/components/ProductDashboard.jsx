@@ -1304,7 +1304,7 @@ function ProductDashboard({ userEmail, onLogout }) {
                             {isIncrease ? '📈 Increase Price' : '📉 Lower Price'}
                           </p>
                         </div>
-                        <div className="flex items-center justify-between p-4 bg-slate-800 rounded-lg">
+                        <div className="flex items-center justify-between p-4 bg-slate-800 rounded-lg mb-3">
                           <div>
                             <p className="text-gray-400 text-sm">New Price:</p>
                             <p className="text-3xl font-bold text-white">
@@ -1325,6 +1325,20 @@ function ProductDashboard({ userEmail, onLogout }) {
                             </p>
                           </div>
                         </div>
+                        {/* Profit Increase */}
+                        {rec.profit_increase_monthly != null && (
+                          <div className="p-3 bg-gradient-to-r from-green-900/30 to-emerald-900/30 border border-green-500/30 rounded-lg">
+                            <div className="flex items-center justify-between">
+                              <div className="flex items-center space-x-2">
+                                <TrendingUp className="w-5 h-5 text-green-400" />
+                                <span className="text-gray-300 text-sm font-medium">Potential Monthly Profit Increase:</span>
+                              </div>
+                              <span className="text-2xl font-bold text-green-400">
+                                +${Math.abs(rec.profit_increase_monthly).toFixed(2)}/mo
+                              </span>
+                            </div>
+                          </div>
+                        )}
                       </div>
 
                       {/* Reasoning */}
