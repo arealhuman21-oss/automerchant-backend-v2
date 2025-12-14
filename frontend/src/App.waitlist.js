@@ -95,32 +95,42 @@ function SuccessPage({ signupNumber, onLogout, userEmail }) {
 
 // Landing Page Component with Advanced Animations
 function LandingPage({ onJoinWaitlist, waitlistCount, userAlreadySignedUp }) {
-  // Animated counter for waitlist - starts at 0, animates to actual count
+  // Animated counter for waitlist - FAST blur countdown effect
   const [displayCount, setDisplayCount] = useState(0);
+  const [isAnimating, setIsAnimating] = useState(false);
   const targetCount = waitlistCount || 127; // Use real count, fallback to 127
 
   useEffect(() => {
     if (targetCount === null) return; // Don't animate until we have a count
 
-    // Animate counter from current displayCount to new targetCount
-    const duration = 2000; // 2 seconds
-    const steps = 60; // 60 frames
-    const startCount = displayCount;
-    const increment = (targetCount - startCount) / steps;
-    const stepDuration = duration / steps;
+    setIsAnimating(true);
 
-    let currentStep = 0;
-    const timer = setInterval(() => {
-      currentStep++;
-      if (currentStep <= steps) {
-        setDisplayCount(Math.floor(startCount + (increment * currentStep)));
+    // FAST blur countdown effect - 0.8 seconds total
+    const duration = 800; // 0.8 seconds - much faster!
+    const fps = 60;
+    const totalFrames = (duration / 1000) * fps;
+    const startCount = displayCount;
+    const startTime = Date.now();
+
+    const animate = () => {
+      const elapsed = Date.now() - startTime;
+      const progress = Math.min(elapsed / duration, 1);
+
+      // Ease out cubic for dramatic slow-down at end
+      const easeOutCubic = 1 - Math.pow(1 - progress, 3);
+
+      const current = Math.floor(startCount + (targetCount - startCount) * easeOutCubic);
+      setDisplayCount(current);
+
+      if (progress < 1) {
+        requestAnimationFrame(animate);
       } else {
         setDisplayCount(targetCount);
-        clearInterval(timer);
+        setIsAnimating(false);
       }
-    }, stepDuration);
+    };
 
-    return () => clearInterval(timer);
+    requestAnimationFrame(animate);
   }, [waitlistCount]); // Re-animate when waitlistCount changes (someone joins!)
 
   return (
@@ -189,7 +199,11 @@ function LandingPage({ onJoinWaitlist, waitlistCount, userAlreadySignedUp }) {
         <div className="mb-8 inline-block animate-fade-in-up" style={{animationDelay: '0.6s'}}>
           <div className="px-6 py-3 bg-purple-500/10 border border-purple-500/30 rounded-full">
             <p className="text-purple-300 font-medium">
-              🚀 <span className="text-2xl font-bold text-purple-200 tabular-nums">{displayCount}</span> people have already joined!
+              🚀 <span
+                className={`text-2xl font-bold text-purple-200 tabular-nums inline-block transition-all duration-100 ${isAnimating ? 'blur-sm scale-110' : 'blur-0 scale-100'}`}
+              >
+                {displayCount}
+              </span> people have already joined!
             </p>
           </div>
         </div>
