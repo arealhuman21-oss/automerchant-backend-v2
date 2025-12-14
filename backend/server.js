@@ -168,7 +168,7 @@ app.use((req, res, next) => {
     'http://localhost:5173'
   ];
 
-  // SECURITY: Strict CORS - only set headers for allowed origins
+  // SECURITY: Strict CORS - only set headers for allowed origins or Vercel preview URLs
   if (allowedOrigins.includes(origin)) {
     res.setHeader('Access-Control-Allow-Origin', origin);
   } else if (!origin) {
@@ -176,6 +176,10 @@ app.use((req, res, next) => {
     res.setHeader('Access-Control-Allow-Origin', '*');
   } else if (origin && /\.myshopify\.com$/.test(origin)) {
     // Allow Shopify OAuth redirects
+    res.setHeader('Access-Control-Allow-Origin', origin);
+  } else if (origin && /\.vercel\.app$/.test(origin)) {
+    // Allow Vercel preview deployments
+    console.log('✅ [CORS] Allowing Vercel deployment:', origin);
     res.setHeader('Access-Control-Allow-Origin', origin);
   } else {
     // Unknown origin - don't set CORS header, browser will block
@@ -1949,7 +1953,8 @@ app.get('/api/recommendations', authenticateToken, async (req, res) => {
           price,
           image_url,
           inventory,
-          cost_price
+          cost_price,
+          total_sales_30d
         )
       `)
       .eq('user_id', req.user.id)
@@ -1959,16 +1964,29 @@ app.get('/api/recommendations', authenticateToken, async (req, res) => {
       throw error;
     }
 
-    // Flatten the structure to match the original format
-    const formattedRecommendations = recommendations.map(rec => ({
-      ...rec,
-      title: rec.products.title,
-      current_price: rec.products.price,
-      image_url: rec.products.image_url,
-      inventory: rec.products.inventory,
-      cost_price: rec.products.cost_price,
-      products: undefined
-    }));
+    // Flatten the structure and calculate profit increase per recommendation
+    const formattedRecommendations = recommendations.map(rec => {
+      const currentPrice = parseFloat(rec.products.price) || 0;
+      const recommendedPrice = parseFloat(rec.recommended_price) || 0;
+      const costPrice = parseFloat(rec.products.cost_price) || 0;
+      const sales30d = parseInt(rec.products.total_sales_30d) || 0;
+
+      // Calculate monthly profit increase
+      const currentProfit = currentPrice - costPrice;
+      const recommendedProfit = recommendedPrice - costPrice;
+      const profitIncrease = (recommendedProfit - currentProfit) * sales30d;
+
+      return {
+        ...rec,
+        title: rec.products.title,
+        current_price: rec.products.price,
+        image_url: rec.products.image_url,
+        inventory: rec.products.inventory,
+        cost_price: rec.products.cost_price,
+        profit_increase_monthly: parseFloat(profitIncrease.toFixed(2)),
+        products: undefined
+      };
+    });
 
     // Sort by urgency and confidence
     const urgencyOrder = { 'CRITICAL': 1, 'URGENT': 2, 'HIGH': 3, 'MEDIUM': 4 };
@@ -2206,7 +2224,39 @@ app.get('/api/analytics/dashboard', authenticateToken, async (req, res) => {
       .select('*', { count: 'exact', head: true })
       .eq('user_id', req.user.id);
 
-    // Calculate potential monthly AI profit increase from pending recommendations
+    // Calculate TOTAL AI profit increase (historical + potential)
+
+    // 1. Calculate historical profit from applied price changes
+    const { data: priceChanges, error: pcError } = await supabase
+      .from('price_changes')
+      .select(`
+        *,
+        products!inner (
+          cost_price,
+          total_sales_30d
+        )
+      `)
+      .eq('user_id', req.user.id)
+      .gte('created_at', new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString()); // Last 30 days
+
+    let historicalProfit = 0;
+    if (!pcError && priceChanges && priceChanges.length > 0) {
+      priceChanges.forEach(change => {
+        const oldPrice = parseFloat(change.old_price) || 0;
+        const newPrice = parseFloat(change.new_price) || 0;
+        const costPrice = parseFloat(change.products?.cost_price) || 0;
+        const sales30d = parseInt(change.products?.total_sales_30d) || 0;
+
+        // Calculate profit improvement from this price change
+        const oldProfit = oldPrice - costPrice;
+        const newProfit = newPrice - costPrice;
+        const profitImprovement = (newProfit - oldProfit) * sales30d;
+
+        historicalProfit += profitImprovement;
+      });
+    }
+
+    // 2. Calculate potential profit from pending recommendations
     const { data: recommendations, error: recsError } = await supabase
       .from('recommendations')
       .select(`
@@ -2219,7 +2269,7 @@ app.get('/api/analytics/dashboard', authenticateToken, async (req, res) => {
       `)
       .eq('user_id', req.user.id);
 
-    let totalAIProfit = 0;
+    let potentialProfit = 0;
     if (!recsError && recommendations && recommendations.length > 0) {
       recommendations.forEach(rec => {
         const currentPrice = parseFloat(rec.products.price) || 0;
@@ -2236,9 +2286,12 @@ app.get('/api/analytics/dashboard', authenticateToken, async (req, res) => {
         // Total additional monthly profit (based on actual sales in last 30 days)
         const additionalProfitMonthly = additionalProfitPerSale * sales30d;
 
-        totalAIProfit += additionalProfitMonthly;
+        potentialProfit += additionalProfitMonthly;
       });
     }
+
+    // Total AI profit = historical + potential
+    const totalAIProfit = historicalProfit + potentialProfit;
 
     const { count: priceChangesCount } = await supabase
       .from('price_changes')
