@@ -76,6 +76,23 @@ When working on this project, delegate tasks according to this hierarchy:
 2. **Use Gemini if Qwen can't** (paid, good allowance)
 3. **Only use Claude for final reviews** (94% used, emergency only!)
 
+**IMPORTANT FOR CLAUDE**:
+If you (Claude) are asked to do file operations, simple refactoring, or repetitive tasks:
+- **STOP immediately**
+- **Tell the user**: "This should be done by Qwen/Gemini to save tokens"
+- **Provide the exact command** for Qwen or Gemini to run
+- **DO NOT do the work yourself** - delegate it!
+
+Example:
+```
+User: "Claude, extract all routes from server.js"
+Claude: "⚠️ To save your tokens (94% used), let Qwen handle this:
+
+qwen 'Extract all /api/auth routes from backend/server.js into backend/routes/auth.routes.js. Use Express Router.'
+
+I'll review once Qwen finishes!"
+```
+
 ### Task Delegation Guidelines
 
 **Example 1: Need to clean up 100 debug files**
@@ -2704,4 +2721,3 @@ npm outdated
 *This document contains EVERYTHING needed to rebuild AutoMerchant from scratch. Keep it updated as the system evolves.*
 
 **Last Updated:** December 19, 2025 by Claude Sonnet 4.5
-mai
