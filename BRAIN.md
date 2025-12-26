@@ -69,11 +69,18 @@ When working on this project, delegate tasks according to this hierarchy:
   - Repetitive refactoring tasks
 - **Perfect For**: All grunt work and repetitive tasks
 
+### ⚠️ CRITICAL: User at 94% Claude Usage!
+
+**ALWAYS use this order**:
+1. **Try Qwen first** (free, unlimited)
+2. **Use Gemini if Qwen can't** (paid, good allowance)
+3. **Only use Claude for final reviews** (94% used, emergency only!)
+
 ### Task Delegation Guidelines
 
 **Example 1: Need to clean up 100 debug files**
-- ❌ DON'T: Ask Claude to delete files one by one (wastes tokens)
-- ✅ DO: Ask Qwen to delete all matching patterns (free unlimited usage)
+- ❌ DON'T: Ask Claude to delete files (wastes precious tokens!)
+- ✅ DO: Ask Qwen to delete all matching patterns (free unlimited)
 
 **Example 2: Need to remove a dependency from package.json**
 - ❌ DON'T: Manually edit package.json without checking usage
