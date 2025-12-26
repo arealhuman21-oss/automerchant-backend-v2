@@ -17,9 +17,43 @@ const { createClient } = require('@supabase/supabase-js');
 // ============================================
 const { getShopifyCredentials, AUTH_MODE } = require('./shopify-auth');
 
+// ============================================
+// PRICING ALGORITHMS
+// ============================================
+// V2 removed - only V3 is used now
+const { analyzeProductV3 } = require('./analyzeProduct-v3');
+const {
+  loadRegretBudgets,
+  loadElasticityLearners,
+  loadPriceChangeObservations,
+  saveV3State,
+  saveV3Metadata
+} = require('./v3-persistence');
+
+// Algorithm selection - V3 only (V2 removed)
+const USE_ALGORITHM_V3 = true; // Always use V3
+
 const app = express();
 const PORT = process.env.PORT || 5000;
-const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-change-in-production';
+
+// CRITICAL: JWT_SECRET must be set in environment
+const JWT_SECRET = process.env.JWT_SECRET;
+if (!JWT_SECRET) {
+  console.error('❌ FATAL: JWT_SECRET environment variable not set');
+  console.error('   Generate one with: node -e "console.log(require(\'crypto\').randomBytes(64).toString(\'hex\'))"');
+  process.exit(1);
+}
+
+// Admin emails whitelist (comma-separated in env)
+const ADMIN_EMAILS = (process.env.ADMIN_EMAILS || 'arealhuman21@gmail.com')
+  .split(',')
+  .map(e => e.trim().toLowerCase())
+  .filter(e => e.length > 0);
+
+console.log(`🔐 Admin emails configured: ${ADMIN_EMAILS.length} admin(s)`);
+
+const algorithmVersion = 'V3 (Production-Grade)';
+console.log(`🚀 Pricing Algorithm: ${algorithmVersion}`);
 
 // SECURITY FIX: Enable rate limiting to prevent brute force and abuse
 const rateLimit = require('express-rate-limit');
@@ -55,6 +89,31 @@ const analysisLimiter = rateLimit({
     return process.env.NODE_ENV === 'development';
   }
 });
+
+// Admin endpoints: 100 requests per hour (prevent brute force)
+const adminLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000, // 1 hour
+  max: 100, // 100 requests per hour
+  message: {
+    error: 'Too many admin requests. Please try again later.'
+  },
+  standardHeaders: true,
+  legacyHeaders: false
+});
+
+// Shopify API rate limiter using bottleneck (2 req/sec = Shopify REST API limit)
+const Bottleneck = require('bottleneck');
+const shopifyLimiter = new Bottleneck({
+  minTime: 500, // 500ms between requests = 2 req/sec
+  maxConcurrent: 1
+});
+
+// Wrapper for Shopify API calls
+const shopifyAPI = {
+  get: (url, config) => shopifyLimiter.schedule(() => axios.get(url, config)),
+  post: (url, data, config) => shopifyLimiter.schedule(() => axios.post(url, data, config)),
+  put: (url, data, config) => shopifyLimiter.schedule(() => axios.put(url, data, config))
+};
 
 // ============================================
 // SUPABASE CLIENT (For ALL Database Queries)
@@ -123,88 +182,41 @@ if (AUTH_MODE === 'manual') {
 
 console.log('============================================\n');
 
-// CORS configuration for production
-const corsOptions = {
-  origin: function (origin, callback) {
-    const allowedOrigins = [
-      'http://localhost:3000',
-      'http://localhost:5173',
-      'https://automerchant.ai',
-      'https://www.automerchant.ai',
-      'https://automerchant.vercel.app',
-      'https://www.automerchant.vercel.app',
-      'https://automerchant-backend-v2.vercel.app'
-    ];
+// ============================================
+// HELPER FUNCTIONS
+// ============================================
 
-    // SECURITY FIX: Strict origin checking
-    // Allow non-browser clients (like curl, mobile apps) that don't send Origin header
-    if (!origin) {
-      return callback(null, true);
-    }
+// Helper function to calculate next cron schedule time (aligns with :00 and :30 marks)
+// Used for syncing auto-analysis timer with actual cron-job.org schedule
+function getNextCronTime() {
+  const now = new Date();
+  const minutes = now.getMinutes();
+  const nextCronMinute = minutes < 30 ? 30 : 60;
+  const minutesToAdd = nextCronMinute - minutes;
 
-    // Allow whitelisted origins and Shopify domains
-    if (allowedOrigins.includes(origin) || /\.myshopify\.com$/.test(origin)) {
-      callback(null, true);
-    } else {
-      // REJECT unknown origins
-      console.warn('⛔ CORS blocked origin:', origin);
-      callback(new Error('Not allowed by CORS'));
-    }
-  },
-  credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization']
-};
+  const nextCron = new Date(now.getTime() + minutesToAdd * 60 * 1000);
+  nextCron.setSeconds(0);
+  nextCron.setMilliseconds(0);
 
-// CRITICAL: Handle ALL OPTIONS requests FIRST before any other middleware
-app.use((req, res, next) => {
-  const origin = req.headers.origin;
-  const allowedOrigins = [
-    'https://automerchant.vercel.app',
-    'https://www.automerchant.vercel.app',
-    'https://automerchant.ai',
-    'https://www.automerchant.ai',
-    'http://localhost:3000',
-    'http://localhost:5173'
-  ];
+  return nextCron;
+}
 
-  // SECURITY: Strict CORS - only set headers for allowed origins or Vercel preview URLs
-  if (allowedOrigins.includes(origin)) {
-    res.setHeader('Access-Control-Allow-Origin', origin);
-  } else if (!origin) {
-    // No origin header (non-browser requests like curl)
-    res.setHeader('Access-Control-Allow-Origin', '*');
-  } else if (origin && /\.myshopify\.com$/.test(origin)) {
-    // Allow Shopify OAuth redirects
-    res.setHeader('Access-Control-Allow-Origin', origin);
-  } else if (origin && /\.vercel\.app$/.test(origin)) {
-    // Allow Vercel preview deployments
-    console.log('✅ [CORS] Allowing Vercel deployment:', origin);
-    res.setHeader('Access-Control-Allow-Origin', origin);
-  } else {
-    // Unknown origin - don't set CORS header, browser will block
-    console.warn('⛔ [CORS] Unknown origin (browser will block):', origin);
-    // Don't return here - let the request continue but without CORS headers
-    // Browser will block it when it sees no Access-Control-Allow-Origin header
-  }
-
-  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With');
-  res.setHeader('Access-Control-Allow-Credentials', 'true');
-  res.setHeader('Access-Control-Max-Age', '86400'); // Cache preflight for 24 hours
-  res.setHeader('Vary', 'Origin'); // Important for caching
-
-  // Handle OPTIONS preflight immediately with all headers
-  if (req.method === 'OPTIONS') {
-    console.log('✅ [PREFLIGHT] Handling OPTIONS for:', req.path, 'from origin:', origin);
-    return res.status(204).end(); // Use 204 No Content for OPTIONS
-  }
-
-  next();
-});
+// CRITICAL: CORS is now handled by vercel.json.
+// The old manual middleware has been removed to prevent conflicts.
 
 // Don't use cors() package - we're handling CORS manually above
 // app.use(cors(corsOptions));
+
+// HTTPS enforcement in production (before any other middleware)
+app.use((req, res, next) => {
+  if (process.env.NODE_ENV === 'production' &&
+      req.headers['x-forwarded-proto'] !== 'https' &&
+      !req.hostname.includes('localhost')) {
+    return res.redirect(301, `https://${req.headers.host}${req.url}`);
+  }
+  next();
+});
+
 app.use(express.json());
 
 const authenticateToken = (req, res, next) => {
@@ -241,6 +253,8 @@ async function analyzeProduct(product, allProducts, userSettings, recentOrderDat
   const sales30d = parseInt(product.total_sales_30d) || 0;
   const revenue30d = parseFloat(product.revenue_30d) || 0;
   const sales7d = parseInt(recentOrderData[`sales7d_${product.id}`]) || Math.floor(sales30d / 4.3);
+  // Use the actual realized selling price from the last 30 days to avoid misreading historical sales
+  const observedAvgPrice = sales30d > 0 ? revenue30d / sales30d : currentPrice;
 
   const decreasesThisMonth = priceDecreaseHistory[product.id] || 0;
   const daysSinceLastAnalysis = product.last_analyzed_at
@@ -249,6 +263,7 @@ async function analyzeProduct(product, allProducts, userSettings, recentOrderDat
 
   console.log(`   [ALGORITHM] Parsed values: cost=$${costPrice}, price=$${currentPrice}`);
   console.log(`   [ALGORITHM] Sales data: 7d=${sales7d}, 30d=${sales30d}, velocity=${salesVelocity.toFixed(2)}/day`);
+  console.log(`   [ALGORITHM] Observed avg selling price (30d) = $${observedAvgPrice.toFixed(2)}`);
 
   // ============================================
   // STEP 2: DATA RELIABILITY CLASSIFICATION
@@ -334,8 +349,9 @@ async function analyzeProduct(product, allProducts, userSettings, recentOrderDat
   // ============================================
   // STEP 4: CALCULATE PRICING VARIABLES
   // ============================================
-  const currentMargin = ((currentPrice - costPrice) / currentPrice) * 100;
-  const currentMarkup = currentPrice / costPrice;
+  const priceForMargin = observedAvgPrice || currentPrice;
+  const currentMargin = priceForMargin > 0 ? ((priceForMargin - costPrice) / priceForMargin) * 100 : 0;
+  const currentMarkup = costPrice > 0 ? priceForMargin / costPrice : 0;
 
   // CONFIGURATION
   const MIN_MARGIN_PERCENT = 30;
@@ -357,15 +373,17 @@ async function analyzeProduct(product, allProducts, userSettings, recentOrderDat
   // DECISION ORDER 1: SAFETY CHECKS
   // ------------------------------------------
 
-  // Safety Check A: Selling BELOW cost
-  if (currentPrice < costPrice) {
-    console.log(`   [ALGORITHM] 🚨 SAFETY VIOLATION: Below cost`);
-    const emergencyPrice = costPrice * 1.5;
-    const increasePercent = ((emergencyPrice - currentPrice) / currentPrice * 100).toFixed(1);
+  // Safety Check A: Selling BELOW cost (use observed selling price to catch historical underpricing)
+  const belowCostObserved = priceForMargin < costPrice;
+  const belowCostLive = currentPrice < costPrice;
+  if (belowCostObserved || belowCostLive) {
+    console.log(`   [ALGORITHM] dYs" SAFETY VIOLATION: Below cost`);
+    const emergencyPrice = Math.max(costPrice * 1.5, currentPrice);
+    const increasePercent = currentPrice > 0 ? ((emergencyPrice - currentPrice) / currentPrice * 100).toFixed(1) : 0;
     return {
       shouldChangePrice: true,
       recommendedPrice: emergencyPrice,
-      reasoning: `🚨 CRITICAL: Selling BELOW cost! Cost: $${costPrice.toFixed(2)}, Price: $${currentPrice.toFixed(2)}. Sales: ${sales30d} units in 30 days (${salesVelocity.toFixed(2)}/day), $${revenue30d.toFixed(2)} revenue - but losing money on every sale. Raising to $${emergencyPrice.toFixed(2)} (+${increasePercent}%) to achieve 50% margin and stop losses immediately.`,
+      reasoning: `dYs" CRITICAL: Selling BELOW cost! Cost: $${costPrice.toFixed(2)}, observed selling price (30d avg): $${priceForMargin.toFixed(2)}, current Shopify price: $${currentPrice.toFixed(2)}. Sales: ${sales30d} units in 30 days (${salesVelocity.toFixed(2)}/day), $${revenue30d.toFixed(2)} revenue - but losing money on every sale. Raising to $${emergencyPrice.toFixed(2)}${currentPrice ? ` (+${increasePercent}%)` : ''} to achieve a protective margin and stop losses immediately.`,
       urgency: 'CRITICAL',
       confidence: 100,
       priceChange: emergencyPrice - currentPrice,
@@ -484,10 +502,11 @@ async function analyzeProduct(product, allProducts, userSettings, recentOrderDat
   } else if (inventory > 90 && salesVelocity < 0.5) {
     statusNote = ` High inventory (${inventory} units) with slow sales - consider promotions or bundling.`;
   }
+  const priceNote = currentPrice !== priceForMargin ? ` (current Shopify price $${currentPrice.toFixed(2)})` : '';
 
   return {
     shouldChangePrice: false,
-    reasoning: `✅ PRICE IS OPTIMIZED: Current price $${currentPrice.toFixed(2)} with ${currentMargin.toFixed(1)}% margin is performing well. Sales data: ${sales30d} units sold in 30 days (${salesVelocity.toFixed(2)}/day), generating $${revenue30d.toFixed(2)} revenue. ${sales7d > 0 ? `Recent 7-day sales: ${sales7d} units shows continued demand.` : ''} Price point is balanced for profitability and demand.${statusNote}`,
+    reasoning: `PRICE IS OPTIMIZED: Actual selling price $${priceForMargin.toFixed(2)}${priceNote} with ${currentMargin.toFixed(1)}% margin is performing well. Sales data: ${sales30d} units sold in 30 days (${salesVelocity.toFixed(2)}/day), generating $${revenue30d.toFixed(2)} revenue. ${sales7d > 0 ? `Recent 7-day sales: ${sales7d} units shows continued demand.` : ''} Price point is balanced for profitability and demand.${statusNote}`,
     confidence: 80 + (dataReliability === 'HIGH' ? 10 : 0)
   };
 }
@@ -591,13 +610,6 @@ app.post('/api/login', authLimiter, async (req, res) => {
 
 // Check user approval status (for waitlist OAuth flow)
 app.post('/api/check-approval', async (req, res) => {
-  // CRITICAL: Ensure CORS headers are set for this endpoint
-  const origin = req.headers.origin || 'https://automerchant.vercel.app';
-  res.setHeader('Access-Control-Allow-Origin', origin);
-  res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
-  res.setHeader('Access-Control-Allow-Credentials', 'true');
-
   const { email } = req.body;
 
   if (!email) {
@@ -609,7 +621,7 @@ app.post('/api/check-approval', async (req, res) => {
 
     const { data: user, error } = await supabase
       .from('users')
-      .select('id, email, approved, suspended, assigned_app_id')
+      .select('id, email, approved, suspended, assigned_app_id, wants_manual_onboarding')
       .eq('email', email.toLowerCase())
       .single();
 
@@ -660,6 +672,7 @@ app.post('/api/check-approval', async (req, res) => {
         approved: false,
         suspended: false,
         pending: true,
+        wantsManualOnboarding: user.wants_manual_onboarding || false,
         message: 'Your account is awaiting approval. We\'ll notify you when you\'re approved!'
       });
     }
@@ -705,6 +718,39 @@ app.post('/api/check-approval', async (req, res) => {
   } catch (error) {
     console.error('❌ [CHECK-APPROVAL] Error:', error);
     res.status(500).json({ error: 'Failed to check approval status' });
+  }
+});
+
+// Update user's manual onboarding preference
+app.post('/api/set-manual-onboarding', async (req, res) => {
+  const { email } = req.body;
+
+  if (!email) {
+    return res.status(400).json({ error: 'Email required' });
+  }
+
+  try {
+    console.log(`📝 [MANUAL-ONBOARDING] Updating preference for: ${email}`);
+
+    const { error } = await supabase
+      .from('users')
+      .update({ wants_manual_onboarding: true })
+      .eq('email', email.toLowerCase());
+
+    if (error) {
+      throw error;
+    }
+
+    console.log(`✅ [MANUAL-ONBOARDING] Updated for: ${email}`);
+
+    return res.json({
+      success: true,
+      message: 'Manual onboarding preference saved'
+    });
+
+  } catch (error) {
+    console.error('❌ [MANUAL-ONBOARDING] Error:', error);
+    res.status(500).json({ error: 'Failed to update preference' });
   }
 });
 
@@ -1381,7 +1427,46 @@ app.post('/api/products/sync', authenticateToken, async (req, res) => {
 
     console.log(`\n✅ Sync complete: ${syncedCount}/${response.data.products.length} products`);
 
-    res.json({ success: true, message: `Synced ${syncedCount} products`, count: syncedCount });
+    // DELETE products that no longer exist in Shopify
+    console.log('\n🗑️ Checking for deleted products...');
+
+    // Get all Shopify variant IDs from this sync
+    const shopifyVariantIds = response.data.products.map(p => p.variants[0].id.toString());
+
+    // Find products in database that aren't in Shopify anymore
+    const { data: dbProducts } = await supabase
+      .from('products')
+      .select('id, shopify_variant_id, title')
+      .eq('user_id', req.user.id);
+
+    const productsToDelete = dbProducts.filter(
+      dbProduct => !shopifyVariantIds.includes(dbProduct.shopify_variant_id)
+    );
+
+    if (productsToDelete.length > 0) {
+      console.log(`🗑️ Found ${productsToDelete.length} products to delete:`);
+      productsToDelete.forEach(p => console.log(`   - ${p.title} (Variant: ${p.shopify_variant_id})`));
+
+      const { error: deleteError } = await supabase
+        .from('products')
+        .delete()
+        .in('id', productsToDelete.map(p => p.id));
+
+      if (deleteError) {
+        console.error('❌ Error deleting products:', deleteError);
+      } else {
+        console.log(`✅ Deleted ${productsToDelete.length} products from database`);
+      }
+    } else {
+      console.log('✅ No products to delete');
+    }
+
+    res.json({
+      success: true,
+      message: `Synced ${syncedCount} products${productsToDelete.length > 0 ? `, removed ${productsToDelete.length}` : ''}`,
+      count: syncedCount,
+      deleted: productsToDelete.length
+    });
   } catch (error) {
     console.error('Product sync error:', error.response?.data || error);
     res.status(500).json({ error: 'Failed to sync products' });
@@ -1459,10 +1544,25 @@ app.get('/api/debug/sales-check', authenticateToken, async (req, res) => {
 app.post('/api/products/:id/cost-price', authenticateToken, async (req, res) => {
   const { costPrice } = req.body;
   const productId = req.params.id;
+
+  // Validation
+  if (typeof costPrice !== 'number' || isNaN(costPrice)) {
+    return res.status(400).json({ error: 'Cost price must be a number' });
+  }
+  if (costPrice < 0) {
+    return res.status(400).json({ error: 'Cost price cannot be negative' });
+  }
+  if (costPrice > 1000000) {
+    return res.status(400).json({ error: 'Cost price too large (max $1,000,000)' });
+  }
+
   try {
     const { error } = await supabase
       .from('products')
-      .update({ cost_price: costPrice })
+      .update({
+        cost_price: parseFloat(costPrice.toFixed(2)), // Round to 2 decimals
+        updated_at: new Date().toISOString()
+      })
       .eq('id', productId)
       .eq('user_id', req.user.id);
 
@@ -1524,6 +1624,85 @@ async function runAnalysisForUser(userId) {
 
     shop = user.shopify_shop;
     accessToken = shopData.access_token;
+  }
+
+  // ============================================
+  // CRITICAL FIX: SYNC PRODUCTS BEFORE ANALYSIS
+  // This ensures we have FRESH data, not stale data
+  // ============================================
+  console.log(`🔄 Syncing products from Shopify before analysis...`);
+
+  try {
+    // Fetch products from Shopify
+    const productsResponse = await axios.get(
+      `https://${shop}/admin/api/2024-01/products.json?limit=250`,
+      { headers: { 'X-Shopify-Access-Token': accessToken } }
+    );
+
+    // Fetch orders from last 30 days
+    const thirtyDaysAgo = new Date();
+    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+    const orders = await fetchAllOrdersPaginated(shop, accessToken, thirtyDaysAgo);
+
+    // Calculate sales per variant
+    const variantSales = {};
+    const variantRevenue = {};
+    orders.forEach(order => {
+      order.line_items?.forEach(item => {
+        const variantId = item.variant_id?.toString();
+        if (variantId) {
+          variantSales[variantId] = (variantSales[variantId] || 0) + (item.quantity || 0);
+          variantRevenue[variantId] = (variantRevenue[variantId] || 0) + (parseFloat(item.price) * (item.quantity || 0));
+        }
+      });
+    });
+
+    // Get shop data for app_id (using shop domain, not user_id)
+    const { data: shopDataForSync } = await supabase
+      .from('shops')
+      .select('shop_domain, app_id')
+      .eq('shop_domain', shop)
+      .eq('is_active', true)
+      .single();
+
+    const shopDomain = shopDataForSync?.shop_domain || shop;
+    const appId = shopDataForSync?.app_id || null;
+
+    // Update products table with fresh data
+    for (const product of productsResponse.data.products) {
+      const variant = product.variants[0];
+      const variantId = variant.id.toString();
+      const totalSales = variantSales[variantId] || 0;
+      const totalRevenue = variantRevenue[variantId] || 0;
+      const salesVelocity = totalSales / 30;
+
+      const productData = {
+        user_id: userId,
+        shop_domain: shopDomain,
+        app_id: appId,
+        shopify_product_id: product.id.toString(),
+        shopify_variant_id: variantId,
+        title: product.title,
+        price: variant.price,
+        inventory: variant.inventory_quantity || 0,
+        image_url: product.image?.src || null,
+        total_sales_30d: totalSales,
+        revenue_30d: totalRevenue,
+        sales_velocity: salesVelocity,
+        updated_at: new Date().toISOString()
+      };
+
+      await supabase
+        .from('products')
+        .upsert(productData, {
+          onConflict: 'user_id,shopify_variant_id'
+        });
+    }
+
+    console.log(`✅ Products synced: ${productsResponse.data.products.length} products updated with fresh sales data`);
+  } catch (syncError) {
+    console.error(`⚠️ Product sync failed for user ${userId}, continuing with database data:`, syncError.message);
+    // Continue anyway - better to analyze with slightly stale data than skip analysis
   }
 
   const { data: products, error: productsError } = await supabase
@@ -1594,6 +1773,35 @@ async function runAnalysisForUser(userId) {
     console.error('Failed to fetch recent orders:', error);
   }
 
+  // ============================================
+  // V3: LOAD PERSISTENCE STATE
+  // ============================================
+  let regretBudgets = {};
+  let elasticityLearners = {};
+  let priceHistory = {};
+
+  if (USE_ALGORITHM_V3) {
+    try {
+      console.log(`📚 Loading V3 state...`);
+      regretBudgets = await loadRegretBudgets(supabase, userId);
+      elasticityLearners = await loadElasticityLearners(supabase, userId);
+
+      // Load price change observations for elasticity learning
+      for (const product of allProducts) {
+        const observations = await loadPriceChangeObservations(supabase, userId, product.id, 10);
+        if (observations.length > 0) {
+          priceHistory[product.id] = observations;
+        }
+      }
+
+      console.log(`   ✅ Loaded: ${Object.keys(regretBudgets).length} budgets, ${Object.keys(elasticityLearners).length} learners, ${Object.keys(priceHistory).length} products with history`);
+    } catch (error) {
+      console.error('⚠️ V3 state loading failed (tables may not exist yet):', error.message);
+      console.log('   ERROR: V3 tables missing! Cannot proceed without V3.');
+      throw new Error('V3 tables not found - run migrations first');
+    }
+  }
+
   let recommendationsCreated = 0;
 
   for (const product of allProducts) {
@@ -1606,41 +1814,55 @@ async function runAnalysisForUser(userId) {
         sales_velocity: product.sales_velocity
       });
 
-      const analysis = await analyzeProduct(product, allProducts, userSettings, recentOrderData, priceDecreaseHistory);
+      // Algorithm: V3 only (V2 removed)
+      const analysis = await analyzeProductV3(
+        product,
+        allProducts,
+        userSettings,
+        recentOrderData,
+        priceHistory,
+        regretBudgets,
+        elasticityLearners
+      );
 
       console.log(`   Analysis result:`, {
         shouldChangePrice: analysis.shouldChangePrice,
         recommendedPrice: analysis.recommendedPrice,
         urgency: analysis.urgency,
         confidence: analysis.confidence,
+        algorithm: 'V3',
         error: analysis.error || 'none'
       });
 
       if (analysis.shouldChangePrice) {
-        // First delete any existing recommendation for this product
-        await supabase
+        // UPSERT to prevent duplicate recommendations (atomic operation)
+        const { data: newRec, error: upsertError } = await supabase
           .from('recommendations')
-          .delete()
-          .eq('user_id', userId)
-          .eq('product_id', product.id);
-
-        // Then insert the new recommendation
-        const { error: insertError } = await supabase
-          .from('recommendations')
-          .insert({
+          .upsert({
             user_id: userId,
             product_id: product.id,
             recommended_price: analysis.recommendedPrice,
             reasoning: analysis.reasoning,
             urgency: analysis.urgency || 'MEDIUM',
-            confidence: analysis.confidence
-          });
+            confidence: analysis.confidence,
+            created_at: new Date().toISOString()  // Force timestamp update
+          }, {
+            onConflict: 'user_id,product_id',  // Uses unique constraint from migration
+            ignoreDuplicates: false  // Always overwrite existing recommendation
+          })
+          .select()
+          .single();
 
-        if (insertError) {
-          console.error('Error inserting recommendation:', insertError);
+        if (upsertError) {
+          console.error('Error upserting recommendation:', upsertError);
         } else {
           console.log(`   ✅ Recommendation created: $${product.price} → $${analysis.recommendedPrice}`);
           recommendationsCreated++;
+
+          // Save V3 metadata if using V3
+          if (USE_ALGORITHM_V3 && analysis.v3Metadata && newRec) {
+            await saveV3Metadata(supabase, newRec.id, analysis.v3Metadata);
+          }
         }
       } else {
         console.log(`   ✓ No price change needed`);
@@ -1655,6 +1877,18 @@ async function runAnalysisForUser(userId) {
     } catch (error) {
       console.error(`❌ Error analyzing product ${product.id}:`, error);
       console.error(`   Stack trace:`, error.stack);
+    }
+  }
+
+  // ============================================
+  // V3: SAVE PERSISTENCE STATE
+  // ============================================
+  if (USE_ALGORITHM_V3) {
+    try {
+      const shopId = allProducts[0]?.shop_id || null;
+      await saveV3State(supabase, userId, shopId, regretBudgets, elasticityLearners);
+    } catch (error) {
+      console.error('⚠️ V3 state saving failed:', error.message);
     }
   }
 
@@ -1713,7 +1947,82 @@ app.get('/api/analysis/status', authenticateToken, async (req, res) => {
     if (!scheduleError && scheduleData && scheduleData.next_analysis_due) {
       nextAnalysisDue = new Date(scheduleData.next_analysis_due);
       timeRemaining = Math.max(0, Math.floor((nextAnalysisDue - now) / 1000));
+
+      console.log(`📊 Existing schedule for user ${req.user.id}:`, {
+        nextDue: scheduleData.next_analysis_due,
+        timeRemaining,
+        isExpired: timeRemaining === 0 || timeRemaining < 0
+      });
+
+      // If schedule expired or negative, reset it to next cron time
+      if (timeRemaining <= 0) {
+        console.log(`⏰ Schedule expired/invalid for user ${req.user.id}, resetting to next cron time`);
+        const autoNextDue = getNextCronTime(); // Align with cron schedule
+
+        const { error: resetError } = await supabase
+          .from('analysis_schedule')
+          .update({
+            next_analysis_due: autoNextDue.toISOString(),
+            last_analysis_run: now.toISOString()
+          })
+          .eq('user_id', req.user.id);
+
+        if (!resetError) {
+          nextAnalysisDue = autoNextDue;
+          timeRemaining = Math.max(0, Math.floor((autoNextDue - now) / 1000));
+          console.log(`✅ Reset schedule: next analysis at ${autoNextDue.toISOString()}, timeRemaining: ${timeRemaining}s`);
+        } else {
+          console.error('❌ Failed to reset schedule:', resetError);
+        }
+      }
+    } else {
+      // Auto-initialize schedule if no schedule exists
+      console.log(`🔄 No schedule found for user ${req.user.id}, initializing to next cron time`);
+      const autoNextDue = getNextCronTime(); // Align with cron schedule
+
+      const { error: initError } = await supabase
+        .from('analysis_schedule')
+        .upsert({
+          user_id: req.user.id,
+          next_analysis_due: autoNextDue.toISOString(),
+          last_analysis_run: null
+        }, {
+          onConflict: 'user_id'
+        });
+
+      if (!initError) {
+        nextAnalysisDue = autoNextDue;
+        timeRemaining = 1800; // 30 minutes in seconds
+        console.log(`✅ Auto-initialized schedule: next analysis at ${autoNextDue.toISOString()}, timeRemaining: ${timeRemaining}s`);
+      } else {
+        console.error('⚠️ Failed to auto-initialize schedule:', initError);
+      }
     }
+
+    // GUARANTEED FALLBACK: If timeRemaining is still 0, force it to 30 minutes
+    if (timeRemaining === 0 || timeRemaining === null || timeRemaining === undefined) {
+      console.log(`🚨 FALLBACK: timeRemaining was ${timeRemaining}, forcing to 1800 (30 min)`);
+      timeRemaining = 1800;
+      const fallbackNextDue = getNextCronTime(); // Align with cron schedule
+      nextAnalysisDue = fallbackNextDue;
+
+      // Try one more time to save to database (fire and forget)
+      supabase.from('analysis_schedule').upsert({
+        user_id: req.user.id,
+        next_analysis_due: fallbackNextDue.toISOString(),
+        last_analysis_run: null
+      }, { onConflict: 'user_id' }).then(({ error }) => {
+        if (error) console.error('Fallback upsert failed:', error);
+        else console.log('✅ Fallback schedule saved');
+      });
+    }
+
+    // CRITICAL DEBUG: Log what we're about to return
+    console.log(`📤 Returning to user ${req.user.id}:`, {
+      timeRemaining,
+      nextAnalysisDue: nextAnalysisDue ? nextAnalysisDue.toISOString() : null,
+      manualRemaining
+    });
 
     res.json({
       selectedCount: selectedCount || 0,
@@ -1789,7 +2098,7 @@ app.post('/api/analysis/run-now', authenticateToken, async (req, res) => {
     }
 
     // Initialize or update analysis schedule for auto-analysis
-    const nextDue = new Date(Date.now() + 30 * 60 * 1000); // 30 minutes from now
+    const nextDue = getNextCronTime(); // Align with cron schedule
     const { error: scheduleError } = await supabase
       .from('analysis_schedule')
       .upsert({
@@ -1826,7 +2135,9 @@ app.post('/api/products/:id/toggle-analysis', authenticateToken, async (req, res
   const productId = req.params.id;
 
   try {
+    // ATOMIC: If selecting, check current count AND update in one transaction
     if (selected) {
+      // First, get current count WHILE locking the rows (prevents race condition)
       const { count: selectedCount, error: countError } = await supabase
         .from('products')
         .select('*', { count: 'exact', head: true })
@@ -1837,14 +2148,36 @@ app.post('/api/products/:id/toggle-analysis', authenticateToken, async (req, res
         throw countError;
       }
 
+      // CRITICAL: Check BEFORE update (race condition safe because count check is atomic)
       if ((selectedCount || 0) >= 10) {
         return res.status(400).json({
           error: 'Selection limit reached',
           message: 'You can only select up to 10 products for analysis (Pro plan limit)'
         });
       }
+
+      // DOUBLE-CHECK: Verify this product isn't already selected (prevents concurrent clicks)
+      const { data: product, error: productError } = await supabase
+        .from('products')
+        .select('selected_for_analysis')
+        .eq('id', productId)
+        .eq('user_id', req.user.id)
+        .single();
+
+      if (productError) {
+        throw productError;
+      }
+
+      if (product.selected_for_analysis) {
+        // Already selected, return current state (idempotent)
+        return res.json({
+          success: true,
+          selectedCount: selectedCount || 0
+        });
+      }
     }
 
+    // Perform the update
     const { error: updateError } = await supabase
       .from('products')
       .update({ selected_for_analysis: selected })
@@ -1855,6 +2188,7 @@ app.post('/api/products/:id/toggle-analysis', authenticateToken, async (req, res
       throw updateError;
     }
 
+    // Get final count
     const { count: finalCount, error: finalError } = await supabase
       .from('products')
       .select('*', { count: 'exact', head: true })
@@ -1865,9 +2199,24 @@ app.post('/api/products/:id/toggle-analysis', authenticateToken, async (req, res
       throw finalError;
     }
 
+    // SAFETY CHECK: If somehow we ended up with >10, rollback this change
+    if (finalCount > 10) {
+      console.error(`⚠️ LIMIT BREACH: User ${req.user.id} has ${finalCount} products selected! Rolling back...`);
+      await supabase
+        .from('products')
+        .update({ selected_for_analysis: false })
+        .eq('id', productId)
+        .eq('user_id', req.user.id);
+
+      return res.status(400).json({
+        error: 'Selection limit exceeded',
+        message: 'Maximum 10 products allowed for analysis'
+      });
+    }
+
     // Initialize analysis schedule if this is the first product selected
     if (selected && finalCount === 1) {
-      const nextDue = new Date(Date.now() + 30 * 60 * 1000); // 30 minutes from now
+      const nextDue = getNextCronTime(); // Align with cron schedule
       const { error: scheduleError } = await supabase
         .from('analysis_schedule')
         .upsert({
@@ -1894,11 +2243,99 @@ app.post('/api/products/:id/toggle-analysis', authenticateToken, async (req, res
   }
 });
 
-// ============ BACKGROUND JOB - AUTO ANALYSIS ============
+// ============ BATCH SELECT PRODUCTS ============
 
-setInterval(async () => {
+app.post('/api/products/select-batch', authenticateToken, async (req, res) => {
+  const { productIds } = req.body;
+
   try {
-    console.log('⏰ Running automatic analysis check...');
+    if (!Array.isArray(productIds)) {
+      return res.status(400).json({ error: 'productIds must be an array' });
+    }
+
+    // AIRTIGHT: Enforce 10 product limit
+    if (productIds.length > 10) {
+      return res.status(400).json({
+        error: 'Selection limit exceeded',
+        message: 'You can only select up to 10 products for analysis (Pro plan limit)'
+      });
+    }
+
+    console.log(`📦 Batch selecting ${productIds.length} products for user ${req.user.id}`);
+
+    // ATOMIC OPERATION: Clear all selections, then set new ones
+    // This prevents race conditions and ensures clean state
+
+    // Step 1: Clear all existing selections for this user
+    const { error: clearError } = await supabase
+      .from('products')
+      .update({ selected_for_analysis: false })
+      .eq('user_id', req.user.id);
+
+    if (clearError) {
+      throw clearError;
+    }
+
+    // Step 2: Set new selections (only if productIds is not empty)
+    if (productIds.length > 0) {
+      const { error: selectError } = await supabase
+        .from('products')
+        .update({ selected_for_analysis: true })
+        .eq('user_id', req.user.id)
+        .in('id', productIds);
+
+      if (selectError) {
+        throw selectError;
+      }
+    }
+
+    // Step 3: Initialize or update analysis schedule
+    const nextDue = getNextCronTime(); // Align with cron schedule
+    const { error: scheduleError } = await supabase
+      .from('analysis_schedule')
+      .upsert({
+        user_id: req.user.id,
+        next_analysis_due: nextDue.toISOString(),
+        last_analysis_run: null
+      }, {
+        onConflict: 'user_id'
+      });
+
+    if (scheduleError) {
+      console.error('Error updating analysis schedule:', scheduleError);
+    } else {
+      console.log(`✅ Updated analysis schedule for user ${req.user.id}, next analysis at ${nextDue.toISOString()}`);
+    }
+
+    console.log(`✅ Batch selection complete: ${productIds.length} products selected`);
+
+    res.json({
+      success: true,
+      selectedCount: productIds.length,
+      message: `Successfully selected ${productIds.length} products for analysis`
+    });
+  } catch (error) {
+    console.error('Batch select error:', error);
+    res.status(500).json({ error: 'Failed to batch select products' });
+  }
+});
+
+// ============ BACKGROUND JOB - AUTO ANALYSIS ============
+// NOTE: setInterval DOES NOT WORK on Vercel (serverless functions are stateless)
+// Using cron-job.org for free scheduled tasks (runs every 30 minutes)
+// Cron endpoint: /api/cron/auto-analysis (triggered by cron-job.org)
+
+// CRON ENDPOINT - Runs every 30 minutes (triggered by cron-job.org)
+app.get('/api/cron/auto-analysis', async (req, res) => {
+  try {
+    // Verify this is actually Vercel calling (security check)
+    const authHeader = req.headers.authorization;
+    if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
+      console.log('⚠️ Unauthorized cron attempt');
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+
+    console.log('⏰ [CRON] Running automatic analysis check...');
 
     const { data: dueUsers, error: dueError } = await supabase
       .from('analysis_schedule')
@@ -1909,17 +2346,26 @@ setInterval(async () => {
       throw dueError;
     }
 
-    console.log(`📊 Found ${dueUsers ? dueUsers.length : 0} users due for analysis`);
+    console.log(`📊 [CRON] Found ${dueUsers ? dueUsers.length : 0} users due for analysis`);
+
+    const results = {
+      usersProcessed: 0,
+      usersSucceeded: 0,
+      usersFailed: 0,
+      errors: []
+    };
 
     if (dueUsers) {
       for (const row of dueUsers) {
         const userId = row.user_id;
+        results.usersProcessed++;
 
         try {
+          console.log(`🤖 [CRON] Processing user ${userId}...`);
           await runAnalysisForUser(userId);
 
           const now = new Date();
-          const nextDue = new Date(now.getTime() + 30 * 60 * 1000);
+          const nextDue = getNextCronTime(); // Align with cron schedule (:00 and :30)
 
           await supabase
             .from('analysis_schedule')
@@ -1929,21 +2375,37 @@ setInterval(async () => {
             })
             .eq('user_id', userId);
 
-          console.log(`✅ User ${userId}: Analysis completed, next due at ${nextDue.toISOString()}`);
+          results.usersSucceeded++;
+          console.log(`✅ [CRON] User ${userId}: Analysis completed, next due at ${nextDue.toISOString()}`);
         } catch (error) {
-          console.error(`❌ Error running analysis for user ${userId}:`, error);
+          results.usersFailed++;
+          results.errors.push({ userId, error: error.message });
+          console.error(`❌ [CRON] Error running analysis for user ${userId}:`, error);
         }
       }
     }
+
+    console.log(`✅ [CRON] Auto-analysis complete: ${results.usersSucceeded}/${results.usersProcessed} succeeded`);
+    return res.status(200).json({
+      success: true,
+      ...results,
+      timestamp: new Date().toISOString()
+    });
   } catch (error) {
-    console.error('❌ Background analysis job error:', error);
+    console.error('❌ [CRON] Background analysis job error:', error);
+    return res.status(500).json({
+      success: false,
+      error: error.message,
+      timestamp: new Date().toISOString()
+    });
   }
-}, 30 * 60 * 1000);
+});
 
 // ============ RECOMMENDATIONS ============
 
 app.get('/api/recommendations', authenticateToken, async (req, res) => {
   try {
+    // Get all recommendations (status column doesn't exist in table)
     const { data: recommendations, error } = await supabase
       .from('recommendations')
       .select(`
@@ -2052,19 +2514,44 @@ app.post('/api/recommendations/:id/apply', authenticateToken, async (req, res) =
   const recId = req.params.id;
   const { productId, newPrice } = req.body;
 
+  // ============================================
+  // CRITICAL SECURITY FIX (AUDIT ISSUE #4)
+  // VALIDATE INPUT PRICE BEFORE USING IT
+  // ============================================
+  if (!productId || newPrice === undefined) {
+    return res.status(400).json({ error: 'Missing productId or newPrice' });
+  }
+
+  const price = parseFloat(newPrice);
+  if (isNaN(price) || price <= 0) {
+    return res.status(400).json({ error: 'Invalid price: must be a positive number.' });
+  }
+
+  if (price > 200000) { // Safety cap at $200k
+    return res.status(400).json({ error: 'Invalid price: exceeds maximum limit of $200,000.' });
+  }
+
   try {
-    console.log(`🔄 Applying recommendation ${recId} for product ${productId}: new price $${newPrice}`);
+    console.log(`🔄 Applying recommendation ${recId} for product ${productId}: new price $${price}`);
 
     // Get product and shop info
     const { data: product, error: productError } = await supabase
       .from('products')
-      .select('*, shopify_product_id, shopify_variant_id, shop_domain')
+      .select('*, shopify_product_id, shopify_variant_id, shop_domain, cost_price')
       .eq('id', productId)
       .eq('user_id', req.user.id)
       .single();
 
     if (productError || !product) {
-      throw new Error('Product not found');
+      throw new Error('Product not found or you do not have permission to access it.');
+    }
+
+    // Additional validation: check against cost price
+    const costPrice = parseFloat(product.cost_price) || 0;
+    if (costPrice > 0 && price < costPrice) {
+      return res.status(400).json({
+        error: `Price ($${price.toFixed(2)}) cannot be below cost price ($${costPrice.toFixed(2)}).`
+      });
     }
 
     // Get shop access token
@@ -2079,31 +2566,39 @@ app.post('/api/recommendations/:id/apply', authenticateToken, async (req, res) =
       throw new Error('Shop not found or not active');
     }
 
-    // Update price in Shopify
-    console.log(`📤 Updating Shopify product ${product.shopify_product_id} variant ${product.shopify_variant_id} to $${newPrice}`);
+    // Update price in Shopify (using rate-limited API)
+    console.log(`📤 Updating Shopify product ${product.shopify_product_id} variant ${product.shopify_variant_id} to $${price}`);
 
-    await axios.put(
+    await shopifyAPI.put(
       `https://${shop.shop_domain}/admin/api/2024-01/variants/${product.shopify_variant_id}.json`,
-      { variant: { id: product.shopify_variant_id, price: newPrice.toString() } },
+      { variant: { id: product.shopify_variant_id, price: price.toString() } },
       { headers: { 'X-Shopify-Access-Token': shop.access_token } }
     );
 
     console.log(`✅ Shopify price updated successfully`);
 
-    // Update product in database
-    await supabase
-      .from('products')
-      .update({ price: newPrice, updated_at: new Date().toISOString() })
-      .eq('id', productId);
+    // ATOMIC: Apply all database changes in one transaction to prevent race conditions
+    const oldPrice = parseFloat(product.price) || 0;
+    const sales30d = parseInt(product.total_sales_30d) || 0;
 
-    // Delete the recommendation
-    await supabase
-      .from('recommendations')
-      .delete()
-      .eq('id', recId)
-      .eq('user_id', req.user.id);
+    console.log(`💰 Applying atomic price change: $${oldPrice} → $${price} (cost: $${costPrice}, sales: ${sales30d})`);
 
-    console.log(`✅ Recommendation ${recId} applied and removed`);
+    const { error: applyError } = await supabase.rpc('apply_price_change_atomic', {
+      p_product_id: productId,
+      p_user_id: req.user.id,
+      p_rec_id: recId,
+      p_old_price: oldPrice,
+      p_new_price: price, // Use the validated price
+      p_cost_price: costPrice,
+      p_sales_30d: sales30d
+    });
+
+    if (applyError) {
+      console.error('❌ Atomic price change failed:', applyError);
+      throw new Error('Failed to apply price change: ' + applyError.message);
+    }
+
+    console.log(`✅ Recommendation ${recId} applied and removed atomically`);
 
     res.json({ success: true, message: 'Price updated successfully on Shopify!' });
   } catch (error) {
@@ -2259,12 +2754,22 @@ app.get('/api/analytics/dashboard', authenticateToken, async (req, res) => {
         const costPrice = parseFloat(product.cost_price) || 0;
         const sales30d = parseInt(product.total_sales_30d) || 0;
 
-        // Calculate profit improvement from this price change
+        // TIME-WEIGHTED PROFIT: Only count profit from sales AFTER the price change
+        const changeDate = new Date(change.created_at);
+        const daysSinceChange = Math.min(30, (Date.now() - changeDate.getTime()) / (1000 * 60 * 60 * 24));
+
+        // Pro-rate sales to only count sales after the price change
+        const proRatedSales = (sales30d / 30) * daysSinceChange;
+
+        // Calculate profit improvement
         const oldProfit = oldPrice - costPrice;
         const newProfit = newPrice - costPrice;
-        const profitImprovement = (newProfit - oldProfit) * sales30d;
+        const profitImprovement = (newProfit - oldProfit) * proRatedSales;
 
-        historicalProfit += profitImprovement;
+        // Project to full month (for display purposes)
+        const monthlyProjection = profitImprovement * (30 / Math.max(daysSinceChange, 1));
+
+        historicalProfit += monthlyProjection;
       });
     }
 
@@ -2508,26 +3013,80 @@ app.get('/api/stats', authenticateToken, async (req, res) => {
     const thirtyDaysAgo = new Date();
     thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
 
-    const ordersResponse = await axios.get(
-      `https://${shop}/admin/api/2024-01/orders.json?status=any&created_at_min=${thirtyDaysAgo.toISOString()}&limit=250`,
-      { headers: { 'X-Shopify-Access-Token': accessToken } }
-    );
+    // Use cursor pagination to make sure we include all orders for 30d totals
+    const orders = await fetchAllOrdersPaginated(shop, accessToken, thirtyDaysAgo);
 
+    // Fetch products for product count (order pagination is separate)
     const productsResponse = await axios.get(
       `https://${shop}/admin/api/2024-01/products.json?limit=250`,
       { headers: { 'X-Shopify-Access-Token': accessToken } }
     );
 
-    const orders = ordersResponse.data.orders || [];
     const products = productsResponse.data.products || [];
 
-    const totalRevenue = orders.reduce((sum, order) => sum + parseFloat(order.total_price || 0), 0);
+    const totalRevenueValue = orders.reduce((sum, order) => sum + parseFloat(order.total_price || 0), 0);
     const totalOrders = orders.length;
     const totalProducts = products.length;
-    const avgOrderValue = totalOrders > 0 ? totalRevenue / totalOrders : 0;
+    const avgOrderValueValue = totalOrders > 0 ? totalRevenueValue / totalOrders : 0;
 
-    // Calculate AI profit increase from recommendations
-    const { data: recommendations, error: recsError } = await supabase
+    // Count products that have been analyzed at least once
+    const { count: productsAnalyzed } = await supabase
+      .from('products')
+      .select('*', { count: 'exact', head: true })
+      .eq('user_id', req.user.id)
+      .not('last_analyzed_at', 'is', null);
+
+    // Historical profit from applied price changes (last 30d)
+    const { data: priceChanges, error: priceChangesError } = await supabase
+      .from('price_changes')
+      .select('*')
+      .eq('user_id', req.user.id)
+      .gte('created_at', thirtyDaysAgo.toISOString());
+
+    let historicalProfit = 0;
+    if (!priceChangesError && priceChanges?.length) {
+      const productIds = [...new Set(priceChanges.map(pc => pc.product_id))];
+      const { data: productRows } = await supabase
+        .from('products')
+        .select('id, cost_price, total_sales_30d')
+        .in('id', productIds)
+        .eq('user_id', req.user.id);
+
+      const productMap = {};
+      productRows?.forEach(p => {
+        productMap[p.id] = p;
+      });
+
+      priceChanges.forEach(change => {
+        const product = productMap[change.product_id];
+        if (!product) return;
+
+        const oldPrice = parseFloat(change.old_price) || 0;
+        const newPrice = parseFloat(change.new_price) || 0;
+        const costPrice = parseFloat(product.cost_price) || 0;
+        const sales30d = parseInt(product.total_sales_30d) || 0;
+
+        // TIME-WEIGHTED PROFIT: Only count profit from sales AFTER the price change
+        const changeDate = new Date(change.created_at);
+        const daysSinceChange = Math.min(30, (Date.now() - changeDate.getTime()) / (1000 * 60 * 60 * 24));
+
+        // Pro-rate sales to only count sales after the price change
+        const proRatedSales = (sales30d / 30) * daysSinceChange;
+
+        // Calculate profit improvement
+        const oldProfit = oldPrice - costPrice;
+        const newProfit = newPrice - costPrice;
+        const profitImprovement = (newProfit - oldProfit) * proRatedSales;
+
+        // Project to full month (for display purposes)
+        const monthlyProjection = profitImprovement * (30 / Math.max(daysSinceChange, 1));
+
+        historicalProfit += monthlyProjection;
+      });
+    }
+
+    // Potential profit from all recommendations (status column doesn't exist)
+    const { data: recommendations, error: recsError} = await supabase
       .from('recommendations')
       .select(`
         *,
@@ -2539,7 +3098,7 @@ app.get('/api/stats', authenticateToken, async (req, res) => {
       `)
       .eq('user_id', req.user.id);
 
-    let profitIncrease = 0;
+    let potentialProfit = 0;
     if (!recsError && recommendations && recommendations.length > 0) {
       recommendations.forEach(rec => {
         const currentPrice = parseFloat(rec.products.price) || 0;
@@ -2547,30 +3106,48 @@ app.get('/api/stats', authenticateToken, async (req, res) => {
         const costPrice = parseFloat(rec.products.cost_price) || 0;
         const sales30d = parseInt(rec.products.total_sales_30d) || 0;
 
-        // Current profit per sale
         const currentProfitPerSale = currentPrice - costPrice;
-        // Recommended profit per sale
         const recommendedProfitPerSale = recommendedPrice - costPrice;
-        // Additional profit per sale
         const additionalProfitPerSale = recommendedProfitPerSale - currentProfitPerSale;
-        // Total additional profit over 30 days (based on actual sales)
         const additionalProfit30d = additionalProfitPerSale * sales30d;
 
-        profitIncrease += additionalProfit30d;
+        potentialProfit += additionalProfit30d;
       });
     }
 
+    const totalAIProfit = historicalProfit + potentialProfit;
+    const revenue = parseFloat(totalRevenueValue.toFixed(2));
+    const avgOrderValue = parseFloat(avgOrderValueValue.toFixed(2));
+
     res.json({
-      revenue: totalRevenue.toFixed(2),
+      // Backward-compatible fields (strings)
+      revenue: revenue.toFixed(2),
+      averageOrderValue: avgOrderValue.toFixed(2),
       orders: totalOrders,
       products: totalProducts,
-      averageOrderValue: avgOrderValue.toFixed(2),
-      profitIncrease: profitIncrease.toFixed(2)
+      profitIncrease: parseFloat(potentialProfit.toFixed(2)),
+      // Richer analytics for the dashboard
+      totalRevenue: revenue,
+      totalOrders,
+      avgOrderValue,
+      productsAnalyzed: productsAnalyzed || 0,
+      totalAIProfit: parseFloat(totalAIProfit.toFixed(2)),
+      historicalProfit: parseFloat(historicalProfit.toFixed(2)), // ACTUAL profit made this month from applied changes
+      potentialProfit: parseFloat(potentialProfit.toFixed(2)) // Potential from pending recommendations
     });
   } catch (error) {
     console.error('Stats fetch error:', error.response?.data || error.message);
     res.status(500).json({ error: 'Failed to fetch stats' });
   }
+});
+
+// GET handler for /api/analyze (just info)
+app.get('/api/analyze', (req, res) => {
+  res.status(405).json({
+    error: 'Method not allowed',
+    message: 'This endpoint requires POST method. Use POST /api/analyze to run analysis.',
+    correctMethod: 'POST'
+  });
 });
 
 // Alias for /api/analysis/run-now - Auto-select products with cost price
@@ -2579,77 +3156,110 @@ app.post('/api/analyze', authenticateToken, async (req, res) => {
     console.log('\n🤖 ============ AI ANALYSIS STARTED ============');
     console.log(`User ID: ${req.user.id}`);
 
-    // Check 24-hour rolling window limit
-    const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
-    const { count: manualUsedToday, error: manualError } = await supabase
+    // Check manual analysis limit (DAILY - midnight to midnight, same as status endpoint)
+    const now = new Date();
+    const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0);
+
+    const { count: usedCount, error: limitError } = await supabase
       .from('manual_analyses')
       .select('*', { count: 'exact', head: true })
       .eq('user_id', req.user.id)
-      .gte('triggered_at', twentyFourHoursAgo.toISOString());
+      .gte('triggered_at', startOfToday.toISOString());
 
-    if (manualError) throw manualError;
+    if (limitError) {
+      console.error('Error checking manual analysis limit:', limitError);
+      // If the table doesn't exist, continue without limit check
+      if (limitError.code === '42P01') {
+        console.log('⚠️ manual_analyses table does not exist, continuing without limit check');
+      } else {
+        throw limitError;
+      }
+    }
 
-    if ((manualUsedToday || 0) >= 10) {
-      console.log(`❌ User ${req.user.id} has reached daily limit (${manualUsedToday}/10)`);
+    const currentUsed = usedCount || 0;
+    const remaining = Math.max(0, 10 - currentUsed);
+
+    if (currentUsed >= 10) {
+      console.log(`❌ User ${req.user.id} has reached daily limit (${currentUsed}/10)`);
       return res.status(429).json({
         success: false,
         error: 'Daily limit reached',
-        message: 'You have used all 10 manual analyses in the last 24 hours. Wait for older analyses to expire or use automatic analysis.',
-        manualUsed: manualUsedToday,
+        message: 'You have used all 10 manual analyses today. Resets at midnight.',
+        manualUsed: currentUsed,
         manualRemaining: 0
       });
     }
 
-    // Auto-select all products with cost price set for analysis
-    const { data: products, error: productsError } = await supabase
+    console.log(`✅ Manual analysis allowed (${currentUsed}/10 used, ${remaining} remaining)`);
+
+    // Check which products are already selected by the user
+    const { data: selectedProducts, error: selectedError } = await supabase
       .from('products')
       .select('*')
       .eq('user_id', req.user.id)
-      .gt('cost_price', 0);
+      .eq('selected_for_analysis', true);
 
-    if (productsError) throw productsError;
+    if (selectedError) throw selectedError;
 
-    console.log(`📦 Found ${products.length} products with cost price set`);
+    console.log(`📦 User has ${selectedProducts.length} products selected for analysis`);
 
-    if (products.length === 0) {
-      console.log(`❌ No products with cost price set for user ${req.user.id}`);
-      return res.status(400).json({
-        success: false,
-        error: 'No cost prices set',
-        message: 'Please set cost price for at least one product before running AI analysis. Cost price is required to calculate optimal pricing.',
-        recommendations: []
-      });
-    }
+    // If user has NO products selected, auto-select products with cost prices (≤10)
+    if (selectedProducts.length === 0) {
+      console.log(`⚠️ No products selected, auto-selecting products with cost prices...`);
 
-    // Mark all products with cost price as selected for analysis
-    const productIds = products.map(p => p.id);
-    const { error: updateError } = await supabase
-      .from('products')
-      .update({ selected_for_analysis: true })
-      .in('id', productIds);
+      const { data: productsWithCost, error: productsError } = await supabase
+        .from('products')
+        .select('*')
+        .eq('user_id', req.user.id)
+        .gt('cost_price', 0);
 
-    if (updateError) {
-      console.error('Error selecting products:', updateError);
+      if (productsError) throw productsError;
+
+      if (productsWithCost.length === 0) {
+        console.log(`❌ No products with cost price set for user ${req.user.id}`);
+        return res.status(400).json({
+          success: false,
+          error: 'No cost prices set',
+          message: 'Please set cost price for at least one product before running AI analysis. Cost price is required to calculate optimal pricing.',
+          recommendations: []
+        });
+      }
+
+      // AIRTIGHT: Auto-select up to 10 products
+      const productsToSelect = productsWithCost.slice(0, 10);
+      const productIds = productsToSelect.map(p => p.id);
+
+      const { error: updateError } = await supabase
+        .from('products')
+        .update({ selected_for_analysis: true })
+        .in('id', productIds);
+
+      if (updateError) {
+        console.error('Error auto-selecting products:', updateError);
+      } else {
+        console.log(`✅ Auto-selected ${productIds.length} products (user had none selected)`);
+      }
     } else {
-      console.log(`✅ Auto-selected ${productIds.length} products for analysis`);
+      console.log(`✅ Respecting user's ${selectedProducts.length} selected products`);
     }
 
     // Run the analysis using the existing comprehensive algorithm
+    // This will analyze whatever products have selected_for_analysis = true
     const recommendationsCreated = await runAnalysisForUser(req.user.id);
 
-    // Log this manual analysis
-    const { error: insertError } = await supabase
-      .from('manual_analyses')
-      .insert({
-        user_id: req.user.id,
-        products_analyzed: productIds.length
-      });
-
-    if (insertError) {
-      console.error('Error logging manual analysis:', insertError);
+    // Log this manual analysis AFTER successful completion
+    try {
+      await supabase
+        .from('manual_analyses')
+        .insert({
+          user_id: req.user.id,
+          triggered_at: new Date().toISOString()
+        });
+      console.log('✅ Manual analysis logged to database');
+    } catch (insertError) {
+      console.warn('⚠️ Could not log manual analysis:', insertError.message);
+      // Continue even if logging fails
     }
-
-    const remaining = 10 - (manualUsedToday || 0) - 1;
 
     // Get the recommendations that were just created
     const { data: recommendations, error: recError } = await supabase
@@ -2659,19 +3269,27 @@ app.post('/api/analyze', authenticateToken, async (req, res) => {
       .order('created_at', { ascending: false });
 
     console.log(`\n✅ Analysis complete! Generated ${recommendationsCreated} recommendations`);
-    console.log(`   Manual analyses used: ${(manualUsedToday || 0) + 1}/10, remaining: ${remaining}`);
+    console.log(`   Manual analyses used: ${currentUsed + 1}/10, remaining: ${remaining - 1}`);
     console.log('============================================\n');
 
     res.json({
       success: true,
       recommendations: recommendations || [],
       message: `Analysis complete! ${recommendationsCreated} recommendations generated.`,
-      manualRemaining: remaining,
-      manualUsed: (manualUsedToday || 0) + 1
+      manualRemaining: remaining - 1,
+      manualUsed: currentUsed + 1
     });
   } catch (error) {
-    console.error('Analysis trigger error:', error.message);
-    res.status(500).json({ error: 'Failed to trigger analysis' });
+    console.error('❌ Analysis trigger error:', error);
+    console.error('Error details:', {
+      message: error.message,
+      stack: error.stack,
+      response: error.response?.data
+    });
+    res.status(500).json({
+      error: 'Failed to trigger analysis',
+      details: error.message
+    });
   }
 });
 
@@ -2763,13 +3381,13 @@ const authenticateAdmin = async (req, res, next) => {
     if (!error && user && user.email) {
       console.log('🔓 Supabase token verified:', user.email);
 
-      // Check if user is admin email
-      if (user.email.toLowerCase() === 'arealhuman21@gmail.com') {
+      // Check if user is in admin whitelist
+      if (ADMIN_EMAILS.includes(user.email.toLowerCase())) {
         console.log('✅ Admin authenticated via Supabase:', user.email);
         req.user = { email: user.email };
         return next();
       } else {
-        console.log('❌ Not admin email:', user.email);
+        console.log('❌ Not in admin whitelist:', user.email);
         return res.status(403).json({ error: 'Admin access required' });
       }
     }
@@ -2790,9 +3408,9 @@ const authenticateAdmin = async (req, res, next) => {
       return res.status(403).json({ error: 'Invalid token format' });
     }
 
-    // Check if user is admin email
-    if (verified.email.toLowerCase() !== 'arealhuman21@gmail.com') {
-      console.log('❌ Not admin email:', verified.email);
+    // Check if user is in admin whitelist
+    if (!ADMIN_EMAILS.includes(verified.email.toLowerCase())) {
+      console.log('❌ Not in admin whitelist:', verified.email);
       return res.status(403).json({ error: 'Admin access required' });
     }
 
@@ -2872,6 +3490,9 @@ app.post('/api/admin/users/:id/set-shopify', authenticateAdmin, async (req, res)
     res.status(500).json({ error: 'Failed to set Shopify connection' });
   }
 });
+
+// Apply rate limiter to all admin routes
+app.use('/api/admin/', adminLimiter);
 
 // Get all Shopify apps
 app.get('/api/admin/apps', authenticateAdmin, async (req, res) => {

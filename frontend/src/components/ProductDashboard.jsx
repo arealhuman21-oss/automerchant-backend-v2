@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Zap, Check, RefreshCw, TrendingUp, Package, DollarSign, AlertCircle, LogOut, Settings, X, Wifi, WifiOff, BarChart3, Activity, ShoppingCart, Clock, Search, CheckSquare, Square } from 'lucide-react';
 
 // API URL - automatically uses production URL when deployed
@@ -55,8 +55,8 @@ function CostPriceModal({ isOpen, onClose, product, onSave }) {
   const profit = (currentPrice - cost).toFixed(2);
 
   return (
-    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
-      <div className="bg-slate-800 rounded-2xl border border-slate-700 max-w-md w-full shadow-2xl">
+    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 z-50 overflow-y-auto">
+      <div className="bg-slate-800 rounded-2xl border border-slate-700 max-w-md w-full shadow-2xl my-auto">
         <div className="flex items-center justify-between p-6 border-b border-slate-700">
           <div>
             <h2 className="text-xl font-bold text-white">Set Cost Price</h2>
@@ -231,40 +231,52 @@ function SettingsModal({ isOpen, onClose, onConnect, shopifyConnected }) {
   );
 }
 
-function CountdownTimer({ timeRemaining, onRefresh }) {
-  const [time, setTime] = useState(timeRemaining);
+// Display actual scheduled time (synced with cron-job.org schedule)
+function NextAnalysisTime({ nextAnalysisDue, showIcon = true }) {
+  if (!nextAnalysisDue) {
+    return (
+      <div className="flex items-center space-x-2">
+        {showIcon && <Clock className="w-4 h-4 text-purple-400" />}
+        <span className="text-white font-semibold">Calculating...</span>
+      </div>
+    );
+  }
 
-  useEffect(() => {
-    setTime(timeRemaining);
-  }, [timeRemaining]);
+  const formatTime = (dateString) => {
+    const date = new Date(dateString);
+    const now = new Date();
 
-  useEffect(() => {
-    const interval = setInterval(() => {
-      setTime((prev) => {
-        if (prev <= 1) {
-          return 0;
-        }
-        return prev - 1;
-      });
-    }, 1000);
-    return () => clearInterval(interval);
-  }, []); // Remove onRefresh dependency to prevent recreation
+    // Format time as "4:30 PM"
+    const timeString = date.toLocaleTimeString('en-US', {
+      hour: 'numeric',
+      minute: '2-digit',
+      hour12: true,
+      timeZone: 'America/New_York'
+    });
 
-  // Separate effect for calling onRefresh when time hits 0
-  useEffect(() => {
-    if (time === 0 && timeRemaining > 0) {
-      onRefresh();
+    // Check if it's today or tomorrow
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const scheduleDate = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+    const diffDays = Math.floor((scheduleDate - today) / (1000 * 60 * 60 * 24));
+
+    let dayPrefix = '';
+    if (diffDays === 0) {
+      dayPrefix = 'Today at ';
+    } else if (diffDays === 1) {
+      dayPrefix = 'Tomorrow at ';
+    } else {
+      // Show day of week for future dates
+      dayPrefix = date.toLocaleDateString('en-US', { weekday: 'short' }) + ' at ';
     }
-  }, [time, timeRemaining, onRefresh]);
 
-  const minutes = Math.floor(time / 60);
-  const seconds = time % 60;
+    return dayPrefix + timeString + ' EST';
+  };
 
   return (
     <div className="flex items-center space-x-2">
-      <Clock className="w-4 h-4 text-purple-400" />
-      <span className="text-white font-mono font-semibold">
-        {minutes.toString().padStart(2, '0')}:{seconds.toString().padStart(2, '0')}
+      {showIcon && <Clock className="w-4 h-4 text-purple-400" />}
+      <span className="text-white font-semibold">
+        {formatTime(nextAnalysisDue)}
       </span>
     </div>
   );
@@ -277,18 +289,26 @@ function ResetCountdownTimer({ timeUntilReset, onRefresh }) {
     setTime(timeUntilReset);
   }, [timeUntilReset]);
 
+  // FIX: Separated timer logic from refresh logic to prevent memory leak
   useEffect(() => {
     const interval = setInterval(() => {
       setTime((prev) => {
         if (prev <= 1) {
-          onRefresh();
           return 0;
         }
         return prev - 1;
       });
     }, 1000);
+    // Cleanup function runs on component unmount
     return () => clearInterval(interval);
-  }, [onRefresh]);
+  }, []); // Empty dependency array ensures this only runs once
+
+  // FIX: Separate effect for handling the refresh action when timer hits zero
+  useEffect(() => {
+    if (time === 0) {
+      onRefresh();
+    }
+  }, [time, onRefresh]);
 
   const hours = Math.floor(time / 3600);
   const minutes = Math.floor((time % 3600) / 60);
@@ -317,13 +337,9 @@ function ProductDashboard({ userEmail, onLogout }) {
   const [showSettings, setShowSettings] = useState(false);
   const [showCostPriceModal, setShowCostPriceModal] = useState(false);
   const [selectedProduct, setSelectedProduct] = useState(null);
-  const [analysisStatus, setAnalysisStatus] = useState({ analyzing: false, timeRemaining: 1800, manualUsed: 0, manualRemaining: 10, timeUntilReset: 0, resetTime: null }); // 30 minutes in seconds
+  const [analysisStatus, setAnalysisStatus] = useState({ analyzing: false, timeRemaining: 1800, nextAnalysisDue: null, manualUsed: 0, manualRemaining: 10, timeUntilReset: 0, resetTime: null });
   const [showAnalysisResults, setShowAnalysisResults] = useState(false);
   const [analysisResults, setAnalysisResults] = useState(null);
-  const [lastAutoAnalysis, setLastAutoAnalysis] = useState(() => {
-    const saved = localStorage.getItem('lastAutoAnalysis');
-    return saved ? parseInt(saved) : Date.now();
-  });
   const [assignedApp, setAssignedApp] = useState(null);
   const [hasTriedAutoConnect, setHasTriedAutoConnect] = useState(() => {
     // Check localStorage to prevent infinite redirects
@@ -433,28 +449,12 @@ function ProductDashboard({ userEmail, onLogout }) {
     }
   }, [connectionCheckComplete, assignedApp, shopifyConnected, hasTriedAutoConnect, userEmail]);
 
-  // Countdown timer for auto-analysis
+  // Load initial timer status (no auto-refresh - timer counts down locally)
   useEffect(() => {
-    const interval = setInterval(() => {
-      const now = Date.now();
-      const elapsed = Math.floor((now - lastAutoAnalysis) / 1000); // seconds since last analysis
-      const remaining = Math.max(1800 - elapsed, 0); // 30 minutes = 1800 seconds
-
-      setAnalysisStatus(prev => ({ ...prev, timeRemaining: remaining }));
-
-      // Auto-analysis every 30 minutes
-      if (remaining === 0 && shopifyConnected && !analysisStatus.analyzing) {
-        const newTime = Date.now();
-        setLastAutoAnalysis(newTime);
-        localStorage.setItem('lastAutoAnalysis', newTime.toString());
-        setAnalysisStatus(prev => ({ ...prev, analyzing: false, timeRemaining: 1800 }));
-
-        // Auto-analysis runs every 30 minutes (manual limits are tracked separately on backend with 24hr rolling window)
-      }
-    }, 1000); // Update every second
-
-    return () => clearInterval(interval);
-  }, [lastAutoAnalysis, shopifyConnected, analysisStatus.analyzing]);
+    if (shopifyConnected) {
+      loadAnalysisStatus();
+    }
+  }, [shopifyConnected]);
 
   // Auto-select products when products change (for ≤10 products)
   useEffect(() => {
@@ -475,10 +475,13 @@ function ProductDashboard({ userEmail, onLogout }) {
       console.log('📊 API Response:', data);
       console.log('   manualUsedToday:', data.manualUsedToday);
       console.log('   manualRemaining:', data.manualRemaining);
+      console.log('   timeRemaining:', data.timeRemaining);
+      console.log('   nextAnalysisDue:', data.nextAnalysisDue);
 
       const newStatus = {
         analyzing: data.analyzing || false,
         timeRemaining: data.timeRemaining || 0,
+        nextAnalysisDue: data.nextAnalysisDue || null,
         manualUsed: data.manualUsedToday || 0,
         manualRemaining: data.manualRemaining || 10,
         timeUntilReset: data.timeUntilReset || 0,
@@ -510,12 +513,68 @@ function ProductDashboard({ userEmail, onLogout }) {
       const productsData = results[0].status === 'fulfilled' ? results[0].value : { products: [] };
       const recsData = results[1].status === 'fulfilled' ? results[1].value : { recommendations: [] };
       const ordersData = results[2].status === 'fulfilled' ? results[2].value : { orders: [] };
-      const statsData = results[3].status === 'fulfilled' ? results[3].value : { revenue: '0.00', orders: 0, products: 0, averageOrderValue: '0.00', profitIncrease: 0 };
+      const statsData = results[3].status === 'fulfilled'
+        ? results[3].value
+        : {
+            revenue: '0.00',
+            totalRevenue: 0,
+            orders: 0,
+            totalOrders: 0,
+            products: 0,
+            productsAnalyzed: 0,
+            averageOrderValue: '0.00',
+            avgOrderValue: 0,
+            profitIncrease: 0,
+            totalAIProfit: 0
+          };
 
-      setProducts(productsData.products || []);
+      const loadedProducts = productsData.products || [];
+      setProducts(loadedProducts);
       setRecommendations(recsData.recommendations || []);
       setOrders(ordersData.orders || []);
       setStats(statsData);
+
+      // LOAD SELECTIONS FROM DATABASE
+      // Products already have selected_for_analysis field from backend
+      const selectedFromDB = loadedProducts.filter(p => p.selected_for_analysis === true);
+      const productsWithCost = loadedProducts.filter(p => parseFloat(p.cost_price || 0) > 0);
+
+      console.log(`📦 Loaded ${loadedProducts.length} products, ${productsWithCost.length} with cost prices, ${selectedFromDB.length} selected`);
+
+      if (selectedFromDB.length > 0) {
+        // User has existing selections in DB - respect them
+        const selectedIds = selectedFromDB.map(p => p.id);
+        setSelectedProductIds(selectedIds);
+        console.log(`✅ Loaded ${selectedIds.length} selected products from database`);
+      } else if (productsWithCost.length > 0 && productsWithCost.length <= 10) {
+        // No selections in DB AND ≤10 products → Auto-select all and save to DB
+        const autoSelectIds = productsWithCost.map(p => p.id);
+        console.log(`🔄 Auto-selecting ${autoSelectIds.length} products (≤10 with cost prices)...`);
+
+        try {
+          const response = await fetch(`${API_URL}/api/products/select-batch`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${localStorage.getItem('token')}`
+            },
+            body: JSON.stringify({ productIds: autoSelectIds })
+          });
+
+          if (response.ok) {
+            setSelectedProductIds(autoSelectIds);
+            console.log(`✅ Auto-selected ${autoSelectIds.length} products and saved to DB`);
+          } else {
+            console.error('Failed to auto-select products');
+          }
+        } catch (err) {
+          console.error('Auto-select error:', err);
+        }
+      } else if (productsWithCost.length > 10) {
+        // >10 products available - user must manually select
+        console.log(`⚠️ ${productsWithCost.length} products available - manual selection required (max 10)`);
+        setSelectedProductIds([]);
+      }
 
       // Check for new recommendations since last visit
       const lastViewed = localStorage.getItem('lastViewedRecommendations');
@@ -621,30 +680,108 @@ function ProductDashboard({ userEmail, onLogout }) {
     }
   };
 
-  const toggleProductSelection = (productId) => {
-    setSelectedProductIds(prev => {
-      if (prev.includes(productId)) {
-        return prev.filter(id => id !== productId);
-      } else {
-        // Limit to 50 products
-        if (prev.length >= 50) {
-          setError('⚠️ Maximum 50 products can be selected for analysis');
-          setTimeout(() => setError(null), 3000);
-          return prev;
-        }
-        return [...prev, productId];
+  const toggleProductSelection = async (productId) => {
+    const isCurrentlySelected = selectedProductIds.includes(productId);
+
+    // Check 10 product limit before selecting
+    if (!isCurrentlySelected && selectedProductIds.length >= 10) {
+      setError('⚠️ Maximum 10 products can be selected for analysis (Pro Plan limit)');
+      setTimeout(() => setError(null), 5000);
+      return;
+    }
+
+    try {
+      // Save to database via API
+      const response = await fetch(`${API_URL}/api/products/${productId}/toggle-analysis`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${localStorage.getItem('token')}`
+        },
+        body: JSON.stringify({ selected: !isCurrentlySelected })
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.message || 'Failed to update selection');
       }
-    });
+
+      // Update local state only after successful DB update
+      setSelectedProductIds(prev => {
+        if (isCurrentlySelected) {
+          return prev.filter(id => id !== productId);
+        } else {
+          return [...prev, productId];
+        }
+      });
+
+      console.log(`✅ Product ${productId} ${isCurrentlySelected ? 'deselected' : 'selected'}`);
+    } catch (error) {
+      console.error('Toggle selection error:', error);
+      setError(`Failed to update selection: ${error.message}`);
+      setTimeout(() => setError(null), 5000);
+    }
   };
 
-  const selectAllProducts = () => {
+  const selectAllProducts = async () => {
     const productsWithCost = products.filter(p => p.cost_price > 0);
-    const idsToSelect = productsWithCost.slice(0, 50).map(p => p.id);
-    setSelectedProductIds(idsToSelect);
+    // AIRTIGHT: Limit to 10 products max
+    const idsToSelect = productsWithCost.slice(0, 10).map(p => p.id);
+
+    try {
+      // Save to database via batch API
+      const response = await fetch(`${API_URL}/api/products/select-batch`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${localStorage.getItem('token')}`
+        },
+        body: JSON.stringify({ productIds: idsToSelect })
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.message || 'Failed to select all products');
+      }
+
+      // Update local state after successful DB update
+      setSelectedProductIds(idsToSelect);
+      console.log(`✅ Selected all ${idsToSelect.length} products`);
+    } catch (error) {
+      console.error('Select all error:', error);
+      setError(`Failed to select all: ${error.message}`);
+      setTimeout(() => setError(null), 5000);
+    }
   };
 
-  const clearAllSelections = () => {
-    setSelectedProductIds([]);
+  const clearAllSelections = async () => {
+    try {
+      // Save to database via batch API (empty array = clear all)
+      const response = await fetch(`${API_URL}/api/products/select-batch`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${localStorage.getItem('token')}`
+        },
+        body: JSON.stringify({ productIds: [] })
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.message || 'Failed to clear selections');
+      }
+
+      // Update local state after successful DB update
+      setSelectedProductIds([]);
+      console.log(`✅ Cleared all selections`);
+    } catch (error) {
+      console.error('Clear all error:', error);
+      setError(`Failed to clear selections: ${error.message}`);
+      setTimeout(() => setError(null), 5000);
+    }
   };
 
   const runAnalysis = async () => {
@@ -698,8 +835,37 @@ function ProductDashboard({ userEmail, onLogout }) {
 
   const calculateAIProfit = () => {
     if (!stats) return '0.00';
-    // Try totalAIProfit first (new field), fallback to profitIncrease (old field)
-    return parseFloat(stats.totalAIProfit || stats.profitIncrease || 0).toFixed(2);
+    // Show ACTUAL profit made THIS MONTH from applied AI recommendations
+    return parseFloat(stats.historicalProfit || 0).toFixed(2);
+  };
+
+  // Normalized stat helpers to gracefully handle mixed API payloads
+  const getTotalRevenue = () => {
+    if (!stats) return 0;
+    const value = stats.totalRevenue ?? stats.revenue ?? 0;
+    return parseFloat(value);
+  };
+
+  const getTotalOrders = () => {
+    if (!stats) return 0;
+    return stats.totalOrders ?? stats.orders ?? 0;
+  };
+
+  const getAvgOrderValue = () => {
+    if (!stats) return 0;
+    const direct = stats.avgOrderValue ?? stats.averageOrderValue;
+    if (direct !== undefined && direct !== null) {
+      return parseFloat(direct);
+    }
+    const ordersCount = getTotalOrders();
+    if (ordersCount === 0) return 0;
+    return getTotalRevenue() / ordersCount;
+  };
+
+  const getProductsAnalyzed = () => {
+    if (!stats) return 0;
+    // Prefer explicit count, fall back to products length as a last resort
+    return stats.productsAnalyzed ?? stats.products ?? products.length ?? 0;
   };
 
   const handleLogout = async () => {
@@ -732,7 +898,7 @@ function ProductDashboard({ userEmail, onLogout }) {
 
       {/* Analysis Results Bottom Notification */}
       {showAnalysisResults && analysisResults && (
-        <div className="fixed bottom-6 right-6 z-50 max-w-md animate-slide-up">
+        <div className="fixed bottom-4 right-4 left-4 sm:left-auto sm:bottom-6 sm:right-6 z-50 max-w-md animate-slide-up">
           <div className="bg-slate-800 rounded-xl border border-slate-700 shadow-2xl">
             <div className="flex items-center justify-between p-4 border-b border-slate-700">
               <div className="flex items-center space-x-3">
@@ -790,47 +956,49 @@ function ProductDashboard({ userEmail, onLogout }) {
       {/* Header */}
       <div className="border-b border-slate-700/50 backdrop-blur-sm bg-slate-900/30">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex items-center justify-between h-16">
-            <div className="flex items-center space-x-3">
-              <div className="p-2 bg-purple-600/20 rounded-lg">
-                <Zap className="w-6 h-6 text-purple-400" />
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between py-4 sm:h-16 gap-3 sm:gap-0">
+            <div className="flex items-center space-x-2 sm:space-x-3">
+              <div className="p-1.5 sm:p-2 bg-purple-600/20 rounded-lg">
+                <Zap className="w-5 h-5 sm:w-6 sm:h-6 text-purple-400" />
               </div>
-              <span className="text-2xl font-bold text-white">AutoMerchant Pricing AI</span>
+              <span className="text-lg sm:text-2xl font-bold text-white">AutoMerchant Pricing AI</span>
             </div>
 
-            {activeTab === 'dashboard' && analysisStatus.timeRemaining && Number(analysisStatus.timeRemaining) > 0 && (
-              <div className="flex items-center space-x-3 px-4 py-2 bg-slate-800/50 border border-purple-500/30 rounded-lg">
-                <span className="text-sm text-gray-400">Next Analysis:</span>
-                <CountdownTimer
-                  timeRemaining={Number(analysisStatus.timeRemaining)}
-                  onRefresh={loadAnalysisStatus}
+            {activeTab === 'dashboard' && analysisStatus.nextAnalysisDue && (
+              <div className="flex items-center space-x-2 sm:space-x-3 px-3 sm:px-4 py-1.5 sm:py-2 bg-slate-800/50 border border-purple-500/30 rounded-lg w-full sm:w-auto">
+                <span className="text-xs sm:text-sm text-gray-400">Next Analysis:</span>
+                <NextAnalysisTime
+                  nextAnalysisDue={analysisStatus.nextAnalysisDue}
+                  showIcon={true}
                 />
               </div>
             )}
 
-            <div className="flex items-center space-x-4">
-              <div className="text-right mr-2">
-                <p className="text-xs text-gray-400">Logged in as</p>
-                <p className="text-sm text-white font-medium">{userEmail}</p>
-              </div>
-              {shopifyConnected ? (
-                <div className="flex items-center space-x-2 px-3 py-2 bg-green-500/20 border border-green-500/30 rounded-lg">
-                  <Wifi className="w-4 h-4 text-green-400" />
-                  <span className="text-sm text-green-300 font-medium">Shopify Connected</span>
-                </div>
-              ) : (
-                <div className="flex items-center space-x-2 px-3 py-2 bg-yellow-500/20 border border-yellow-500/30 rounded-lg">
-                  <WifiOff className="w-4 h-4 text-yellow-400" />
-                  <span className="text-sm text-yellow-300 font-medium">Not Connected</span>
+            <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
+              {userEmail !== 'benjamincao98@gmail.com' && (
+                <div className="text-left sm:text-right mr-2 hidden sm:block">
+                  <p className="text-xs text-gray-400">Logged in as</p>
+                  <p className="text-sm text-white font-medium truncate max-w-[150px]">{userEmail}</p>
                 </div>
               )}
-              <button onClick={() => setShowSettings(true)} className="flex items-center space-x-2 px-4 py-2 bg-slate-700 rounded-lg text-white hover:bg-slate-600 transition">
-                <Settings className="w-4 h-4" />
-                <span>Settings</span>
+              {shopifyConnected ? (
+                <div className="flex items-center space-x-1.5 sm:space-x-2 px-2 sm:px-3 py-1.5 sm:py-2 bg-green-500/20 border border-green-500/30 rounded-lg">
+                  <Wifi className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-green-400" />
+                  <span className="text-xs sm:text-sm text-green-300 font-medium">Connected</span>
+                </div>
+              ) : (
+                <div className="flex items-center space-x-1.5 sm:space-x-2 px-2 sm:px-3 py-1.5 sm:py-2 bg-yellow-500/20 border border-yellow-500/30 rounded-lg">
+                  <WifiOff className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-yellow-400" />
+                  <span className="text-xs sm:text-sm text-yellow-300 font-medium">Disconnected</span>
+                </div>
+              )}
+              <button onClick={() => setShowSettings(true)} className="flex items-center space-x-1.5 px-3 py-1.5 sm:px-4 sm:py-2 bg-slate-700 rounded-lg text-white hover:bg-slate-600 transition text-sm">
+                <Settings className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+                <span className="hidden sm:inline">Settings</span>
               </button>
-              <button onClick={handleLogout} className="flex items-center space-x-2 px-4 py-2 bg-slate-700 rounded-lg text-white hover:bg-slate-600 transition">
-                <LogOut className="w-4 h-4" />
-                <span>Logout</span>
+              <button onClick={handleLogout} className="flex items-center space-x-1.5 px-3 py-1.5 sm:px-4 sm:py-2 bg-slate-700 rounded-lg text-white hover:bg-slate-600 transition text-sm">
+                <LogOut className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+                <span className="hidden sm:inline">Logout</span>
               </button>
             </div>
           </div>
@@ -959,22 +1127,22 @@ function ProductDashboard({ userEmail, onLogout }) {
                     <DollarSign className="w-8 h-8 text-green-400" />
                   </div>
                   <p className="text-green-300 text-sm font-medium mb-1">Revenue (30d)</p>
-                  <p className="text-white text-3xl font-bold">${parseFloat(stats.revenue || stats.totalRevenue || 0).toFixed(2)}</p>
+                  <p className="text-white text-3xl font-bold">${getTotalRevenue().toFixed(2)}</p>
                 </div>
                 <div className="bg-gradient-to-br from-purple-600/20 to-purple-600/5 border border-purple-500/30 rounded-xl p-6">
                   <div className="flex items-center justify-between mb-2">
                     <ShoppingCart className="w-8 h-8 text-purple-400" />
                   </div>
                   <p className="text-purple-300 text-sm font-medium mb-1">Total Orders</p>
-                  <p className="text-white text-3xl font-bold">{stats.orders || stats.totalOrders || 0}</p>
+                  <p className="text-white text-3xl font-bold">{getTotalOrders()}</p>
                 </div>
                 <div className="bg-gradient-to-br from-pink-600/20 to-pink-600/5 border border-pink-500/30 rounded-xl p-6">
                   <div className="flex items-center justify-between mb-2">
                     <TrendingUp className="w-8 h-8 text-pink-400" />
                   </div>
-                  <p className="text-pink-300 text-sm font-medium mb-1">Potential Profit Increase</p>
+                  <p className="text-pink-300 text-sm font-medium mb-1">AI Profit Made This Month</p>
                   <p className="text-white text-3xl font-bold">${calculateAIProfit()}<span className="text-lg text-gray-400">/mo</span></p>
-                  <p className="text-pink-200/60 text-xs mt-1">If you apply AI recommendations</p>
+                  <p className="text-pink-200/60 text-xs mt-1">From applied AI price changes</p>
                 </div>
               </div>
             )}
@@ -988,9 +1156,12 @@ function ProductDashboard({ userEmail, onLogout }) {
                     <Clock className="w-5 h-5 text-blue-400" />
                     <div>
                       <p className="text-gray-400 text-sm">Next Auto-Analysis</p>
-                      <p className="text-white text-xl font-bold">
-                        {Math.floor(analysisStatus.timeRemaining / 60)}:{(analysisStatus.timeRemaining % 60).toString().padStart(2, '0')}
-                      </p>
+                      <div className="text-white text-xl font-bold">
+                        <NextAnalysisTime
+                          nextAnalysisDue={analysisStatus.nextAnalysisDue}
+                          showIcon={false}
+                        />
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -1067,10 +1238,10 @@ function ProductDashboard({ userEmail, onLogout }) {
                 <div className="mb-4">
                   <h3 className="text-2xl font-bold text-white mb-2">Select Products to Analyze</h3>
                   <p className="text-gray-300">
-                    You have {products.length} products. Select up to 50 to analyze. Only products with cost prices set can be selected.
+                    You have {products.length} products. Select up to 10 to analyze. Only products with cost prices set can be selected.
                   </p>
                   <p className="text-sm text-gray-400 mt-1">
-                    ℹ️ We limit analysis to 50 products at a time to ensure fast, accurate recommendations.
+                    ℹ️ We limit analysis to 10 products at a time to ensure fast, accurate recommendations.
                   </p>
                 </div>
 
@@ -1096,7 +1267,7 @@ function ProductDashboard({ userEmail, onLogout }) {
                         className="px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg font-semibold transition flex items-center space-x-2"
                       >
                         <CheckSquare className="w-4 h-4" />
-                        <span>Select First 50 (with cost price)</span>
+                        <span>Select First 10 (with cost price)</span>
                       </button>
                       <button
                         onClick={clearAllSelections}
@@ -1107,7 +1278,7 @@ function ProductDashboard({ userEmail, onLogout }) {
                       </button>
                     </div>
                     <div className="text-white font-semibold">
-                      {selectedProductIds.length} / 50 selected
+                      {selectedProductIds.length} / 10 selected
                     </div>
                   </div>
                 </div>
@@ -1246,7 +1417,16 @@ function ProductDashboard({ userEmail, onLogout }) {
             {/* Recommendations Section */}
             {recommendations.length > 0 ? (
               <div>
-                <h3 className="text-2xl font-bold text-white mb-4">AI Recommendations</h3>
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="text-2xl font-bold text-white">AI Recommendations</h3>
+                  <button
+                    onClick={() => setActiveTab('roi')}
+                    className="px-4 py-2 bg-gradient-to-r from-purple-600 to-pink-600 text-white rounded-lg font-semibold hover:scale-105 transition-all duration-200 flex items-center gap-2 shadow-lg hover:shadow-purple-500/50"
+                  >
+                    <BarChart3 className="w-4 h-4" />
+                    View ROI Calculator - See Total Estimated Profit
+                  </button>
+                </div>
                 <div className="space-y-4">
                   {recommendations.map((rec) => {
                     const isExpanded = expandedRecommendation === rec.id;
@@ -1331,7 +1511,7 @@ function ProductDashboard({ userEmail, onLogout }) {
                             <div className="flex items-center justify-between">
                               <div className="flex items-center space-x-2">
                                 <TrendingUp className="w-5 h-5 text-green-400" />
-                                <span className="text-gray-300 text-sm font-medium">Potential Monthly Profit Increase:</span>
+                                <span className="text-gray-300 text-sm font-medium">Monthly Estimated Profit Increase:</span>
                               </div>
                               <span className="text-2xl font-bold text-green-400">
                                 +${Math.abs(rec.profit_increase_monthly).toFixed(2)}/mo
@@ -1516,9 +1696,17 @@ function ProductDashboard({ userEmail, onLogout }) {
                   </div>
 
                   {products.filter(p => p.last_analyzed_at).map(product => {
-                    const margin = product.cost_price > 0
-                      ? ((parseFloat(product.price) - parseFloat(product.cost_price)) / parseFloat(product.price) * 100).toFixed(1)
+                    const cost = parseFloat(product.cost_price || 0);
+                    const currentStorePrice = parseFloat(product.price);
+                    const actualAvgPrice = (product.total_sales_30d || 0) > 0
+                      ? (parseFloat(product.revenue_30d || 0) / parseFloat(product.total_sales_30d))
+                      : currentStorePrice;
+                    const margin = cost > 0 && actualAvgPrice > 0
+                      ? (((actualAvgPrice - cost) / actualAvgPrice) * 100).toFixed(1)
                       : 0;
+                    const liveMargin = cost > 0 && currentStorePrice > 0
+                      ? (((currentStorePrice - cost) / currentStorePrice) * 100).toFixed(1)
+                      : margin;
                     const salesVelocity = (product.sales_velocity || 0).toFixed(2);
 
                     return (
@@ -1536,8 +1724,8 @@ function ProductDashboard({ userEmail, onLogout }) {
                           <p className="text-xs text-gray-400 font-semibold mb-2">📊 Inputs AI Used:</p>
                           <div className="grid grid-cols-2 gap-2 text-xs">
                             <div>
-                              <span className="text-gray-500">Current Price:</span>
-                              <span className="text-white ml-2 font-semibold">${parseFloat(product.price).toFixed(2)}</span>
+                              <span className="text-gray-500">Actual Avg Price (30d):</span>
+                              <span className="text-white ml-2 font-semibold">${actualAvgPrice.toFixed(2)}</span>
                             </div>
                             <div>
                               <span className="text-gray-500">Cost Price:</span>
@@ -1546,6 +1734,10 @@ function ProductDashboard({ userEmail, onLogout }) {
                             <div>
                               <span className="text-gray-500">Margin:</span>
                               <span className="text-white ml-2 font-semibold">{margin}%</span>
+                            </div>
+                            <div>
+                              <span className="text-gray-500">Current Shopify Price:</span>
+                              <span className="text-white ml-2 font-semibold">${currentStorePrice.toFixed(2)}</span>
                             </div>
                             <div>
                               <span className="text-gray-500">Sales Velocity:</span>
@@ -1566,10 +1758,9 @@ function ProductDashboard({ userEmail, onLogout }) {
                         <div className="mb-3 p-3 bg-slate-800/50 border border-green-500/20 rounded">
                           <p className="text-xs text-gray-400 font-semibold mb-1">💡 AI Reasoning:</p>
                           <p className="text-xs text-green-200 leading-relaxed">
-                            Price is performing well with {margin}% margin (above 30% minimum).
-                            Sales velocity of {salesVelocity} units/day with {product.total_sales_30d || 0} total sales indicates healthy demand.
-                            No safety issues detected (not below cost, margin adequate).
-                            No obvious mispricing found.
+                            Based on actual average selling price ${actualAvgPrice.toFixed(2)} (current Shopify price ${currentStorePrice.toFixed(2)}),
+                            margin is {margin}% (target = 30%). Sales velocity of {salesVelocity} units/day with {product.total_sales_30d || 0} total sales indicates
+                            healthy demand. No safety issues detected (not below cost, margin adequate). No obvious mispricing found.
                           </p>
                         </div>
 
@@ -1579,7 +1770,7 @@ function ProductDashboard({ userEmail, onLogout }) {
                           <div className="space-y-1 text-xs text-gray-300">
                             <div className="flex items-center space-x-2">
                               <span className="text-green-400">✓</span>
-                              <span>Not selling below cost ({parseFloat(product.price) > parseFloat(product.cost_price || 0) ? 'PASS' : 'FAIL'})</span>
+                              <span>Not selling below cost ({actualAvgPrice > parseFloat(product.cost_price || 0) ? 'PASS' : 'FAIL'})</span>
                             </div>
                             <div className="flex items-center space-x-2">
                               <span className="text-green-400">✓</span>
@@ -1738,6 +1929,28 @@ function ProductDashboard({ userEmail, onLogout }) {
               </div>
             ) : (
               <>
+                {/* Estimated Monthly Value - AT THE TOP */}
+                {stats && getTotalRevenue() > 0 && (
+                  <div className="mb-6 bg-gradient-to-br from-purple-600 to-pink-600 rounded-xl p-6">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <h3 className="text-2xl font-bold text-white mb-2">
+                          Estimated Monthly Value
+                        </h3>
+                        <p className="text-white/90 text-sm">
+                          Revenue increase from AI-optimized pricing
+                        </p>
+                      </div>
+                      <div className="text-right">
+                        <p className="text-white text-5xl font-bold">
+                          ${stats?.historicalProfit ? parseFloat(stats.historicalProfit).toFixed(2) : '0.00'}
+                        </p>
+                        <p className="text-white/60 text-sm mt-1">per month</p>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
                 {/* Data Coverage Indicator */}
                 <div className="mb-6 p-4 bg-slate-800/50 border border-slate-700 rounded-lg">
                   <div className="flex items-center justify-between mb-2">
@@ -1746,7 +1959,7 @@ function ProductDashboard({ userEmail, onLogout }) {
                   </div>
                   <div className="grid grid-cols-3 gap-4 text-center">
                     <div>
-                      <p className="text-2xl font-bold text-white">{stats?.orders || 0}</p>
+                      <p className="text-2xl font-bold text-white">{getTotalOrders()}</p>
                       <p className="text-xs text-gray-400">Orders analyzed</p>
                     </div>
                     <div>
@@ -1768,24 +1981,32 @@ function ProductDashboard({ userEmail, onLogout }) {
                   </div>
                   <div className="space-y-4">
                     <div>
-                      <p className="text-green-200/80 text-sm mb-2">Potential Additional Profit (If You Approve Recommendations)</p>
+                      <p className="text-green-200/80 text-sm mb-2">Potential Additional Profit (From Your Pending Recommendations)</p>
                       <p className="text-white text-4xl font-bold">
                         +${stats ? parseFloat(stats.profitIncrease || 0).toFixed(2) : '0.00'}
                       </p>
-                      <p className="text-green-200/60 text-xs mt-2">
-                        📊 Calculated from {recommendations.length} active AI recommendations based on your actual sales volume
-                      </p>
-                      <p className="text-green-200/60 text-xs mt-1">
-                        ⚠️ This assumes sales velocity stays constant after price changes (which may or may not happen)
-                      </p>
+                      {recommendations.length > 0 ? (
+                        <>
+                          <p className="text-green-200/60 text-xs mt-2">
+                            📊 Calculated from {recommendations.length} pending AI recommendation{recommendations.length !== 1 ? 's' : ''} based on your actual sales volume
+                          </p>
+                          <p className="text-green-200/60 text-xs mt-1">
+                            ⚠️ This assumes sales velocity stays constant after price changes (which may or may not happen)
+                          </p>
+                        </>
+                      ) : (
+                        <p className="text-green-200/60 text-xs mt-2">
+                          💡 You have no pending recommendations. Run an analysis or wait for the next auto-analysis to see potential profit.
+                        </p>
+                      )}
                     </div>
                     <div className="h-px bg-green-500/30"></div>
                     <div>
                       <p className="text-green-200/80 text-sm mb-2">Current 30-Day Revenue</p>
                       <p className="text-white text-2xl font-bold">
-                        ${stats ? parseFloat(stats.revenue || 0).toFixed(2) : '0.00'}
+                        ${stats ? getTotalRevenue().toFixed(2) : '0.00'}
                       </p>
-                      <p className="text-green-200/60 text-xs mt-1">From {stats?.orders || 0} orders in the last 30 days</p>
+                      <p className="text-green-200/60 text-xs mt-1">From {getTotalOrders()} orders in the last 30 days</p>
                     </div>
                   </div>
                 </div>
@@ -1913,28 +2134,6 @@ function ProductDashboard({ userEmail, onLogout }) {
                     </div>
                   </div>
                 </div>
-
-                {/* Estimated Monthly Value - ONLY IF THERE'S ACTUAL DATA */}
-                {stats && parseFloat(stats.totalRevenue || 0) > 0 && (
-                  <div className="bg-gradient-to-br from-purple-600 to-pink-600 rounded-xl p-6">
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <h3 className="text-2xl font-bold text-white mb-2">
-                          Estimated Monthly Value
-                        </h3>
-                        <p className="text-white/90 text-sm">
-                          Revenue increase from AI-optimized pricing
-                        </p>
-                      </div>
-                      <div className="text-right">
-                        <p className="text-white text-5xl font-bold">
-                          ${(parseFloat(stats.totalRevenue || 0) * 0.05).toFixed(2)}
-                        </p>
-                        <p className="text-white/60 text-sm mt-1">per month</p>
-                      </div>
-                    </div>
-                  </div>
-                )}
               </>
             )}
 
@@ -1945,19 +2144,19 @@ function ProductDashboard({ userEmail, onLogout }) {
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   <div>
                     <p className="text-gray-400 text-sm mb-2">Total Revenue (30d)</p>
-                    <p className="text-white text-3xl font-bold">${parseFloat(stats.totalRevenue || 0).toFixed(2)}</p>
+                    <p className="text-white text-3xl font-bold">${getTotalRevenue().toFixed(2)}</p>
                   </div>
                   <div>
                     <p className="text-gray-400 text-sm mb-2">Total Orders</p>
-                    <p className="text-white text-3xl font-bold">{stats.totalOrders || 0}</p>
+                    <p className="text-white text-3xl font-bold">{getTotalOrders()}</p>
                   </div>
                   <div>
                     <p className="text-gray-400 text-sm mb-2">Average Order Value</p>
-                    <p className="text-white text-3xl font-bold">${parseFloat(stats.avgOrderValue || 0).toFixed(2)}</p>
+                    <p className="text-white text-3xl font-bold">${getAvgOrderValue().toFixed(2)}</p>
                   </div>
                   <div>
                     <p className="text-gray-400 text-sm mb-2">Products Analyzed</p>
-                    <p className="text-white text-3xl font-bold">{stats.productsAnalyzed || 0}</p>
+                    <p className="text-white text-3xl font-bold">{getProductsAnalyzed()}</p>
                   </div>
                 </div>
               </div>

@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Zap, Check, RefreshCw, BarChart3, LogOut } from 'lucide-react';
+import { Zap, Check, RefreshCw, BarChart3, LogOut, Package, TrendingUp, DollarSign, AlertCircle } from 'lucide-react';
 import { supabase } from './lib/supabaseClient';
 import AdminPanel from './components/AdminPanel';
 import ProductDashboard from './components/ProductDashboard';
@@ -8,133 +8,54 @@ const ADMIN_EMAIL = 'arealhuman21@gmail.com';
 
 // Success Page Component
 function SuccessPage({ signupNumber, onLogout, userEmail }) {
-  const handleLogout = async () => {
-    if (!supabase) return;
+  // Always show manual onboarding info
+  useEffect(() => {
+    // Save to backend that user wants manual onboarding
+    const saveOnboardingPreference = async () => {
+      try {
+        const API_URL = process.env.REACT_APP_API_URL || '';
+        await fetch(`${API_URL}/api/set-manual-onboarding`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email: userEmail })
+        });
+        console.log('✅ Manual onboarding preference saved');
+      } catch (error) {
+        console.error('❌ Failed to save manual onboarding preference:', error);
+      }
+    };
+    saveOnboardingPreference();
+  }, [userEmail]);
 
+  const handleLogout = async () => {
     try {
-      await supabase.auth.signOut();
-      onLogout();
+      // Sign out from Supabase if available
+      if (supabase) {
+        await supabase.auth.signOut();
+      }
+
+      // Always clear local state and redirect
+      localStorage.removeItem('authToken');
+      localStorage.removeItem('wantsManualOnboarding');
+
+      // Call parent logout handler
+      if (onLogout) {
+        onLogout();
+      }
+
+      // Force reload to landing page
+      window.location.href = '/';
     } catch (err) {
       console.error('Logout error:', err);
+      // Force logout even if error
+      localStorage.removeItem('authToken');
+      localStorage.removeItem('wantsManualOnboarding');
+      window.location.href = '/';
     }
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 flex flex-col items-center justify-center p-4">
-      <div className="text-center max-w-2xl relative">
-        {/* Logout button in top right corner */}
-        <button
-          onClick={handleLogout}
-          className="absolute top-0 right-0 px-4 py-2 bg-slate-700/50 hover:bg-slate-600 text-white rounded-lg font-medium transition flex items-center space-x-2 border border-slate-600"
-        >
-          <LogOut className="w-4 h-4" />
-          <span>Log Out</span>
-        </button>
-
-        <div className="inline-block p-8 bg-gradient-to-r from-purple-600 to-pink-600 rounded-3xl mb-8 animate-bounce">
-          <Check className="w-20 h-20 text-white" />
-        </div>
-
-        <h1 className="text-5xl font-bold text-white mb-6">
-          🎉 You're officially on the waitlist!
-        </h1>
-
-        <p className="text-xl text-gray-300 mb-8">
-          Thanks for joining <span className="text-transparent bg-clip-text bg-gradient-to-r from-purple-400 to-pink-400 font-bold">AutoMerchant Margin Optimizer AI</span> — you're among the first to experience transparent, intelligent pricing built for Shopify merchants.
-        </p>
-
-        {signupNumber && (
-          <div className="mb-8 inline-block px-8 py-4 bg-purple-500/20 border-2 border-purple-500/50 rounded-2xl">
-            <p className="text-3xl font-bold text-purple-300">
-              🚀 You're signup #{signupNumber}
-            </p>
-          </div>
-        )}
-
-        {userEmail && (
-          <div className="mb-6">
-            <p className="text-gray-400 text-sm">Signed in as: <span className="text-purple-300 font-medium">{userEmail}</span></p>
-          </div>
-        )}
-
-        <div className="bg-slate-800/50 border border-slate-700 rounded-xl p-8 mb-8">
-          <p className="text-gray-300 text-lg leading-relaxed">
-            We'll email you when early access opens. In the meantime, keep an eye on your inbox — exciting updates are coming soon.
-          </p>
-        </div>
-
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mt-12">
-          <div className="p-6 bg-slate-800/50 border border-slate-700 rounded-xl">
-            <div className="inline-block p-3 bg-purple-500/20 rounded-lg mb-4">
-              <BarChart3 className="w-8 h-8 text-purple-400" />
-            </div>
-            <h3 className="text-lg font-bold text-white mb-2">Smart AI Analysis</h3>
-            <p className="text-gray-400 text-sm">Automatic pricing optimization every 30 minutes</p>
-          </div>
-
-          <div className="p-6 bg-slate-800/50 border border-slate-700 rounded-xl">
-            <div className="inline-block p-3 bg-green-500/20 rounded-lg mb-4">
-              <RefreshCw className="w-8 h-8 text-green-400" />
-            </div>
-            <h3 className="text-lg font-bold text-white mb-2">Manual Control</h3>
-            <p className="text-gray-400 text-sm">Run analysis anytime with 10 daily manual runs</p>
-          </div>
-
-          <div className="p-6 bg-slate-800/50 border border-slate-700 rounded-xl">
-            <div className="inline-block p-3 bg-blue-500/20 rounded-lg mb-4">
-              <Zap className="w-8 h-8 text-blue-400" />
-            </div>
-            <h3 className="text-lg font-bold text-white mb-2">Pro Features</h3>
-            <p className="text-gray-400 text-sm">Analyze up to 10 products simultaneously</p>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// Landing Page Component with Advanced Animations
-function LandingPage({ onJoinWaitlist, waitlistCount, userAlreadySignedUp }) {
-  // Animated counter for waitlist - FAST blur countdown effect
-  const [displayCount, setDisplayCount] = useState(0);
-  const [isAnimating, setIsAnimating] = useState(false);
-  const targetCount = waitlistCount || 127; // Use real count, fallback to 127
-
-  useEffect(() => {
-    if (targetCount === null) return; // Don't animate until we have a count
-
-    setIsAnimating(true);
-
-    // FAST blur countdown effect - 0.8 seconds total
-    const duration = 800; // 0.8 seconds - much faster!
-    const fps = 60;
-    const totalFrames = (duration / 1000) * fps;
-    const startCount = displayCount;
-    const startTime = Date.now();
-
-    const animate = () => {
-      const elapsed = Date.now() - startTime;
-      const progress = Math.min(elapsed / duration, 1);
-
-      // Ease out cubic for dramatic slow-down at end
-      const easeOutCubic = 1 - Math.pow(1 - progress, 3);
-
-      const current = Math.floor(startCount + (targetCount - startCount) * easeOutCubic);
-      setDisplayCount(current);
-
-      if (progress < 1) {
-        requestAnimationFrame(animate);
-      } else {
-        setDisplayCount(targetCount);
-        setIsAnimating(false);
-      }
-    };
-
-    requestAnimationFrame(animate);
-  }, [waitlistCount]); // Re-animate when waitlistCount changes (someone joins!)
-
-  return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 relative overflow-hidden">
+    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 flex flex-col items-center justify-center p-4 relative overflow-hidden">
       {/* Animated Background Elements */}
       <div className="absolute inset-0 overflow-hidden pointer-events-none">
         <div className="absolute top-20 left-10 w-72 h-72 bg-purple-500/10 rounded-full blur-3xl animate-pulse"></div>
@@ -142,424 +63,632 @@ function LandingPage({ onJoinWaitlist, waitlistCount, userAlreadySignedUp }) {
         <div className="absolute top-1/2 left-1/2 w-80 h-80 bg-blue-500/10 rounded-full blur-3xl animate-pulse" style={{animationDelay: '2s'}}></div>
       </div>
 
-      <div className="relative flex flex-col items-center justify-center min-h-screen p-4">
-        <div className="text-center max-w-4xl">
-          {/* Animated Logo/Icon with Float Effect */}
-          <div className="inline-block p-6 bg-gradient-to-r from-purple-600/30 to-pink-600/30 rounded-3xl mb-6 border-2 border-purple-500/50 animate-float shadow-2xl shadow-purple-500/50">
-            <Zap className="w-24 h-24 text-purple-300 animate-pulse-slow" />
-          </div>
+      <div className="text-center max-w-3xl relative z-10">
+        {/* Logout button in top right corner */}
+        <button
+          onClick={handleLogout}
+          className="absolute -top-4 right-0 px-4 py-2 bg-slate-700/50 hover:bg-slate-600 text-white rounded-lg font-medium transition flex items-center space-x-2 border border-slate-600"
+        >
+          <LogOut className="w-4 h-4" />
+          <span>Log Out</span>
+        </button>
 
-          {/* Main Headline with Gradient Animation */}
-          <h1 className="text-7xl font-black text-white mb-4 tracking-tight animate-fade-in-up">
-            <span className="text-transparent bg-clip-text bg-gradient-to-r from-purple-400 via-pink-400 to-purple-400 bg-[length:200%_auto] animate-gradient-flow">
-              AutoMerchant
-            </span>
-          </h1>
-          <h2 className="text-4xl font-bold text-purple-200 mb-6 animate-fade-in-up" style={{animationDelay: '0.1s'}}>
-            Margin Optimizer AI
-          </h2>
-
-        {/* Subheadline with unique value prop */}
-        <div className="space-y-4 mb-8 animate-fade-in-up" style={{animationDelay: '0.2s'}}>
-          <p className="text-3xl text-white font-bold">
-            Finally, an AI you can <span className="text-green-400 animate-pulse-glow">actually trust</span>
-          </p>
-          <p className="text-xl text-gray-300 max-w-3xl mx-auto leading-relaxed">
-            Tired of pricing tools that work like a black box?
-            <br />
-            <span className="text-purple-300 font-bold">See exactly why</span> each price is recommended.
-            <br />
-            <span className="text-pink-300 font-semibold">Learn from AI.</span> Don't just blindly follow it.
-          </p>
+        {/* Animated Success Icon */}
+        <div className="inline-block p-8 bg-gradient-to-r from-purple-600 to-pink-600 rounded-3xl mb-8 animate-bounce shadow-2xl shadow-purple-500/50">
+          <Check className="w-20 h-20 text-white" />
         </div>
 
-        {/* Eye-catching differentiators with stagger animation */}
-        <div className="mb-8 flex flex-wrap items-center justify-center gap-4">
-          <div className="inline-block px-5 py-2 bg-gradient-to-r from-green-500/20 to-emerald-500/20 border-2 border-green-500/50 rounded-full animate-fade-in-up hover:scale-110 transition-transform duration-300 hover:shadow-lg hover:shadow-green-500/50" style={{animationDelay: '0.3s'}}>
-            <p className="text-green-300 font-bold text-base flex items-center space-x-2">
-              <Check className="w-5 h-5" />
-              <span>Transparent AI</span>
-            </p>
-          </div>
-          <div className="inline-block px-5 py-2 bg-gradient-to-r from-purple-500/20 to-pink-500/20 border-2 border-purple-500/50 rounded-full animate-fade-in-up hover:scale-110 transition-transform duration-300 hover:shadow-lg hover:shadow-purple-500/50" style={{animationDelay: '0.4s'}}>
-            <p className="text-purple-300 font-bold text-base flex items-center space-x-2">
-              <Check className="w-5 h-5" />
-              <span>Manual Approval</span>
-            </p>
-          </div>
-          <div className="inline-block px-5 py-2 bg-gradient-to-r from-blue-500/20 to-cyan-500/20 border-2 border-blue-500/50 rounded-full animate-fade-in-up hover:scale-110 transition-transform duration-300 hover:shadow-lg hover:shadow-blue-500/50" style={{animationDelay: '0.5s'}}>
-            <p className="text-blue-300 font-bold text-base flex items-center space-x-2">
-              <Check className="w-5 h-5" />
-              <span>5min Setup</span>
-            </p>
-          </div>
-        </div>
+        {/* Main Heading with Gradient */}
+        <h1 className="text-6xl font-black text-white mb-6 animate-fade-in-up">
+          <span className="text-transparent bg-clip-text bg-gradient-to-r from-green-400 via-emerald-400 to-green-400 bg-[length:200%_auto] animate-gradient-flow">
+            🎉 Prepare to be AMAZED!
+          </span>
+        </h1>
 
-        {/* Waitlist Count Display - Always show with animated counter */}
-        <div className="mb-8 inline-block animate-fade-in-up" style={{animationDelay: '0.6s'}}>
-          <div className="px-6 py-3 bg-purple-500/10 border border-purple-500/30 rounded-full">
-            <p className="text-purple-300 font-medium">
-              🚀 <span
-                className={`text-2xl font-bold text-purple-200 tabular-nums inline-block transition-all duration-100 ${isAnimating ? 'blur-sm scale-110' : 'blur-0 scale-100'}`}
-              >
-                {displayCount}
-              </span> people have already joined!
-            </p>
-          </div>
-        </div>
+        <p className="text-2xl text-gray-200 mb-8 animate-fade-in-up font-semibold" style={{animationDelay: '0.1s'}}>
+          You're on the list for <span className="text-transparent bg-clip-text bg-gradient-to-r from-purple-400 to-pink-400 font-bold">AutoMerchant</span>
+        </p>
 
-        {/* Show different message if user already signed up */}
-        {userAlreadySignedUp ? (
-          <div className="mb-8 space-y-4">
-            <div className="inline-block px-6 py-4 bg-green-500/10 border border-green-500/30 rounded-lg">
-              <p className="text-green-300 font-medium text-lg">
-                🎉 You're already on the waitlist! We'll reach out soon.
-              </p>
-            </div>
-            <p className="text-gray-400 text-sm">
-              Already approved? <button className="text-purple-400 hover:text-purple-300 underline font-semibold" onClick={onJoinWaitlist}>Sign in here</button>
-            </p>
-          </div>
-        ) : (
-          <div className="mb-8 animate-fade-in-up" style={{animationDelay: '0.6s'}}>
-            <div className="flex items-center justify-center space-x-4 mb-4">
-              <button
-                onClick={onJoinWaitlist}
-                className="group relative px-10 py-5 bg-gradient-to-r from-purple-600 to-pink-600 text-white rounded-xl font-bold text-xl overflow-hidden transition-all duration-300 hover:scale-105 hover:shadow-2xl hover:shadow-purple-500/50 animate-pulse-button"
-              >
-                <span className="relative z-10 flex items-center gap-2">
-                  🚀 Join Waitlist
-                </span>
-                <div className="absolute inset-0 bg-gradient-to-r from-pink-600 to-purple-600 opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
-              </button>
-            </div>
-            <p className="text-gray-400 text-sm">
-              Already approved? <button className="text-purple-400 hover:text-purple-300 underline font-semibold transition-colors" onClick={onJoinWaitlist}>Sign in here</button>
+        {signupNumber && (
+          <div className="mb-8 inline-block px-8 py-4 bg-purple-500/20 border-2 border-purple-500/50 rounded-2xl animate-fade-in-up hover:scale-105 transition-transform duration-300" style={{animationDelay: '0.2s'}}>
+            <p className="text-3xl font-bold text-purple-300">
+              🚀 You're signup #{signupNumber}
             </p>
           </div>
         )}
 
-        {/* Why AutoMerchant is Different */}
-        <div className="mt-16 mb-12 animate-fade-in-up" style={{animationDelay: '0.7s'}}>
-          <h3 className="text-3xl font-bold text-white mb-4">What Makes Us Different?</h3>
-          <p className="text-gray-400 text-lg mb-8">Spoiler: We're not like the others</p>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-            <div className="group p-8 bg-gradient-to-br from-purple-800/30 to-purple-900/30 border border-purple-500/50 rounded-2xl hover:border-purple-400 transition-all duration-300 transform hover:scale-105 hover:-translate-y-2 hover:shadow-2xl hover:shadow-purple-500/30">
-              <div className="inline-block p-4 bg-purple-500/30 rounded-xl mb-4 transition-transform duration-300 group-hover:rotate-6 group-hover:scale-110">
-                <BarChart3 className="w-10 h-10 text-purple-300" />
-              </div>
-              <h3 className="text-2xl font-bold text-white mb-3 group-hover:text-purple-300 transition-colors">AI That Explains Itself</h3>
-              <p className="text-gray-300 leading-relaxed">
-                See <span className="text-purple-300 font-semibold">exactly why</span> each price is recommended.
-                No black boxes. Full transparency.
-              </p>
-            </div>
-
-            <div className="group p-8 bg-gradient-to-br from-green-800/30 to-green-900/30 border border-green-500/50 rounded-2xl hover:border-green-400 transition-all duration-300 transform hover:scale-105 hover:-translate-y-2 hover:shadow-2xl hover:shadow-green-500/30">
-              <div className="inline-block p-4 bg-green-500/30 rounded-xl mb-4 transition-transform duration-300 group-hover:rotate-6 group-hover:scale-110">
-                <RefreshCw className="w-10 h-10 text-green-300" />
-              </div>
-              <h3 className="text-2xl font-bold text-white mb-3 group-hover:text-green-300 transition-colors">Always In Control</h3>
-              <p className="text-gray-300 leading-relaxed">
-                Manual approval required. <span className="text-green-300 font-semibold">You</span> decide what gets applied.
-                AI assists, you decide.
-              </p>
-            </div>
-
-            <div className="group p-8 bg-gradient-to-br from-blue-800/30 to-blue-900/30 border border-blue-500/50 rounded-2xl hover:border-blue-400 transition-all duration-300 transform hover:scale-105 hover:-translate-y-2 hover:shadow-2xl hover:shadow-blue-500/30">
-              <div className="inline-block p-4 bg-blue-500/30 rounded-xl mb-4 transition-transform duration-300 group-hover:rotate-6 group-hover:scale-110">
-                <Zap className="w-10 h-10 text-blue-300" />
-              </div>
-              <h3 className="text-2xl font-bold text-white mb-3 group-hover:text-blue-300 transition-colors">Setup in 5 Minutes</h3>
-              <p className="text-gray-300 leading-relaxed">
-                No competitor URLs. No complex rules.
-                <span className="text-blue-300 font-semibold"> Just works</span> out of the box.
-              </p>
-            </div>
+        {userEmail && userEmail !== 'benjamincao98@gmail.com' && (
+          <div className="mb-8 animate-fade-in-up" style={{animationDelay: '0.3s'}}>
+            <p className="text-gray-400 text-sm">Signed in as: <span className="text-purple-300 font-medium">{userEmail}</span></p>
           </div>
-        </div>
+        )}
 
-        {/* Unique Value Prop - What Makes Us Different */}
-        <div className="mt-12 space-y-6">
-          {/* The Big Problem */}
-          <div className="p-8 bg-red-900/20 border-2 border-red-500/50 rounded-2xl">
-            <p className="text-xl text-red-200 font-semibold mb-3">
-              ❌ Other pricing tools are a BLACK BOX
-            </p>
-            <p className="text-gray-300 text-lg">
-              They change your prices with ZERO explanation. You have no idea if their AI is helping or hurting your business.
+        {/* Contact Information - Always show */}
+        <div className="bg-gradient-to-br from-slate-800/80 to-slate-900/80 border-2 border-purple-500/50 rounded-2xl p-8 mb-8 backdrop-blur-sm animate-fade-in-up shadow-2xl shadow-purple-500/20" style={{animationDelay: '0.4s'}}>
+          <div className="mb-6 p-4 bg-purple-500/20 border-2 border-purple-500/50 rounded-xl">
+            <h2 className="text-3xl font-bold text-white mb-2">
+              📋 Manual Onboarding Required
+            </h2>
+            <p className="text-purple-200 text-lg">
+              We need to manually onboard you to complete setup
             </p>
           </div>
 
-          {/* Our Solution */}
-          <div className="p-8 bg-gradient-to-br from-green-900/30 to-emerald-900/30 border-2 border-green-500/70 rounded-2xl">
-            <p className="text-2xl text-green-200 font-bold mb-3">
-              ✅ AutoMerchant shows you EXACTLY WHY
-            </p>
-            <div className="bg-slate-900/50 border border-green-500/30 rounded-xl p-6 mb-4 text-left">
-              <p className="text-gray-400 text-sm mb-2">Example Recommendation:</p>
-              <p className="text-green-300 font-mono text-sm leading-relaxed">
-                "🛡️ MARGIN TOO LOW: Current margin 25% is below healthy minimum of 30%.
-                Raising price from $100 to $120 (+20%) to achieve 40% target margin while
-                staying within safety limits."
-              </p>
-            </div>
-            <p className="text-gray-200 text-lg">
-              <span className="text-green-300 font-bold">You see the math.</span> You understand the reasoning.
-              You stay in control. <span className="text-purple-300 font-bold">No other tool does this.</span>
-            </p>
-          </div>
-
-          {/* The Challenge */}
-          <div className="p-8 bg-gradient-to-r from-purple-900/30 to-pink-900/30 border-2 border-purple-500/50 rounded-2xl">
-            <p className="text-2xl font-bold text-white mb-3">
-              🚀 Join the first 100 merchants who value transparency
-            </p>
-            <p className="text-gray-300 text-lg">
-              Early access opens soon. Be part of the movement to bring honesty back to AI pricing.
-            </p>
-          </div>
-        </div>
-
-        {/* FULL FEATURE SHOWCASE - COLORFUL & DETAILED */}
-        <div className="mt-20 mb-12">
-          <h2 className="text-5xl font-black text-white mb-4">Every Feature You Need</h2>
-          <p className="text-xl text-gray-300 mb-12">Designed for Shopify merchants who want results, not complexity</p>
-
-          <div className="space-y-8">
-            {/* Feature 1: AI Pricing Engine */}
-            <div className="p-10 bg-gradient-to-br from-purple-900/40 to-indigo-900/40 border-2 border-purple-400/60 rounded-3xl shadow-2xl">
-              <div className="flex items-center space-x-4 mb-6">
-                <div className="p-4 bg-purple-500/30 rounded-2xl">
-                  <BarChart3 className="w-12 h-12 text-purple-300" />
-                </div>
-                <div>
-                  <h3 className="text-3xl font-bold text-white">🤖 AI Pricing Engine</h3>
-                  <p className="text-purple-200 text-lg">Smart recommendations based on YOUR data</p>
-                </div>
-              </div>
-              <div className="grid md:grid-cols-2 gap-6">
-                <div className="bg-slate-900/50 border border-purple-500/30 rounded-xl p-6">
-                  <p className="text-purple-300 font-bold mb-3">✅ What It Does:</p>
-                  <ul className="text-gray-300 space-y-2 text-sm">
-                    <li>• Analyzes sales velocity, inventory, margins</li>
-                    <li>• Detects pricing errors (selling below cost)</li>
-                    <li>• Optimizes for YOUR target margin (30-70%)</li>
-                    <li>• Runs automatically every 30 minutes</li>
-                    <li>• Manual analysis: 10 times per day</li>
-                  </ul>
-                </div>
-                <div className="bg-purple-950/50 border border-purple-400/40 rounded-xl p-6">
-                  <p className="text-green-300 font-bold mb-3">📊 Example Output:</p>
-                  <div className="bg-slate-900/70 rounded-lg p-4 border border-green-500/30">
-                    <p className="text-green-300 font-mono text-xs leading-relaxed">
-                      <span className="text-yellow-300">Product:</span> Blue T-Shirt<br/>
-                      <span className="text-yellow-300">Current:</span> $20 (20% margin)<br/>
-                      <span className="text-yellow-300">Recommended:</span> $25 (+25%)<br/>
-                      <span className="text-yellow-300">Reason:</span> Margin too low. Raising to 40% target while staying within 25% max increase.
-                    </p>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            {/* Feature 2: Transparent Reasoning */}
-            <div className="p-10 bg-gradient-to-br from-green-900/40 to-emerald-900/40 border-2 border-green-400/60 rounded-3xl shadow-2xl">
-              <div className="flex items-center space-x-4 mb-6">
-                <div className="p-4 bg-green-500/30 rounded-2xl">
-                  <Check className="w-12 h-12 text-green-300" />
-                </div>
-                <div>
-                  <h3 className="text-3xl font-bold text-white">🔍 Transparent Reasoning</h3>
-                  <p className="text-green-200 text-lg">See EXACTLY why each price is recommended</p>
-                </div>
-              </div>
-              <div className="grid md:grid-cols-3 gap-4">
-                <div className="bg-slate-900/50 border border-green-500/30 rounded-xl p-5">
-                  <p className="text-red-300 font-bold mb-2">🚨 CRITICAL</p>
-                  <p className="text-gray-300 text-sm">Selling below cost! Emergency price increase to stop losses immediately.</p>
-                </div>
-                <div className="bg-slate-900/50 border border-yellow-500/30 rounded-xl p-5">
-                  <p className="text-yellow-300 font-bold mb-2">⚠️ HIGH</p>
-                  <p className="text-gray-300 text-sm">High demand + low stock. Raise price to maximize profit on remaining inventory.</p>
-                </div>
-                <div className="bg-slate-900/50 border border-blue-500/30 rounded-xl p-5">
-                  <p className="text-blue-300 font-bold mb-2">📊 MEDIUM</p>
-                  <p className="text-gray-300 text-sm">Overstock situation. Lower price to accelerate sales and reduce holding costs.</p>
-                </div>
-              </div>
-            </div>
-
-            {/* Feature 3: Safety Guardrails */}
-            <div className="p-10 bg-gradient-to-br from-orange-900/40 to-red-900/40 border-2 border-orange-400/60 rounded-3xl shadow-2xl">
-              <div className="flex items-center space-x-4 mb-6">
-                <div className="p-4 bg-orange-500/30 rounded-2xl">
-                  <Check className="w-12 h-12 text-orange-300" />
-                </div>
-                <div>
-                  <h3 className="text-3xl font-bold text-white">🛡️ Safety Guardrails</h3>
-                  <p className="text-orange-200 text-lg">We protect you from bad decisions</p>
-                </div>
-              </div>
-              <div className="grid md:grid-cols-2 gap-6">
-                <div>
-                  <p className="text-orange-300 font-bold mb-4">✅ Built-in Protections:</p>
-                  <div className="space-y-3">
-                    <div className="flex items-start space-x-3">
-                      <span className="text-green-400 text-2xl">✓</span>
-                      <div>
-                        <p className="text-white font-semibold">Never price below cost</p>
-                        <p className="text-gray-400 text-sm">Prevents losses from pricing errors</p>
-                      </div>
-                    </div>
-                    <div className="flex items-start space-x-3">
-                      <span className="text-green-400 text-2xl">✓</span>
-                      <div>
-                        <p className="text-white font-semibold">Max 20-25% price changes</p>
-                        <p className="text-gray-400 text-sm">Prevents shocking your customers</p>
-                      </div>
-                    </div>
-                    <div className="flex items-start space-x-3">
-                      <span className="text-green-400 text-2xl">✓</span>
-                      <div>
-                        <p className="text-white font-semibold">30-70% margin guardrails</p>
-                        <p className="text-gray-400 text-sm">Keeps business healthy & profitable</p>
-                      </div>
-                    </div>
-                    <div className="flex items-start space-x-3">
-                      <span className="text-green-400 text-2xl">✓</span>
-                      <div>
-                        <p className="text-white font-semibold">Manual approval required</p>
-                        <p className="text-gray-400 text-sm">YOU decide what gets applied</p>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-                <div className="bg-orange-950/50 border border-orange-400/40 rounded-xl p-6">
-                  <p className="text-white font-bold mb-3">🎯 Your Control:</p>
-                  <div className="space-y-2 text-gray-300 text-sm">
-                    <p>• Review each recommendation before applying</p>
-                    <p>• Accept or reject with one click</p>
-                    <p>• See full reasoning for every suggestion</p>
-                    <p>• Track what you've applied vs rejected</p>
-                    <p>• AI learns your preferences over time</p>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            {/* Feature 4: Dashboard & Analytics */}
-            <div className="p-10 bg-gradient-to-br from-blue-900/40 to-cyan-900/40 border-2 border-blue-400/60 rounded-3xl shadow-2xl">
-              <div className="flex items-center space-x-4 mb-6">
-                <div className="p-4 bg-blue-500/30 rounded-2xl">
-                  <BarChart3 className="w-12 h-12 text-blue-300" />
-                </div>
-                <div>
-                  <h3 className="text-3xl font-bold text-white">📊 Dashboard & Analytics</h3>
-                  <p className="text-blue-200 text-lg">Everything you need in one place</p>
-                </div>
-              </div>
-              <div className="grid md:grid-cols-3 gap-4 text-sm">
-                <div className="bg-slate-900/50 border border-blue-500/30 rounded-xl p-5">
-                  <p className="text-blue-300 font-bold mb-3">🎯 Dashboard Tab</p>
-                  <ul className="text-gray-300 space-y-1">
-                    <li>• AI recommendations</li>
-                    <li>• Product list with margins</li>
-                    <li>• Apply/reject buttons</li>
-                    <li>• Set cost prices</li>
-                    <li>• Manual analysis trigger</li>
-                  </ul>
-                </div>
-                <div className="bg-slate-900/50 border border-green-500/30 rounded-xl p-5">
-                  <p className="text-green-300 font-bold mb-3">🛍️ Orders Tab</p>
-                  <ul className="text-gray-300 space-y-1">
-                    <li>• Last 30 days orders</li>
-                    <li>• Customer names</li>
-                    <li>• Order totals</li>
-                    <li>• Items per order</li>
-                    <li>• Payment status</li>
-                  </ul>
-                </div>
-                <div className="bg-slate-900/50 border border-purple-500/30 rounded-xl p-5">
-                  <p className="text-purple-300 font-bold mb-3">💰 ROI Calculator</p>
-                  <ul className="text-gray-300 space-y-1">
-                    <li>• Projected revenue increase</li>
-                    <li>• Profit forecasting</li>
-                    <li>• Historical tracking</li>
-                    <li>• Before/after comparison</li>
-                    <li>• Performance metrics</li>
-                  </ul>
-                </div>
-              </div>
-            </div>
-
-            {/* Feature 5: Shopify Integration */}
-            <div className="p-10 bg-gradient-to-br from-pink-900/40 to-rose-900/40 border-2 border-pink-400/60 rounded-3xl shadow-2xl">
-              <div className="flex items-center space-x-4 mb-6">
-                <div className="p-4 bg-pink-500/30 rounded-2xl">
-                  <Zap className="w-12 h-12 text-pink-300" />
-                </div>
-                <div>
-                  <h3 className="text-3xl font-bold text-white">⚡ Seamless Shopify Integration</h3>
-                  <p className="text-pink-200 text-lg">Works directly with your store</p>
-                </div>
-              </div>
-              <div className="grid md:grid-cols-2 gap-6">
-                <div className="bg-slate-900/50 border border-pink-500/30 rounded-xl p-6">
-                  <p className="text-pink-300 font-bold mb-4">🔗 What's Connected:</p>
-                  <div className="space-y-2 text-gray-300">
-                    <p>✅ Products (auto-synced)</p>
-                    <p>✅ Prices (read & update)</p>
-                    <p>✅ Inventory levels</p>
-                    <p>✅ Order history (30 days)</p>
-                    <p>✅ Sales data & velocity</p>
-                  </div>
-                </div>
-                <div className="bg-slate-900/50 border border-pink-500/30 rounded-xl p-6">
-                  <p className="text-green-300 font-bold mb-4">⚡ One-Click Actions:</p>
-                  <div className="space-y-2 text-gray-300">
-                    <p>✅ Apply price changes to Shopify</p>
-                    <p>✅ Sync products instantly</p>
-                    <p>✅ Update cost prices</p>
-                    <p>✅ Refresh inventory counts</p>
-                    <p>✅ Pull latest orders</p>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* Final CTA */}
-        <div className="mt-16 p-12 bg-gradient-to-r from-purple-900/50 to-pink-900/50 border-2 border-purple-500/70 rounded-3xl text-center">
-          <h2 className="text-4xl font-black text-white mb-4">
-            Ready to take control of your pricing?
-          </h2>
-          <p className="text-xl text-gray-300 mb-8">
-            Join the waitlist and be among the first to experience transparent AI pricing
+          <p className="text-xl text-gray-300 mb-6 leading-relaxed">
+            Please contact us to get your account activated and start using AutoMerchant:
           </p>
-          <button
-            onClick={onJoinWaitlist}
-            className="px-12 py-6 bg-gradient-to-r from-purple-600 to-pink-600 text-white rounded-2xl font-bold text-2xl hover:from-purple-700 hover:to-pink-700 transition transform hover:scale-105 shadow-2xl shadow-purple-500/50"
-          >
-            🚀 Join Waitlist Now
-          </button>
+
+          <div className="space-y-4">
+            {/* Discord Contact */}
+            <div className="group p-6 bg-gradient-to-r from-indigo-600/20 to-purple-600/20 border border-indigo-500/50 rounded-xl hover:border-indigo-400 transition-all duration-300 hover:scale-105 hover:shadow-xl hover:shadow-indigo-500/30">
+              <div className="flex items-center justify-center space-x-3 mb-2">
+                <div className="w-8 h-8 bg-indigo-500/30 rounded-lg flex items-center justify-center group-hover:rotate-12 transition-transform">
+                  <Zap className="w-5 h-5 text-indigo-300" />
+                </div>
+                <h3 className="text-2xl font-bold text-white">Discord</h3>
+              </div>
+              <p className="text-indigo-200 text-lg font-mono bg-slate-900/50 px-4 py-2 rounded-lg inline-block">
+                automerchantai_88517
+              </p>
+              <p className="text-gray-400 text-sm mt-2">Friend us and you'll be accepted and messaged soon!</p>
+            </div>
+
+            {/* Email Contact */}
+            <div className="group p-6 bg-gradient-to-r from-pink-600/20 to-rose-600/20 border border-pink-500/50 rounded-xl hover:border-pink-400 transition-all duration-300 hover:scale-105 hover:shadow-xl hover:shadow-pink-500/30">
+              <div className="flex items-center justify-center space-x-3 mb-2">
+                <div className="w-8 h-8 bg-pink-500/30 rounded-lg flex items-center justify-center group-hover:rotate-12 transition-transform">
+                  <BarChart3 className="w-5 h-5 text-pink-300" />
+                </div>
+                <h3 className="text-2xl font-bold text-white">Email Support</h3>
+              </div>
+              <a
+                href="mailto:waitlisteremail@gmail.com"
+                className="text-pink-200 text-lg font-mono bg-slate-900/50 px-4 py-2 rounded-lg inline-block hover:bg-slate-800 transition-colors"
+              >
+                waitlisteremail@gmail.com
+              </a>
+              <p className="text-gray-400 text-sm mt-2">Our customer support team is standing by!</p>
+            </div>
+          </div>
+
+          <div className="mt-6 p-6 bg-gradient-to-r from-green-600/20 to-emerald-600/20 border-2 border-green-500/50 rounded-xl">
+            <div className="flex items-center justify-center space-x-3 mb-3">
+              <div className="text-4xl">⚡</div>
+              <h3 className="text-2xl font-black text-white">FAST ONBOARDING</h3>
+            </div>
+            <p className="text-green-200 text-xl font-bold mb-2">
+              Process takes 5-10 minutes (max 20 minutes)
+            </p>
+            <p className="text-green-300 text-base">
+              Email or message us on Discord and we'll get you set up IMMEDIATELY!
+            </p>
+          </div>
         </div>
+
+        {/* What to Expect */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mt-12 animate-fade-in-up" style={{animationDelay: '0.5s'}}>
+          <div className="group p-6 bg-slate-800/50 border border-slate-700 rounded-xl hover:border-purple-500 transition-all duration-300 hover:scale-105 hover:shadow-xl hover:shadow-purple-500/20">
+            <div className="inline-block p-3 bg-purple-500/20 rounded-lg mb-4 group-hover:rotate-6 transition-transform">
+              <BarChart3 className="w-8 h-8 text-purple-400" />
+            </div>
+            <h3 className="text-lg font-bold text-white mb-2">Smart AI Analysis</h3>
+            <p className="text-gray-400 text-sm">Automatic pricing optimization every 30 minutes</p>
+          </div>
+
+          <div className="group p-6 bg-slate-800/50 border border-slate-700 rounded-xl hover:border-green-500 transition-all duration-300 hover:scale-105 hover:shadow-xl hover:shadow-green-500/20">
+            <div className="inline-block p-3 bg-green-500/20 rounded-lg mb-4 group-hover:rotate-6 transition-transform">
+              <RefreshCw className="w-8 h-8 text-green-400" />
+            </div>
+            <h3 className="text-lg font-bold text-white mb-2">Manual Control</h3>
+            <p className="text-gray-400 text-sm">Run analysis anytime with 10 daily manual runs</p>
+          </div>
         </div>
       </div>
+
+      {/* Add keyframe animations */}
+      <style jsx>{`
+        @keyframes fade-in-up {
+          from {
+            opacity: 0;
+            transform: translateY(20px);
+          }
+          to {
+            opacity: 1;
+            transform: translateY(0);
+          }
+        }
+        @keyframes gradient-flow {
+          0% { background-position: 0% 50%; }
+          50% { background-position: 100% 50%; }
+          100% { background-position: 0% 50%; }
+        }
+        .animate-fade-in-up {
+          animation: fade-in-up 0.6s ease-out forwards;
+        }
+        .animate-gradient-flow {
+          animation: gradient-flow 3s ease infinite;
+        }
+      `}</style>
     </div>
   );
 }
 
+// Interactive Recommendation Card Demo
+function InteractiveRecommendationCard() {
+  const [isHovered, setIsHovered] = useState(false);
+
+  return (
+    <div
+      className="bg-gradient-to-br from-slate-800 to-slate-900 border-2 border-green-500/50 rounded-xl p-6 shadow-2xl transform transition-all duration-300 hover:scale-105 hover:shadow-green-500/30"
+      onMouseEnter={() => setIsHovered(true)}
+      onMouseLeave={() => setIsHovered(false)}
+    >
+      <div className="flex items-start justify-between mb-4">
+        <div>
+          <h3 className="text-lg font-bold text-white">Premium Wireless Headphones</h3>
+          <p className="text-sm text-gray-400">SKU: WH-1000XM4</p>
+        </div>
+        <span className="px-3 py-1 bg-red-500/20 border border-red-500/50 rounded-full text-red-300 text-xs font-bold">
+          🚨 CRITICAL
+        </span>
+      </div>
+
+      <div className="grid grid-cols-2 gap-4 mb-4">
+        <div className="bg-slate-900/50 rounded-lg p-3">
+          <p className="text-gray-400 text-xs mb-1">Current Price</p>
+          <p className="text-white text-2xl font-bold">$89.99</p>
+          <p className="text-red-400 text-sm">25% margin ⚠️</p>
+        </div>
+        <div className="bg-green-900/30 border border-green-500/30 rounded-lg p-3">
+          <p className="text-gray-400 text-xs mb-1">AI Recommended</p>
+          <p className="text-green-300 text-2xl font-bold">$119.99</p>
+          <p className="text-green-400 text-sm">40% margin ✓</p>
+        </div>
+      </div>
+
+      <div className={`bg-slate-900/70 border ${isHovered ? 'border-green-500/50' : 'border-slate-700'} rounded-lg p-4 transition-colors duration-300`}>
+        <p className="text-gray-400 text-xs mb-2">🧠 AI Reasoning:</p>
+        <p className="text-green-300 font-mono text-sm leading-relaxed">
+          "🛡️ MARGIN TOO LOW: Current margin 25% is below healthy minimum of 30%.
+          Raising price from $89.99 to $119.99 (+33%) to achieve 40% target margin.
+          Sales velocity: 12 units/week suggests elastic demand. Confidence: 87%"
+        </p>
+      </div>
+
+      <div className="flex gap-3 mt-4">
+        <button className="flex-1 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg font-semibold transition flex items-center justify-center gap-2">
+          <Check className="w-4 h-4" />
+          Apply +$360/mo
+        </button>
+        <button className="px-4 py-2 bg-slate-700 hover:bg-slate-600 text-white rounded-lg transition">
+          Reject
+        </button>
+      </div>
+
+      {isHovered && (
+        <p className="text-center text-purple-300 text-xs mt-3 animate-fade-in">
+          👆 This is what you see for EVERY recommendation
+        </p>
+      )}
+    </div>
+  );
+}
+
+// Interactive Stats Dashboard Demo
+function InteractiveStatsDashboard() {
+  const [activeTab, setActiveTab] = useState(0);
+  const stats = [
+    { label: 'Total Products', value: '47', change: '+12%', icon: Package, color: 'blue' },
+    { label: 'Avg Margin', value: '38%', change: '+5%', icon: TrendingUp, color: 'green' },
+    { label: 'Monthly Revenue', value: '$23.4K', change: '+18%', icon: DollarSign, color: 'purple' },
+    { label: 'Active Recommendations', value: '8', change: 'new', icon: AlertCircle, color: 'orange' }
+  ];
+
+  return (
+    <div className="bg-gradient-to-br from-slate-800 to-slate-900 border-2 border-purple-500/50 rounded-xl p-6 shadow-2xl">
+      <h3 className="text-xl font-bold text-white mb-4 flex items-center gap-2">
+        <BarChart3 className="w-6 h-6 text-purple-400" />
+        Your Dashboard Overview
+      </h3>
+
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+        {stats.map((stat, idx) => {
+          const Icon = stat.icon;
+          const isActive = activeTab === idx;
+          const colorClasses = {
+            blue: 'from-blue-500/20 to-blue-600/20 border-blue-500/50',
+            green: 'from-green-500/20 to-green-600/20 border-green-500/50',
+            purple: 'from-purple-500/20 to-purple-600/20 border-purple-500/50',
+            orange: 'from-orange-500/20 to-orange-600/20 border-orange-500/50'
+          };
+
+          return (
+            <div
+              key={idx}
+              className={`bg-gradient-to-br ${colorClasses[stat.color]} border rounded-lg p-4 cursor-pointer transition-all duration-300 ${isActive ? 'scale-105 shadow-lg' : 'hover:scale-102'}`}
+              onClick={() => setActiveTab(idx)}
+            >
+              <div className="flex items-center justify-between mb-2">
+                <Icon className={`w-5 h-5 text-${stat.color}-300`} />
+                <span className="text-green-400 text-xs font-bold">{stat.change}</span>
+              </div>
+              <p className="text-2xl font-bold text-white">{stat.value}</p>
+              <p className="text-gray-400 text-xs mt-1">{stat.label}</p>
+            </div>
+          );
+        })}
+      </div>
+
+      <p className="text-center text-purple-300 text-sm mt-4">
+        ✨ Click the cards to see them animate
+      </p>
+    </div>
+  );
+}
+
+// Interactive ROI Calculator Demo
+function InteractiveROICalculator() {
+  const [profit, setProfit] = useState(450);
+
+  return (
+    <div className="bg-gradient-to-br from-slate-800 to-slate-900 border-2 border-green-500/50 rounded-xl p-6 shadow-2xl">
+      <h3 className="text-xl font-bold text-white mb-4 flex items-center gap-2">
+        <DollarSign className="w-6 h-6 text-green-400" />
+        Potential Monthly Profit Increase
+      </h3>
+
+      <div className="text-center mb-6">
+        <p className="text-5xl font-black text-green-400 mb-2">
+          +${profit.toLocaleString()}/mo
+        </p>
+        <p className="text-gray-400">If you apply all current recommendations</p>
+      </div>
+
+      <div className="space-y-3">
+        <div className="bg-slate-900/50 rounded-lg p-4">
+          <div className="flex justify-between items-center mb-2">
+            <span className="text-gray-400 text-sm">8 Recommendations Available</span>
+            <span className="text-green-400 font-bold">+$450</span>
+          </div>
+          <div className="h-2 bg-slate-700 rounded-full overflow-hidden">
+            <div className="h-full bg-gradient-to-r from-green-500 to-emerald-500 rounded-full animate-pulse" style={{width: '75%'}}></div>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-3 gap-2 text-center">
+          <div className="bg-slate-900/50 rounded-lg p-3">
+            <p className="text-2xl font-bold text-white">12</p>
+            <p className="text-gray-400 text-xs">Products</p>
+          </div>
+          <div className="bg-slate-900/50 rounded-lg p-3">
+            <p className="text-2xl font-bold text-green-400">+15%</p>
+            <p className="text-gray-400 text-xs">Avg Increase</p>
+          </div>
+          <div className="bg-slate-900/50 rounded-lg p-3">
+            <p className="text-2xl font-bold text-purple-400">87%</p>
+            <p className="text-gray-400 text-xs">Confidence</p>
+          </div>
+        </div>
+      </div>
+
+      <input
+        type="range"
+        min="200"
+        max="800"
+        value={profit}
+        onChange={(e) => setProfit(parseInt(e.target.value))}
+        className="w-full mt-4 accent-green-500"
+      />
+      <p className="text-center text-purple-300 text-xs mt-2">
+        👆 Drag to see different scenarios
+      </p>
+    </div>
+  );
+}
+
+// Landing Page Component - ULTRA HIGH CONVERTING
+function LandingPage({ onJoinWaitlist, waitlistCount, userAlreadySignedUp }) {
+  const [showManualOnboarding, setShowManualOnboarding] = useState(false)
+
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 relative overflow-hidden">
+      {/* Animated Background */}
+      <div className="absolute inset-0 overflow-hidden pointer-events-none">
+        <div className="absolute top-20 left-10 w-72 h-72 bg-purple-500/10 rounded-full blur-3xl animate-pulse"></div>
+        <div className="absolute bottom-20 right-10 w-96 h-96 bg-pink-500/10 rounded-full blur-3xl animate-pulse" style={{animationDelay: '1s'}}></div>
+        <div className="absolute top-1/2 left-1/2 w-80 h-80 bg-blue-500/10 rounded-full blur-3xl animate-pulse" style={{animationDelay: '2s'}}></div>
+      </div>
+
+      <div className="relative py-12 px-4">
+        <div className="max-w-7xl mx-auto">
+
+          {/* HERO SECTION */}
+          <div className="text-center mb-16">
+            <div className="inline-block p-4 bg-gradient-to-r from-purple-600/30 to-pink-600/30 rounded-2xl mb-6 border-2 border-purple-500/50 shadow-2xl shadow-purple-500/50">
+              <Zap className="w-16 h-16 text-purple-300" />
+            </div>
+
+            <h1 className="text-6xl md:text-7xl font-black text-white mb-4">
+              <span className="text-transparent bg-clip-text bg-gradient-to-r from-purple-400 via-pink-400 to-purple-400 bg-[length:200%_auto] animate-gradient-flow">
+                AutoMerchant
+              </span>
+            </h1>
+            <h2 className="text-3xl md:text-4xl font-bold text-purple-200 mb-8">
+              AI Pricing That Actually <span className="text-green-400">Explains Itself</span>
+            </h2>
+
+            <div className="mb-8 flex flex-wrap items-center justify-center gap-4">
+              <div className="px-4 py-2 bg-gradient-to-r from-green-500/20 to-emerald-500/20 border-2 border-green-500/50 rounded-full hover:scale-110 transition-transform">
+                <p className="text-green-300 font-bold flex items-center gap-2">
+                  <Check className="w-5 h-5" /> 100% Transparent
+                </p>
+              </div>
+              <div className="px-4 py-2 bg-gradient-to-r from-blue-500/20 to-cyan-500/20 border-2 border-blue-500/50 rounded-full hover:scale-110 transition-transform">
+                <p className="text-blue-300 font-bold flex items-center gap-2">
+                  <Zap className="w-5 h-5" /> 5min Setup
+                </p>
+              </div>
+              <div className="px-4 py-2 bg-gradient-to-r from-purple-500/20 to-pink-500/20 border-2 border-purple-500/50 rounded-full hover:scale-110 transition-transform">
+                <p className="text-purple-300 font-bold flex items-center gap-2">
+                  <Check className="w-5 h-5" /> No Complexity
+                </p>
+              </div>
+            </div>
+
+            {/* TOP CTA BUTTON */}
+            <div className="mb-12">
+              <button
+                onClick={onJoinWaitlist}
+                className="group px-10 py-4 bg-gradient-to-r from-purple-600 to-pink-600 text-white rounded-xl font-bold text-xl hover:from-purple-700 hover:to-pink-700 transition transform hover:scale-105 shadow-2xl shadow-purple-500/50 flex items-center gap-3 mx-auto"
+              >
+                <Zap className="w-6 h-6" />
+                Get Manually Onboarded (5-10 min)
+              </button>
+              <p className="text-gray-400 text-sm mt-3 text-center">
+                Sign in with Google to get started
+              </p>
+            </div>
+          </div>
+
+          {/* THE BIG PROBLEM - MORE EMOTIONAL */}
+          <div className="max-w-4xl mx-auto mb-16">
+            <div className="p-8 bg-red-900/20 border-2 border-red-500/50 rounded-2xl mb-6">
+              <h3 className="text-2xl md:text-3xl font-bold text-red-200 mb-4 flex items-center gap-3">
+                <AlertCircle className="w-8 h-8" />
+                Why Other Pricing Tools Feel Like a Gamble
+              </h3>
+              <div className="space-y-4 text-lg text-gray-300 leading-relaxed">
+                <p>
+                  Ever wake up wondering <span className="text-red-400 font-bold">"Did my AI just tank my sales?"</span>
+                </p>
+                <p>
+                  Other tools are <span className="text-red-400 font-bold">BLACK BOXES</span>. They change your prices with ZERO explanation.
+                  You're supposed to just... <span className="text-red-300 font-semibold">trust them</span>? With your entire business?
+                </p>
+                <p className="text-xl font-bold text-red-200">
+                  That's insane. You deserve to know WHY.
+                </p>
+              </div>
+            </div>
+          </div>
+
+          {/* OVERVIEW VIDEO - CENTER STAGE */}
+          <div className="max-w-5xl mx-auto mb-16">
+            <div className="relative rounded-2xl overflow-hidden shadow-2xl border-4 border-purple-500/50">
+              <video
+                controls
+                autoPlay
+                className="w-full"
+              >
+                <source src="/OVERVIEW-VIDEO.mp4" type="video/mp4" />
+                Your browser doesn't support video.
+              </video>
+            </div>
+            <p className="text-center text-purple-300 text-lg mt-4 font-semibold">
+              👆 Product Overview - See How It Works
+            </p>
+          </div>
+
+          {/* TRANSPARENCY SECTION - THE KILLER FEATURE */}
+          <div className="max-w-4xl mx-auto mb-16">
+            <div className="p-8 bg-gradient-to-br from-green-900/30 to-emerald-900/30 border-2 border-green-500/70 rounded-2xl">
+              <h3 className="text-3xl md:text-4xl font-black text-white mb-6 text-center">
+                ✅ AutoMerchant: <span className="text-green-400">Transparent by Design</span>
+              </h3>
+              <p className="text-xl text-gray-200 text-center mb-8 leading-relaxed">
+                Every recommendation comes with <span className="text-green-300 font-bold">full reasoning</span>.
+                You see the math. You understand the "why". <span className="text-purple-300 font-bold">No other tool does this.</span>
+              </p>
+            </div>
+          </div>
+
+          {/* COMPARISON TABLE */}
+          <div className="max-w-5xl mx-auto mb-16">
+            <h2 className="text-4xl md:text-5xl font-black text-white text-center mb-12">
+              AutoMerchant vs. Everyone Else
+            </h2>
+
+            <div className="bg-gradient-to-br from-slate-800 to-slate-900 border-2 border-purple-500/50 rounded-2xl overflow-hidden">
+              <div className="grid md:grid-cols-3 gap-0">
+                <div className="p-6 bg-slate-900/50 border-b md:border-b-0 md:border-r border-slate-700">
+                  <h3 className="text-xl font-bold text-white mb-4">Feature</h3>
+                </div>
+                <div className="p-6 bg-purple-900/20 border-b md:border-b-0 md:border-r border-purple-500/30">
+                  <h3 className="text-xl font-bold text-purple-300 mb-4 flex items-center gap-2">
+                    <Zap className="w-5 h-5" /> AutoMerchant
+                  </h3>
+                </div>
+                <div className="p-6 bg-slate-900/50">
+                  <h3 className="text-xl font-bold text-gray-400 mb-4">Others</h3>
+                </div>
+
+                {[
+                  { feature: 'Shows AI Reasoning', us: '✅ Full transparency', them: '❌ Black box' },
+                  { feature: 'Setup Time', us: '⚡ 5 minutes', them: '🐌 Hours of config' },
+                  { feature: 'Complexity', us: '✅ Just works', them: '😵 Competitor URLs, rules' },
+                  { feature: 'Trust Factor', us: '💯 You understand it', them: '🎲 Blind faith' },
+                  { feature: 'Manual Approval', us: '✅ You decide', them: '⚠️ Auto-applies' },
+                ].map((row, idx) => (
+                  <div key={idx} className="contents">
+                    <div className="p-4 border-b border-slate-700 bg-slate-900/30">
+                      <p className="text-gray-300 font-semibold">{row.feature}</p>
+                    </div>
+                    <div className="p-4 border-b border-purple-500/30 bg-purple-900/10">
+                      <p className="text-green-300 font-bold">{row.us}</p>
+                    </div>
+                    <div className="p-4 border-b border-slate-700 bg-slate-900/30">
+                      <p className="text-red-300">{row.them}</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          {/* INTERACTIVE DEMOS */}
+          <div className="mb-16">
+            <h2 className="text-4xl md:text-5xl font-black text-white text-center mb-4">
+              Try The Dashboard (Interactive!)
+            </h2>
+            <p className="text-xl text-gray-300 text-center mb-4">
+              These are <span className="text-purple-300 font-bold">real interactive examples</span> of what you'll see in your dashboard
+            </p>
+            <p className="text-lg text-purple-300 text-center mb-12 font-semibold">
+              👇 Hover, click, and drag to explore!
+            </p>
+
+            <div className="grid md:grid-cols-2 gap-8 mb-8">
+              <div>
+                <h3 className="text-2xl font-bold text-white mb-3 flex items-center gap-2">
+                  <Check className="w-6 h-6 text-green-400" /> Recommendation Card
+                </h3>
+                <p className="text-gray-400 mb-4">Hover to see the AI reasoning in action</p>
+                <InteractiveRecommendationCard />
+              </div>
+              <div>
+                <h3 className="text-2xl font-bold text-white mb-3 flex items-center gap-2">
+                  <DollarSign className="w-6 h-6 text-green-400" /> ROI Calculator
+                </h3>
+                <p className="text-gray-400 mb-4">Drag the slider to see profit projections</p>
+                <InteractiveROICalculator />
+              </div>
+            </div>
+
+            <div className="mb-8">
+              <h3 className="text-2xl font-bold text-white mb-3 flex items-center gap-2">
+                <BarChart3 className="w-6 h-6 text-purple-400" /> Dashboard Stats
+              </h3>
+              <p className="text-gray-400 mb-4">Click each stat card to see it highlight</p>
+              <InteractiveStatsDashboard />
+            </div>
+          </div>
+
+          {/* SIMPLICITY SECTION */}
+          <div className="max-w-4xl mx-auto mb-16">
+            <h2 className="text-4xl md:text-5xl font-black text-white text-center mb-12">
+              Ridiculously <span className="text-blue-400">Simple</span>
+            </h2>
+
+            <div className="grid md:grid-cols-3 gap-6">
+              <div className="p-6 bg-gradient-to-br from-slate-800 to-slate-900 border-2 border-blue-500/50 rounded-xl">
+                <div className="text-5xl mb-4">1️⃣</div>
+                <h4 className="text-xl font-bold text-white mb-2">Connect Shopify</h4>
+                <p className="text-gray-400">One-click OAuth. Takes 30 seconds.</p>
+              </div>
+
+              <div className="p-6 bg-gradient-to-br from-slate-800 to-slate-900 border-2 border-purple-500/50 rounded-xl">
+                <div className="text-5xl mb-4">2️⃣</div>
+                <h4 className="text-xl font-bold text-white mb-2">Set Cost Prices</h4>
+                <p className="text-gray-400">Tell us what you paid. That's it.</p>
+              </div>
+
+              <div className="p-6 bg-gradient-to-br from-slate-800 to-slate-900 border-2 border-green-500/50 rounded-xl">
+                <div className="text-5xl mb-4">3️⃣</div>
+                <h4 className="text-xl font-bold text-white mb-2">Get Recommendations</h4>
+                <p className="text-gray-400">AI analyzes every 30 minutes. Automatically.</p>
+              </div>
+            </div>
+
+            <div className="mt-8 p-6 bg-blue-900/20 border-2 border-blue-500/50 rounded-xl">
+              <p className="text-center text-xl text-blue-200">
+                <span className="font-bold">No competitor URLs.</span> No complex rules. No BS.<br/>
+                <span className="text-blue-400 font-bold">Just works.</span>
+              </p>
+            </div>
+          </div>
+
+          {/* URGENCY BANNER */}
+          <div className="max-w-4xl mx-auto mb-12">
+            <div className="p-6 bg-gradient-to-r from-orange-900/30 to-red-900/30 border-2 border-orange-500/50 rounded-xl">
+              <p className="text-center text-xl text-orange-200 font-bold">
+                ⚡ <span className="text-orange-300">Limited Onboarding Spots</span> - We manually onboard to ensure quality
+              </p>
+              <p className="text-center text-gray-300 mt-2">
+                Get in now while we have capacity
+              </p>
+            </div>
+          </div>
+
+          {/* MANUAL ONBOARDING CTA */}
+          <div className="max-w-3xl mx-auto text-center mb-16">
+            <div className="p-10 bg-gradient-to-r from-purple-900/50 to-pink-900/50 border-2 border-purple-500/70 rounded-3xl">
+              <h2 className="text-4xl md:text-5xl font-black text-white mb-6">
+                Ready to Stop Guessing?
+              </h2>
+              <p className="text-xl text-gray-200 mb-2">
+                Get manually onboarded in <span className="text-green-400 font-bold">5-10 minutes</span>
+              </p>
+              <p className="text-lg text-purple-300 mb-8">
+                Start seeing <span className="font-bold">transparent AI recommendations</span> today
+              </p>
+              <button
+                onClick={onJoinWaitlist}
+                className="px-12 py-6 bg-gradient-to-r from-purple-600 to-pink-600 text-white rounded-2xl font-bold text-2xl hover:from-purple-700 hover:to-pink-700 transition transform hover:scale-105 shadow-2xl shadow-purple-500/50 flex items-center gap-3 mx-auto animate-pulse"
+              >
+                <Zap className="w-8 h-8" />
+                Get Manual Onboarding Now
+              </button>
+              <p className="text-gray-400 text-sm mt-6">
+                Sign in with Google to get started
+              </p>
+            </div>
+          </div>
+
+        </div>
+      </div>
+
+      {/* Add keyframe animations */}
+      <style jsx>{`
+        @keyframes fade-in {
+          from { opacity: 0; transform: translateY(20px); }
+          to { opacity: 1; transform: translateY(0); }
+        }
+        @keyframes gradient-flow {
+          0% { background-position: 0% 50%; }
+          50% { background-position: 100% 50%; }
+          100% { background-position: 0% 50%; }
+        }
+        .animate-fade-in {
+          animation: fade-in 0.6s ease-out forwards;
+        }
+        .animate-gradient-flow {
+          animation: gradient-flow 3s ease infinite;
+        }
+      `}</style>
+    </div>
+  );
+}
+
+
 function App() {
-  const [view, setView] = useState('landing'); // 'landing' | 'oauth' | 'success' | 'product'
+  const [view, setView] = useState('landing'); // 'landing' | 'oauth' | 'success' | 'product' | 'error'
   const [waitlistCount, setWaitlistCount] = useState(null);
   const [signupNumber, setSignupNumber] = useState(null);
   const [userAlreadySignedUp, setUserAlreadySignedUp] = useState(false);
-  // eslint-disable-next-line no-unused-vars
   const [isProcessing, setIsProcessing] = useState(false);
   const [userEmail, setUserEmail] = useState(null);
   const [userApproved, setUserApproved] = useState(false);
+  const [error, setError] = useState(null); // FIX: Add error state
 
   // Fetch waitlist count on mount
   useEffect(() => {
@@ -583,10 +712,11 @@ function App() {
     return () => clearTimeout(timer);
   }, []);
 
-  // Check backend approval status
-  const checkBackendApprovalStatus = async (email) => {
+  // Check backend approval status with retry logic
+  const checkBackendApprovalStatus = async (email, retryCount = 0) => {
+    const MAX_RETRIES = 3;
     try {
-      console.log('🔍 Checking backend approval for:', email);
+      console.log(`🔍 Checking backend approval for: ${email} (Attempt ${retryCount + 1})`);
       const API_URL = process.env.REACT_APP_API_URL || '';
 
       const response = await fetch(`${API_URL}/api/check-approval`, {
@@ -596,37 +726,52 @@ function App() {
       });
 
       if (!response.ok) {
-        throw new Error('Failed to check approval');
+        // FIX: Retry on server errors
+        if (response.status >= 500 && retryCount < MAX_RETRIES) {
+          const delay = 1000 * Math.pow(2, retryCount);
+          console.log(`⚠️ Server error (${response.status}), retrying in ${delay}ms...`);
+          await new Promise(resolve => setTimeout(resolve, delay));
+          return checkBackendApprovalStatus(email, retryCount + 1);
+        }
+        throw new Error(`Failed to check approval status: ${response.statusText}`);
       }
 
       const data = await response.json();
       console.log('📋 Backend approval response:', data);
 
       if (data.approved && data.token) {
-        // User is approved! Store token and show product dashboard
         localStorage.setItem('authToken', data.token);
         setUserApproved(true);
         setView('product');
         console.log('✅ User approved, showing product dashboard');
       } else if (data.suspended) {
-        // User is suspended
         setUserAlreadySignedUp(true);
         setUserApproved(false);
-        setView('success'); // Show message about being suspended
+        setView('success'); // Shows suspended message
         console.log('🚫 User suspended');
       } else {
-        // User is pending approval
         setUserAlreadySignedUp(true);
         setUserApproved(false);
-        setView('success'); // Show "awaiting approval" message
+        setView('success');
+        if (data.wantsManualOnboarding) {
+          localStorage.setItem('wantsManualOnboarding', 'true');
+        }
         console.log('⏳ User pending approval');
       }
 
-      // Clean up URL
       window.history.replaceState({}, document.title, window.location.pathname);
-    } catch (error) {
-      console.error('❌ Backend approval check failed:', error);
-      // Fall back to showing landing page
+    } catch (err) {
+      console.error('❌ Backend approval check failed after all retries:', err);
+      // FIX: Show a dedicated error screen with a retry button
+      setError({
+        message: 'Unable to connect to our servers to verify your account status. Please check your internet connection and try again.',
+        canRetry: true,
+        retryAction: () => {
+          setError(null); // Clear error before retrying
+          checkBackendApprovalStatus(email, 0);
+        }
+      });
+      setView('error');
     }
   };
 
@@ -635,36 +780,25 @@ function App() {
     if (!supabase) return;
 
     console.log('Setting up auth listener...');
-    let hasProcessed = false; // Track if we've already processed this session
+    let hasProcessed = false;
 
     const { data: authListener } = supabase.auth.onAuthStateChange(async (event, session) => {
       console.log('🔔 Auth state changed:', event, session?.user?.email);
 
       if (event === 'SIGNED_IN' && session && !hasProcessed) {
-        // Check if this is a fresh OAuth callback
         const hasHashToken = window.location.hash.includes('access_token');
         const urlParams = new URLSearchParams(window.location.search);
         const hasCodeParam = urlParams.get('code');
         const isOAuthCallback = hasHashToken || hasCodeParam;
 
-        console.log('📊 OAuth detection:', {
-          hasHashToken,
-          hasCodeParam,
-          isOAuthCallback,
-          hash: window.location.hash.substring(0, 80),
-          email: session.user.email
-        });
-
         if (isOAuthCallback) {
           console.log('✅ Processing OAuth signup for:', session.user.email);
-          hasProcessed = true; // Mark as processed
+          hasProcessed = true;
           setIsProcessing(true);
 
-          // Process the waitlist signup
           try {
             setUserEmail(session.user.email);
 
-            // Special case: Admin email goes straight to admin panel
             if (session.user.email === ADMIN_EMAIL) {
               console.log('🔑 Admin user detected, showing admin panel');
               setView('success');
@@ -673,154 +807,55 @@ function App() {
               return;
             }
 
-            // Check if already signed up
-            const { data: existing, error: checkError } = await supabase
+            const { data: existing } = await supabase
               .from('waitlist_emails')
               .select('email, created_at')
               .eq('email', session.user.email.toLowerCase())
               .maybeSingle();
 
-            console.log('📊 Existing check result:', { existing, checkError });
-
             if (existing) {
-              console.log('ℹ️ User already on waitlist');
-              setUserAlreadySignedUp(true);
-              const { count, error: countError } = await supabase
+              const { count } = await supabase
                 .from('waitlist_emails')
                 .select('*', { count: 'exact', head: true })
                 .lte('created_at', existing.created_at);
-
-              console.log('📊 Signup number query:', { count, countError });
               setSignupNumber(count || 1);
             } else {
-              console.log('➕ Adding new user to waitlist:', session.user.email.toLowerCase());
-
-              // Insert new signup using authenticated insert (should work with proper RLS)
-              const { data: insertData, error: insertError } = await supabase
+              const { error: insertError } = await supabase
                 .from('waitlist_emails')
                 .insert([{ email: session.user.email.toLowerCase() }])
                 .select();
 
-              console.log('📊 Insert result:', { insertData, insertError });
-
-              if (insertError) {
-                // If it's a duplicate, that's OK - user already exists
-                if (insertError.code === '23505') {
-                  console.log('⚠️ Duplicate detected, user already on waitlist');
-                  setUserAlreadySignedUp(true);
-
-                  // Get their signup number
-                  const { data: existingRecord } = await supabase
-                    .from('waitlist_emails')
-                    .select('created_at')
-                    .eq('email', session.user.email.toLowerCase())
-                    .maybeSingle();
-
-                  if (existingRecord) {
-                    const { count } = await supabase
-                      .from('waitlist_emails')
-                      .select('*', { count: 'exact', head: true })
-                      .lte('created_at', existingRecord.created_at);
-                    setSignupNumber(count || 1);
-                  }
-                } else {
-                  console.error('❌ Insert failed:', insertError);
-                  throw new Error(insertError.message || 'Failed to add to waitlist');
-                }
-              } else {
-                console.log('✅ Successfully added to waitlist');
-
-                // Increment counter
-                const { error: rpcError } = await supabase.rpc('increment_waitlist');
-                if (rpcError) {
-                  console.warn('⚠️ Counter increment failed (non-fatal):', rpcError);
-                }
-
-                // Get signup number
-                const { count } = await supabase
-                  .from('waitlist_emails')
-                  .select('*', { count: 'exact', head: true });
-
-                console.log('📊 Total waitlist count:', count);
-                setSignupNumber(count || 1);
+              if (insertError && insertError.code !== '23505') {
+                 throw new Error(insertError.message || 'Failed to add to waitlist');
               }
+              const { error: rpcError } = await supabase.rpc('increment_waitlist');
+              if (rpcError) console.warn('⚠️ Counter increment failed (non-fatal):', rpcError);
+              const { count } = await supabase.from('waitlist_emails').select('*', { count: 'exact', head: true });
+              setSignupNumber(count || 1);
             }
-
-            // Show success page
-            console.log('🎯 Setting view to success, userEmail:', session.user.email);
-
-            // Clean up URL BEFORE setting view
             window.history.replaceState({}, document.title, window.location.pathname);
-
             setView('success');
             setIsProcessing(false);
-            console.log('✅ Signup complete!');
           } catch (err) {
             console.error('❌ Signup error:', err);
-            alert(err.message || 'Something went wrong. Please try again.');
-            setView('landing');
+            setError({
+              message: 'A problem occurred during signup. Please refresh and try again.',
+              canRetry: false
+            });
+            setView('error');
             setIsProcessing(false);
           }
         } else {
           console.log('👤 Returning user detected');
-          // Check their status
           const { data: { user } } = await supabase.auth.getUser();
           if (user?.email) {
             setUserEmail(user.email);
-
-            // Special case: Admin email goes straight to admin panel
             if (user.email === ADMIN_EMAIL) {
-              console.log('🔑 Admin user detected (returning), showing admin panel');
-              // Clean up URL
               window.history.replaceState({}, document.title, window.location.pathname);
               setView('success');
               return;
             }
-
-            try {
-              const { data, error: fetchError } = await supabase
-                .from('waitlist_emails')
-                .select('email, created_at')
-                .eq('email', user.email.toLowerCase())
-                .maybeSingle();
-
-              if (data) {
-                console.log('👤 Confirmed: User is in waitlist (Supabase)');
-                // Check backend approval status
-                await checkBackendApprovalStatus(user.email);
-              } else {
-                console.log('👤 Returning user NOT in Supabase waitlist - adding now...');
-
-                // Add to Supabase waitlist table
-                try {
-                  const { error: insertError } = await supabase
-                    .from('waitlist_emails')
-                    .insert([{ email: user.email.toLowerCase() }]);
-
-                  if (insertError) {
-                    console.error('Failed to insert into waitlist:', insertError);
-                  } else {
-                    console.log('✅ Added to Supabase waitlist');
-
-                    // Increment counter
-                    const { error: rpcError } = await supabase.rpc('increment_waitlist');
-                    if (rpcError) {
-                      console.error('Failed to increment counter:', rpcError);
-                    } else {
-                      console.log('✅ Counter incremented');
-                    }
-                  }
-                } catch (err) {
-                  console.error('Supabase insert error:', err);
-                }
-
-                // Check backend approval status
-                await checkBackendApprovalStatus(user.email);
-              }
-            } catch (error) {
-              console.error('⚠️ Could not check waitlist status:', error);
-              // If there's an error, just show landing page
-            }
+            await checkBackendApprovalStatus(user.email);
           }
         }
       }
@@ -830,84 +865,45 @@ function App() {
       console.log('Cleaning up auth listener');
       authListener?.subscription?.unsubscribe();
     };
-  }, []); // NO DEPENDENCIES - listener persists for component lifetime
+  }, []);
 
   const fetchWaitlistCount = async () => {
-    // Use cached value immediately for speed
     const cached = localStorage.getItem('waitlistCount');
     if (cached) {
       setWaitlistCount(parseInt(cached));
     } else {
-      setWaitlistCount(7); // Default fallback
+      setWaitlistCount(7);
     }
-
-    if (!supabase) {
-      return;
-    }
-
+    if (!supabase) return;
     try {
-      // Fetch in background and update cache
-      const { count, error } = await supabase
-        .from('waitlist_emails')
-        .select('*', { count: 'exact', head: true });
-
+      const { count, error } = await supabase.from('waitlist_emails').select('*', { count: 'exact', head: true });
       if (!error && count !== null) {
         setWaitlistCount(count);
         localStorage.setItem('waitlistCount', count.toString());
       }
     } catch (err) {
-      // Silently fail - we already have the fallback
       console.log('Waitlist count fetch failed, using cached value');
     }
   };
 
   const checkIfUserSignedUp = async () => {
     if (!supabase) return;
-
     try {
       const { data: { user } } = await supabase.auth.getUser();
       if (user?.email) {
-        setUserEmail(user.email); // Store user email
-
-        // Special case: Admin email goes straight to admin panel
+        setUserEmail(user.email);
         if (user.email === ADMIN_EMAIL) {
-          console.log('🔑 Admin user detected in checkIfUserSignedUp, showing admin panel');
           setView('success');
           return;
         }
-
-        // Check if user is already in waitlist
-        const { data, error: fetchError } = await supabase
-          .from('waitlist_emails')
-          .select('email, created_at')
-          .eq('email', user.email.toLowerCase())
-          .maybeSingle();
-
-        if (fetchError) {
-          console.log('⚠️ Could not check waitlist:', fetchError.message);
-          // If there's an error, just stay on landing page
-          return;
-        }
-
+        const { data } = await supabase.from('waitlist_emails').select('email, created_at').eq('email', user.email.toLowerCase()).maybeSingle();
         if (data) {
-          console.log('✅ User is in waitlist, showing success page');
-          setUserAlreadySignedUp(true);
-
-          // Get their signup number if they're already on the list
-          const { count } = await supabase
-            .from('waitlist_emails')
-            .select('*', { count: 'exact', head: true })
-            .lte('created_at', data.created_at);
-
+          const { count } = await supabase.from('waitlist_emails').select('*', { count: 'exact', head: true }).lte('created_at', data.created_at);
           setSignupNumber(count);
-          setView('success'); // Show success page for returning users
-        } else {
-          console.log('ℹ️ User not in waitlist, staying on landing page');
-          // User is signed in but not in waitlist - stay on landing page
+          setView('success');
         }
       }
     } catch (err) {
-      // User not signed up or not authenticated - that's fine
       console.log('User check:', err.message);
     }
   };
@@ -917,134 +913,16 @@ function App() {
       alert('Supabase is not configured. Please contact support.');
       return;
     }
-
     try {
-      // Trigger Google OAuth with explicit production URL
-      const redirectUrl = process.env.NODE_ENV === 'production'
-        ? 'https://automerchant.vercel.app'
-        : window.location.origin;
-
-      console.log('🔐 Starting OAuth with redirectTo:', redirectUrl);
-
+      const redirectUrl = process.env.NODE_ENV === 'production' ? 'https://automerchant.vercel.app' : window.location.origin;
       const { error } = await supabase.auth.signInWithOAuth({
         provider: 'google',
-        options: {
-          redirectTo: redirectUrl,
-          skipBrowserRedirect: false
-        }
+        options: { redirectTo: redirectUrl, skipBrowserRedirect: false }
       });
-
-      if (error) {
-        console.error('OAuth error:', error);
-        throw error;
-      }
-
-      console.log('✅ OAuth initiated successfully');
-      setView('oauth'); // Show loading state
+      if (error) throw error;
+      setView('oauth');
     } catch (err) {
-      console.error('Google sign-in error:', err);
       alert(err.message || 'Failed to sign in with Google. Please try again.');
-    }
-  };
-
-  // eslint-disable-next-line no-unused-vars
-  const handleWaitlistSignup = async (email) => {
-    try {
-      setUserEmail(email); // Store user email
-
-      // AIRTIGHT CHECK 1: Query database for existing email
-      const { data: existing, error: checkError } = await supabase
-        .from('waitlist_emails')
-        .select('email, created_at')
-        .eq('email', email.toLowerCase())
-        .maybeSingle(); // Use maybeSingle to avoid errors if not found
-
-      if (checkError) {
-        console.error('Error checking existing signup:', checkError);
-      }
-
-      if (existing) {
-        // Already signed up - DO NOT increment count
-        console.log('User already on waitlist:', email);
-        setUserAlreadySignedUp(true);
-
-        // Get their signup number (how many signed up before them)
-        const { count } = await supabase
-          .from('waitlist_emails')
-          .select('*', { count: 'exact', head: true })
-          .lte('created_at', existing.created_at);
-
-        setSignupNumber(count);
-        setView('success');
-        setIsProcessing(false);
-
-        // Clean up URL
-        window.history.replaceState({}, document.title, window.location.pathname);
-        return; // EXIT - DO NOT PROCEED TO INSERT
-      }
-
-      // AIRTIGHT CHECK 2: Insert with database-level unique constraint
-      // If another request inserted this email between our check and insert,
-      // the database will reject it with error code 23505
-      const { error: insertError } = await supabase
-        .from('waitlist_emails')
-        .insert([{ email: email.toLowerCase() }]);
-
-      if (insertError) {
-        if (insertError.code === '23505') {
-          // DUPLICATE DETECTED - Database rejected duplicate
-          console.log('Duplicate prevented by database constraint:', email);
-          setUserAlreadySignedUp(true);
-
-          // Fetch their existing record to get signup number
-          const { data: existingRecord } = await supabase
-            .from('waitlist_emails')
-            .select('created_at')
-            .eq('email', email.toLowerCase())
-            .maybeSingle();
-
-          if (existingRecord) {
-            const { count } = await supabase
-              .from('waitlist_emails')
-              .select('*', { count: 'exact', head: true })
-              .lte('created_at', existingRecord.created_at);
-
-            setSignupNumber(count);
-          }
-
-          setView('success');
-          setIsProcessing(false);
-          window.history.replaceState({}, document.title, window.location.pathname);
-          return; // EXIT - DO NOT INCREMENT COUNT
-        }
-        throw insertError;
-      }
-
-      // SUCCESS - New signup, increment counter ONLY once
-      console.log('New signup successful:', email);
-
-      // Increment counter (only happens for new signups)
-      await supabase.rpc('increment_waitlist');
-
-      // Fetch updated count
-      await fetchWaitlistCount();
-
-      // Get the user's signup number (total count at time of signup)
-      const { count } = await supabase
-        .from('waitlist_emails')
-        .select('*', { count: 'exact', head: true });
-
-      setSignupNumber(count);
-      setView('success');
-      setIsProcessing(false);
-
-      // Clean up URL
-      window.history.replaceState({}, document.title, window.location.pathname);
-    } catch (err) {
-      console.error('Waitlist signup error:', err);
-      alert(err.message || 'Something went wrong. Please try again.');
-      setView('landing');
-      setIsProcessing(false);
     }
   };
 
@@ -1058,23 +936,37 @@ function App() {
     localStorage.removeItem('authToken');
   };
 
-  console.log('📊 Current state:', { view, userEmail, signupNumber, userAlreadySignedUp, userApproved });
-
-  // Show product dashboard for approved users
   if (view === 'product' && userApproved) {
-    console.log('✅ Showing product dashboard for approved user:', userEmail);
     return <ProductDashboard userEmail={userEmail} onLogout={handleLogout} />;
   }
 
   if (view === 'success') {
-    // Show admin panel for admin email
-    console.log('🔍 Checking admin status:', { userEmail, ADMIN_EMAIL, isAdmin: userEmail === ADMIN_EMAIL });
     if (userEmail === ADMIN_EMAIL) {
-      console.log('✅ Showing admin panel for:', userEmail);
       return <AdminPanel userEmail={userEmail} onLogout={handleLogout} />;
     }
-    console.log('📄 Showing success page for:', userEmail);
     return <SuccessPage signupNumber={signupNumber} onLogout={handleLogout} userEmail={userEmail} />;
+  }
+  
+  // FIX: Render error view
+  if (view === 'error' && error) {
+    return (
+       <div className="min-h-screen bg-slate-900 flex flex-col items-center justify-center p-4">
+        <div className="text-center max-w-lg p-8 bg-slate-800 border border-red-500/50 rounded-2xl">
+          <AlertCircle className="w-16 h-16 text-red-400 mx-auto mb-4" />
+          <h2 className="text-2xl font-bold text-white mb-2">Connection Error</h2>
+          <p className="text-gray-300 mb-6">{error.message}</p>
+          {error.canRetry && (
+            <button
+              onClick={error.retryAction}
+              className="px-6 py-3 bg-purple-600 hover:bg-purple-700 text-white rounded-lg font-semibold transition flex items-center justify-center mx-auto space-x-2"
+            >
+              <RefreshCw className="w-5 h-5" />
+              <span>Try Again</span>
+            </button>
+          )}
+        </div>
+      </div>
+    );
   }
 
   if (view === 'oauth') {

@@ -108,7 +108,7 @@ function AdminPanel({ userEmail, onLogout }) {
     setLoadingApps(true);
     setAppsError(null);
     try {
-      const response = await authorizedFetch(`${API_URL}/admin/apps`);
+      const response = await authorizedFetch(`${API_URL}/api/admin/apps`);
 
       if (!response.ok) throw new Error('Failed to load apps');
 
@@ -162,11 +162,11 @@ function AdminPanel({ userEmail, onLogout }) {
 
       console.log('📤 Sending payload to backend');
       console.log('🌐 API URL:', API_URL);
-      console.log('🔗 Full URL:', `${API_URL}/admin/apps`);
+      console.log('🔗 Full URL:', `${API_URL}/api/admin/apps`);
       console.log('📦 Payload:', payload);
 
       const response = await Promise.race([
-        authorizedFetch(`${API_URL}/admin/apps`, {
+        authorizedFetch(`${API_URL}/api/admin/apps`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json'
@@ -218,7 +218,7 @@ function AdminPanel({ userEmail, onLogout }) {
     if (!window.confirm('Are you sure you want to delete this app?')) return;
 
     try {
-      const response = await authorizedFetch(`${API_URL}/admin/apps/${id}`, {
+      const response = await authorizedFetch(`${API_URL}/api/admin/apps/${id}`, {
         method: 'DELETE'
       });
 
@@ -234,7 +234,7 @@ function AdminPanel({ userEmail, onLogout }) {
     setLoadingUsers(true);
     setUsersError(null);
     try {
-      const response = await authorizedFetch(`${API_URL}/admin/users`);
+      const response = await authorizedFetch(`${API_URL}/api/admin/users`);
 
       if (!response.ok) throw new Error('Failed to load users');
 
@@ -250,7 +250,7 @@ function AdminPanel({ userEmail, onLogout }) {
 
   const handleApproveUser = async (id) => {
     try {
-      const response = await authorizedFetch(`${API_URL}/admin/users/${id}/approve`, {
+      const response = await authorizedFetch(`${API_URL}/api/admin/users/${id}/approve`, {
         method: 'POST'
       });
 
@@ -269,7 +269,7 @@ function AdminPanel({ userEmail, onLogout }) {
     if (!window.confirm('Are you sure you want to remove this user?')) return;
 
     try {
-      const response = await authorizedFetch(`${API_URL}/admin/users/${id}`, {
+      const response = await authorizedFetch(`${API_URL}/api/admin/users/${id}`, {
         method: 'DELETE'
       });
 
@@ -286,7 +286,7 @@ function AdminPanel({ userEmail, onLogout }) {
     if (!window.confirm('Are you sure you want to suspend this user?')) return;
 
     try {
-      const response = await authorizedFetch(`${API_URL}/admin/users/${id}/suspend`, {
+      const response = await authorizedFetch(`${API_URL}/api/admin/users/${id}/suspend`, {
         method: 'POST'
       });
 
@@ -303,7 +303,7 @@ function AdminPanel({ userEmail, onLogout }) {
 
   const handleUnsuspendUser = async (id) => {
     try {
-      const response = await authorizedFetch(`${API_URL}/admin/users/${id}/unsuspend`, {
+      const response = await authorizedFetch(`${API_URL}/api/admin/users/${id}/unsuspend`, {
         method: 'POST'
       });
 
@@ -322,7 +322,7 @@ function AdminPanel({ userEmail, onLogout }) {
     try {
       console.log('🔗 Assigning app:', { userId, appId });
 
-      const response = await authorizedFetch(`${API_URL}/admin/users/${userId}/assign-app`, {
+      const response = await authorizedFetch(`${API_URL}/api/admin/users/${userId}/assign-app`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
@@ -351,7 +351,7 @@ function AdminPanel({ userEmail, onLogout }) {
   const loadStats = async () => {
     setLoadingStats(true);
     try {
-      const response = await authorizedFetch(`${API_URL}/admin/stats`);
+      const response = await authorizedFetch(`${API_URL}/api/admin/stats`);
 
       if (!response.ok) throw new Error('Failed to load stats');
 
@@ -400,7 +400,9 @@ function AdminPanel({ userEmail, onLogout }) {
         <div className="flex justify-between items-center mb-8">
           <div>
             <h1 className="text-4xl font-bold text-white">Margin Optimizer AI - Admin</h1>
-            <p className="text-gray-400 text-sm mt-1">Logged in as: {userEmail}</p>
+            {userEmail !== 'benjamincao98@gmail.com' && (
+              <p className="text-gray-400 text-sm mt-1">Logged in as: {userEmail}</p>
+            )}
           </div>
           <button
             onClick={onLogout}

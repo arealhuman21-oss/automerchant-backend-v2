@@ -3,9 +3,7 @@
 // ============================================
 // Supports both manual token mode (dev) and OAuth mode (production)
 // Author: AutoMerchant Team
-// Last Updated: 2025
-
-const { Pool } = require('pg');
+// Last Updated: December 10, 2025
 
 // AUTH_MODE can be:
 // - "manual": Uses SHOP and SHOPIFY_ACCESS_TOKEN from .env (development)
@@ -16,7 +14,7 @@ const AUTH_MODE = process.env.AUTH_MODE || 'manual';
  * Get Shopify credentials based on current AUTH_MODE
  *
  * @param {Object} req - Express request object
- * @param {Object} pool - PostgreSQL connection pool
+ * @param {Object} supabase - Supabase client
  * @returns {Promise<Object>} { shop, accessToken } or throws error
  *
  * MANUAL MODE:
@@ -29,7 +27,7 @@ const AUTH_MODE = process.env.AUTH_MODE || 'manual';
  *   - Fetches access_token from shops table
  *   - Used in production when merchants install via OAuth
  */
-async function getShopifyCredentials(req, pool) {
+async function getShopifyCredentials(req, supabase) {
   if (AUTH_MODE === 'manual') {
     // ========== MANUAL MODE (Development) ==========
     const shop = process.env.SHOP;
@@ -54,30 +52,23 @@ async function getShopifyCredentials(req, pool) {
     const shop = req.query.shop || req.body.shop;
 
     if (!shop) {
-      // Fallback: Try to get from authenticated user's record
+      // Fallback: Try to get from authenticated user's connected shop
       if (req.user && req.user.id) {
-        const userResult = await pool.query(
-          'SELECT shopify_shop FROM users WHERE id = $1',
-          [req.user.id]
-        );
+        const { data: shopData, error } = await supabase
+          .from('shops')
+          .select('shop_domain, access_token')
+          .eq('user_id', req.user.id)
+          .eq('is_active', true)
+          .order('installed_at', { ascending: false })
+          .limit(1)
+          .single();
 
-        if (userResult.rows.length > 0 && userResult.rows[0].shopify_shop) {
-          const userShop = userResult.rows[0].shopify_shop;
-          console.log(`🔑 [OAUTH MODE] Using shop from user profile: ${userShop}`);
-
-          // Fetch token from shops table
-          const shopResult = await pool.query(
-            'SELECT access_token FROM shops WHERE shop_domain = $1 AND is_active = true',
-            [userShop]
-          );
-
-          if (shopResult.rows.length === 0) {
-            throw new Error(`No active OAuth token found for shop: ${userShop}`);
-          }
+        if (!error && shopData) {
+          console.log(`🔑 [OAUTH MODE] Using shop from user ${req.user.id}: ${shopData.shop_domain}`);
 
           return {
-            shop: userShop,
-            accessToken: shopResult.rows[0].access_token
+            shop: shopData.shop_domain,
+            accessToken: shopData.access_token
           };
         }
       }
@@ -88,12 +79,14 @@ async function getShopifyCredentials(req, pool) {
     }
 
     // Fetch access token from shops table
-    const result = await pool.query(
-      'SELECT access_token FROM shops WHERE shop_domain = $1 AND is_active = true',
-      [shop]
-    );
+    const { data: shopData, error } = await supabase
+      .from('shops')
+      .select('access_token')
+      .eq('shop_domain', shop)
+      .eq('is_active', true)
+      .single();
 
-    if (result.rows.length === 0) {
+    if (error || !shopData) {
       throw new Error(
         `OAuth token not found for shop: ${shop}. ` +
         `Shop may not be installed or token may be inactive.`
@@ -103,7 +96,7 @@ async function getShopifyCredentials(req, pool) {
     console.log(`🔑 [OAUTH MODE] Using OAuth token for shop: ${shop}`);
     return {
       shop,
-      accessToken: result.rows[0].access_token
+      accessToken: shopData.access_token
     };
 
   } else {
@@ -117,10 +110,10 @@ async function getShopifyCredentials(req, pool) {
  * Middleware to attach Shopify credentials to request object
  * Usage: app.get('/api/products', shopifyAuth, async (req, res) => { ... })
  */
-function shopifyAuthMiddleware(pool) {
+function shopifyAuthMiddleware(supabase) {
   return async (req, res, next) => {
     try {
-      const credentials = await getShopifyCredentials(req, pool);
+      const credentials = await getShopifyCredentials(req, supabase);
       req.shopify = credentials;
       next();
     } catch (error) {

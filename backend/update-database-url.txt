@@ -1,0 +1,12 @@
+The DATABASE_URL environment variable in Vercel production is using the wrong password!
+
+Current (WRONG): postgresql://postgres.mfuqxntaivvqiajfgjtv:Aatiaday2018!@aws-1-us-east-1.pooler.supabase.com:5432/postgres
+
+Should be: postgresql://postgres.mfuqxntaivvqiajfgjtv:AoqSfOBnd5FerN3O@aws-1-us-east-1.pooler.supabase.com:5432/postgres
+
+TO FIX:
+1. Go to https://vercel.com/automerchantais-projects/automerchant-backend-v2/settings/environment-variables
+2. Find DATABASE_URL
+3. Edit it and change the password from "Aatiaday2018!" to "AoqSfOBnd5FerN3O"
+4. Save
+5. Redeploy
