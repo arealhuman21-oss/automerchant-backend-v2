@@ -1,0 +1,288 @@
+const express = require('express');
+const axios = require('axios');
+const router = express.Router();
+const { authenticateToken } = require('../middleware/auth');
+const { supabase } = require('../config/database');
+
+// Helper function to get Shopify credentials based on AUTH_MODE
+async function getShopifyCredentials(req, supabase) {
+  const AUTH_MODE = process.env.AUTH_MODE || 'oauth';
+
+  if (AUTH_MODE === 'manual') {
+    // Manual mode: Use environment variables
+    const shop = process.env.SHOP;
+    const accessToken = process.env.SHOPIFY_ACCESS_TOKEN;
+
+    if (!shop || !accessToken) {
+      throw new Error('SHOP and SHOPIFY_ACCESS_TOKEN must be set in environment for manual mode');
+    }
+
+    return { shop, accessToken };
+  } else {
+    // OAuth mode: Get from database using user_id
+    const userId = req.user.id;
+
+    // Get shop and token from shops table
+    const { data: shopData, error: shopError } = await supabase
+      .from('shops')
+      .select('shop_domain, access_token')
+      .eq('user_id', userId)
+      .eq('is_active', true)
+      .single();
+
+    if (shopError || !shopData) {
+      throw new Error('No active Shopify connection found. Please reconnect your store.');
+    }
+
+    return { shop: shopData.shop_domain, accessToken: shopData.access_token };
+  }
+}
+
+// GET /api/products
+router.get('/', authenticateToken, async (req, res) => {
+  try {
+    const { data: products, error } = await supabase
+      .from('products')
+      .select('*')
+      .eq('user_id', req.user.id)
+      .order('created_at', { ascending: false });
+
+    if (error) {
+      throw error;
+    }
+
+    res.json({ products });
+  } catch (error) {
+    console.error('Products fetch error:', error);
+    res.status(500).json({ error: 'Failed to fetch products' });
+  }
+});
+
+// CRITICAL FIX: Fetch ALL orders using cursor-based pagination
+async function fetchAllOrdersPaginated(shop, accessToken, thirtyDaysAgo) {
+  let allOrders = [];
+  let url = `https://${shop}/admin/api/2024-01/orders.json?status=any&created_at_min=${thirtyDaysAgo.toISOString()}&limit=250`;
+  let pageCount = 0;
+
+  console.log('🔄 Fetching all orders with pagination...');
+
+  while (url) {
+    pageCount++;
+    console.log(`   Page ${pageCount}: Fetching ${url}`);
+
+    const response = await axios.get(url, {
+      headers: { 'X-Shopify-Access-Token': accessToken }
+    });
+
+    const pageOrders = response.data.orders || [];
+    allOrders = allOrders.concat(pageOrders);
+    console.log(`   ✅ Page ${pageCount}: Got ${pageOrders.length} orders (Total so far: ${allOrders.length})`);
+
+    // Parse Link header for next page (Shopify pagination)
+    const linkHeader = response.headers['link'];
+    if (linkHeader) {
+      const nextMatch = linkHeader.match(/<([^>]+)>;\s*rel="next"/);
+      url = nextMatch ? nextMatch[1] : null;
+    } else {
+      url = null;
+    }
+
+    // Safety limit: prevent infinite loops
+    if (pageCount > 100) {
+      console.warn('⚠️ Reached 100 pages, stopping pagination');
+      break;
+    }
+  }
+
+  console.log(`📦 TOTAL ORDERS FETCHED: ${allOrders.length} orders across ${pageCount} page(s)`);
+  return allOrders;
+}
+
+// POST /api/products/sync
+router.post('/sync', authenticateToken, async (req, res) => {
+  try {
+    // ============================================
+    // DUAL-MODE AUTH: Get credentials based on AUTH_MODE
+    // ============================================
+    const { shop, accessToken } = await getShopifyCredentials(req, supabase);
+
+    const response = await axios.get(
+      `https://${shop}/admin/api/2024-01/products.json?limit=250`,
+      { headers: { 'X-Shopify-Access-Token': accessToken } }
+    );
+
+    const thirtyDaysAgo = new Date();
+    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+
+    // CRITICAL FIX: Use paginated fetch to get ALL orders (not just 250)
+    const orders = await fetchAllOrdersPaginated(shop, accessToken, thirtyDaysAgo);
+    const variantSales = {};
+    const variantRevenue = {};
+
+    console.log(`📦 Processing ${orders.length} orders from last 30 days`);
+
+    orders.forEach(order => {
+      order.line_items?.forEach(item => {
+        const variantId = item.variant_id?.toString();
+        if (variantId) {
+          const quantity = item.quantity || 0;
+          const revenue = parseFloat(item.price) * quantity;
+          variantSales[variantId] = (variantSales[variantId] || 0) + quantity;
+          variantRevenue[variantId] = (variantRevenue[variantId] || 0) + revenue;
+          console.log(`  ✅ Variant ${variantId}: +${quantity} units, +$${revenue.toFixed(2)}`);
+        }
+      });
+    });
+
+    console.log(`📊 Sales aggregated for ${Object.keys(variantSales).length} variants:`, variantSales);
+
+    // Get shop and app_id from database
+    const { data: shopData } = await supabase
+      .from('shops')
+      .select('shop_domain, app_id')
+      .eq('user_id', req.user.id)
+      .eq('is_active', true)
+      .single();
+
+    const shopDomain = shopData?.shop_domain || shop;
+    const appId = shopData?.app_id || null;
+
+    let syncedCount = 0;
+    console.log(`\n🔄 Syncing ${response.data.products.length} products...`);
+
+    for (const product of response.data.products) {
+      const variant = product.variants[0];
+      const variantId = variant.id.toString();
+      const totalSales = variantSales[variantId] || 0;
+      const totalRevenue = variantRevenue[variantId] || 0;
+      const salesVelocity = totalSales / 30;
+
+      console.log(`\n📦 ${product.title}`);
+      console.log(`   Variant ID: ${variantId}`);
+      console.log(`   Sales (30d): ${totalSales} units`);
+      console.log(`   Revenue (30d): $${totalRevenue.toFixed(2)}`);
+      console.log(`   Velocity: ${salesVelocity.toFixed(3)} units/day`);
+
+      const productData = {
+        user_id: req.user.id,
+        shop_domain: shopDomain,
+        app_id: appId,
+        shopify_product_id: product.id.toString(),
+        shopify_variant_id: variantId,
+        title: product.title,
+        price: variant.price,
+        inventory: variant.inventory_quantity || 0,
+        image_url: product.image?.src || null,
+        total_sales_30d: totalSales,
+        revenue_30d: totalRevenue,
+        sales_velocity: salesVelocity,
+        updated_at: new Date().toISOString()
+      };
+
+      const { error: upsertError, data: upsertData } = await supabase
+        .from('products')
+        .upsert(productData, {
+          onConflict: 'user_id,shopify_variant_id'
+        })
+        .select();
+
+      if (upsertError) {
+        console.error('❌ Error upserting product:', upsertError);
+      } else {
+        console.log('   ✅ Saved to database');
+        syncedCount++;
+      }
+    }
+
+    console.log(`\n✅ Sync complete: ${syncedCount}/${response.data.products.length} products`);
+
+    // DELETE products that no longer exist in Shopify
+    console.log('\n🗑️ Checking for deleted products...');
+
+    // Get all Shopify variant IDs from this sync
+    const shopifyVariantIds = response.data.products.map(p => p.variants[0].id.toString());
+
+    // Find products in database that aren't in Shopify anymore
+    const { data: dbProducts } = await supabase
+      .from('products')
+      .select('id, shopify_variant_id, title')
+      .eq('user_id', req.user.id);
+
+    const productsToDelete = dbProducts.filter(
+      dbProduct => !shopifyVariantIds.includes(dbProduct.shopify_variant_id)
+    );
+
+    if (productsToDelete.length > 0) {
+      console.log(`🗑️ Found ${productsToDelete.length} products to delete:`);
+      productsToDelete.forEach(p => console.log(`   - ${p.title} (Variant: ${p.shopify_variant_id})`));
+
+      const { error: deleteError } = await supabase
+        .from('products')
+        .delete()
+        .in('id', productsToDelete.map(p => p.id));
+
+      if (deleteError) {
+        console.error('❌ Error deleting products:', deleteError);
+      } else {
+        console.log(`✅ Deleted ${productsToDelete.length} products from database`);
+      }
+    } else {
+      console.log('✅ No products to delete');
+    }
+
+    res.json({
+      success: true,
+      synced: syncedCount,
+      total: response.data.products.length,
+      deleted: productsToDelete.length
+    });
+
+  } catch (error) {
+    console.error('❌ Product sync error:', error);
+    res.status(500).json({
+      error: 'Failed to sync products',
+      message: error.message
+    });
+  }
+});
+
+// POST /api/products/:id/cost-price
+router.post('/:id/cost-price', authenticateToken, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { cost_price } = req.body;
+
+    if (typeof cost_price === 'undefined' || cost_price === null) {
+      return res.status(400).json({ error: 'Cost price is required' });
+    }
+
+    // Validate cost price is a number
+    const cost = parseFloat(cost_price);
+    if (isNaN(cost) || cost < 0) {
+      return res.status(400).json({ error: 'Cost price must be a positive number' });
+    }
+
+    // Update the product with the new cost price
+    const { error } = await supabase
+      .from('products')
+      .update({
+        cost_price: cost,
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', id)
+      .eq('user_id', req.user.id);
+
+    if (error) {
+      console.error('❌ Cost price update error:', error);
+      return res.status(500).json({ error: 'Failed to update cost price' });
+    }
+
+    res.json({ success: true, message: 'Cost price updated successfully' });
+
+  } catch (error) {
+    console.error('❌ Cost price update error:', error);
+    res.status(500).json({ error: 'Failed to update cost price' });
+  }
+});
+
+module.exports = router;

@@ -1,0 +1,59 @@
+const jwt = require('jsonwebtoken');
+const { JWT_SECRET, ADMIN_SECRET } = require('../config/environment');
+const { supabase } = require('../config/database');
+
+function authenticateToken(req, res, next) {
+  const authHeader = req.headers['authorization'];
+  const token = authHeader && authHeader.split(' ')[1];
+
+  if (!token) {
+    return res.status(401).json({ error: 'Authentication required' });
+  }
+
+  jwt.verify(token, JWT_SECRET, (err, user) => {
+    if (err) {
+      return res.status(403).json({ error: 'Invalid or expired token' });
+    }
+    req.user = user;
+    next();
+  });
+}
+
+// Admin authentication middleware
+async function authenticateAdmin(req, res, next) {
+  // First, authenticate the user token
+  authenticateToken(req, res, async () => {
+    try {
+      // Check if user is in admin whitelist
+      const { data: adminUser, error } = await supabase
+        .from('admin_users')
+        .select('id, email, role')
+        .eq('user_id', req.user.id)
+        .eq('active', true)
+        .single();
+
+      if (error || !adminUser) {
+        // Alternative: Check if user email is in admin whitelist
+        const { data: emailAdmin, error: emailError } = await supabase
+          .from('users')
+          .select('id, email, admin_level')
+          .eq('id', req.user.id)
+          .eq('admin_level', 'admin')
+          .single();
+
+        if (emailError || !emailAdmin) {
+          return res.status(403).json({ error: 'Admin access required' });
+        }
+      }
+
+      // User is authenticated as admin
+      req.admin = req.user;
+      next();
+    } catch (error) {
+      console.error('Admin auth error:', error);
+      return res.status(403).json({ error: 'Admin access required' });
+    }
+  });
+}
+
+module.exports = { authenticateToken, authenticateAdmin };

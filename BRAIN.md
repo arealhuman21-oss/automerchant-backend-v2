@@ -2092,6 +2092,69 @@ node onboard-customer.js benjamincao98@gmail.com
 
 ---
 
+### 🔗 Manual Onboarding Process for Custom Distribution Apps
+
+**Step 1: Approve User**
+- In admin panel or run:
+```bash
+node onboard-customer.js benjamincao98@gmail.com
+```
+
+**Step 2: Get Shopify Install Link**
+- Go to Shopify Partners → Your Custom App
+- Get the install link (Shopify generates it, you can't add params)
+- Send it to customer
+
+**Step 3: Customer Installs**
+- They click the link
+- Install the app
+- App is now in shops table but user_id is NULL
+
+**Step 4: Link Shop to User**
+```bash
+cd backend
+node auto-link-shop.js theirstore.myshopify.com benjamincao98@gmail.com
+```
+
+**Output:**
+```
+🔗 AUTO-LINKING SHOP TO USER
+═══════════════════════════════════════════════════════
+
+1️⃣  Looking up user: benjamincao98@gmail.com...
+✅ User found!
+
+2️⃣  Looking up shop: theirstore.myshopify.com...
+✅ Shop found!
+
+3️⃣  Linking shop to user...
+✅ Successfully linked shop to user!
+
+🎉 SHOP SUCCESSFULLY LINKED!
+```
+
+**What's Required:**
+
+1. ✅ **APPROVE USER (Critical!)**
+   - Without approved: true, they can't access dashboard
+   - Do this in admin panel OR run onboard-customer.js
+
+2. ✅ **LINK SHOP TO USER (Critical!)**
+   - Run auto-link-shop.js after they install
+   - This connects their shop's access_token to their user account
+
+3. ❓ **APP ASSIGNMENT (Maybe not needed?)**
+   - The shops table already stores app_id from OAuth
+   - User table also has app_id but it's only used for display purposes, not enforced anywhere
+
+**FINAL ANSWER:**
+- **Required (Critical):** Approve user and link shop to user
+- **Optional (Not enforced):** assigned_app_id - Only used for info/logging, not required for the app to work
+
+**TL;DR:** You only need to approve them and run the link script. Don't worry about app assignment. 🎯
+
+---
+
 ## 🔒 SECURITY
 
 ### Critical Security Measures
