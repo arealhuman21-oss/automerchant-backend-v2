@@ -1,563 +1,982 @@
-# 🤖 AI DELEGATION TASKS - Phase 2
+# 🤖 AI DELEGATION TASKS - Phase 3
 
 **Created**: December 26, 2025
-**Phase**: 2 - Modularize Backend
-**Goal**: Break server.js (3956 lines) → Modular architecture (< 500 lines)
+**Phase**: 3 - Extract Controllers & Services
+**Goal**: Separate business logic from routes → Clean MVC architecture
+
+**Phase 2 Status**: ✅ COMPLETE (server.js: 3956 → 857 lines)
 
 ---
 
-## ⚡ TASK 1: Create Directory Structure (QWEN - START HERE)
+## 🎯 PHASE 3 OVERVIEW
 
-**Priority**: HIGH - Do this FIRST
-**AI**: Qwen (free, unlimited)
-**Time**: 5 minutes
+**What we're doing**:
+1. Extract route handlers → Controllers
+2. Extract business logic → Services
+3. Extract database queries → Models
+4. Deploy to Vercel (QWEN WILL DO THIS!)
 
-### Instructions for Qwen:
-
-Create the following directory structure in `backend/`:
-
-```bash
-backend/
-├── config/          # Configuration files
-├── middleware/      # Express middleware
-├── routes/          # API routes
-├── controllers/     # Route handlers
-├── services/        # Business logic
-├── models/          # Database queries
-└── utils/           # Helper functions
-```
-
-### Commands to run:
-
-```bash
-cd backend
-
-# Create directories
-mkdir -p config
-mkdir -p middleware
-mkdir -p routes
-mkdir -p controllers
-mkdir -p services
-mkdir -p models
-mkdir -p utils
-
-# Verify creation
-ls -la | grep "^d"
-```
-
-### Success Criteria:
-- [ ] All 7 directories created
-- [ ] Directories exist under `backend/`
-- [ ] Report back: "✅ TASK 1 COMPLETE - Directory structure created"
+**Expected Result**:
+- Routes only handle HTTP (request → controller → response)
+- Controllers orchestrate (validate → call services → format response)
+- Services contain business logic (analysis, recommendations, etc.)
+- Models handle all database operations
 
 ---
 
-## 📦 TASK 2: Extract Configuration (GEMINI - AFTER TASK 1)
+## 📦 TASK 1: Extract Analysis Service (GEMINI - START HERE)
 
-**Priority**: HIGH
-**AI**: Gemini Pro (moderate usage)
-**Time**: 15 minutes
-**Dependencies**: Task 1 must be complete
+**Priority**: CRITICAL - Biggest logic block
+**AI**: Gemini Pro (this is complex logic)
+**Time**: 30 minutes
 
 ### Instructions for Gemini:
 
-Extract configuration from `backend/server.js` into separate files.
+The analysis logic is the most complex part. Extract it from `server.js` into a service.
 
-#### 2A: Extract Database Config
+#### 1A: Create Analysis Service
 
-**File to create**: `backend/config/database.js`
+**File to create**: `backend/services/analysis.service.js`
 
 **What to extract from server.js**:
-- Supabase client initialization (lines ~26-30)
-- DATABASE_URL setup
-- Connection pooling config
+- `runAnalysisForUser()` function (huge function ~200 lines)
+- All V3 algorithm imports and logic
+- Order fetching logic
+- Recommendation creation logic
 
-**Template**:
+**Template structure**:
 ```javascript
-const { createClient } = require('@supabase/supabase-js');
-require('dotenv').config();
+const { supabase } = require('../config/database');
+const { analyzeProduct } = require('../analyzeProduct-v3');
+const {
+  loadRegretBudgets,
+  loadElasticityLearners,
+  loadPriceChangeObservations
+} = require('../v3-persistence');
 
-const supabase = createClient(
-  process.env.SUPABASE_URL,
-  process.env.SUPABASE_SERVICE_KEY
-);
+/**
+ * Run full analysis for a user
+ * @param {number} userId - User ID
+ * @returns {Promise<Object>} Analysis results
+ */
+async function runAnalysisForUser(userId) {
+  // TODO: Copy full runAnalysisForUser logic from server.js
+  // This function should:
+  // 1. Fetch user's products
+  // 2. Fetch Shopify orders
+  // 3. Load V3 state
+  // 4. Run analysis on each product
+  // 5. Save recommendations
+  // 6. Return results
+}
 
-module.exports = { supabase };
-```
+/**
+ * Check if manual analysis is allowed (10/day limit)
+ * @param {number} userId - User ID
+ * @returns {Promise<Object>} { allowed, used, remaining }
+ */
+async function checkManualAnalysisLimit(userId) {
+  // TODO: Copy manual analysis limit check from server.js
+  // Use the RPC function: check_and_increment_manual_analysis
+}
 
-#### 2B: Extract Environment Config
-
-**File to create**: `backend/config/environment.js`
-
-**What to extract**:
-- All `process.env.*` references
-- Environment validation
-- Default values
-
-**Template**:
-```javascript
-require('dotenv').config();
+/**
+ * Get analysis status (timer, limits, etc.)
+ * @param {number} userId - User ID
+ * @returns {Promise<Object>} Status object
+ */
+async function getAnalysisStatus(userId) {
+  // TODO: Copy status check logic from /api/analysis/status endpoint
+}
 
 module.exports = {
-  // Server
-  PORT: process.env.PORT || 5000,
-  NODE_ENV: process.env.NODE_ENV || 'development',
-
-  // Database
-  DATABASE_URL: process.env.DATABASE_URL,
-  SUPABASE_URL: process.env.SUPABASE_URL,
-  SUPABASE_SERVICE_KEY: process.env.SUPABASE_SERVICE_KEY,
-
-  // Auth
-  JWT_SECRET: process.env.JWT_SECRET,
-  AUTH_MODE: process.env.AUTH_MODE || 'oauth',
-
-  // Shopify (if AUTH_MODE=manual)
-  SHOP: process.env.SHOP,
-  SHOPIFY_ACCESS_TOKEN: process.env.SHOPIFY_ACCESS_TOKEN,
-
-  // Algorithm
-  USE_ALGORITHM_V3: process.env.USE_ALGORITHM_V3 === 'true',
-  USE_ALGORITHM_V2: process.env.USE_ALGORITHM_V2 === 'true',
-
-  // Admin
-  ADMIN_SECRET: process.env.ADMIN_SECRET
+  runAnalysisForUser,
+  checkManualAnalysisLimit,
+  getAnalysisStatus
 };
 ```
 
+#### 1B: Find the Logic in server.js
+
+**Search for these functions**:
+1. Search: `async function runAnalysisForUser`
+2. Search: `check_and_increment_manual_analysis`
+3. Search: `/api/analysis/status` endpoint logic
+
+**Copy entire functions** - Don't modify the logic, just move it!
+
 ### Success Criteria:
-- [ ] `backend/config/database.js` created and exports `supabase`
-- [ ] `backend/config/environment.js` created and exports all env vars
-- [ ] Files are valid JavaScript (no syntax errors)
-- [ ] Report back: "✅ TASK 2 COMPLETE - Configuration extracted"
+- [ ] `backend/services/analysis.service.js` created
+- [ ] Contains `runAnalysisForUser` function
+- [ ] Contains `checkManualAnalysisLimit` function
+- [ ] Contains `getAnalysisStatus` function
+- [ ] All imports are correct
+- [ ] No syntax errors
+- [ ] Report back: "✅ TASK 1 COMPLETE - Analysis service extracted"
 
 ---
 
-## 🔐 TASK 3: Extract Middleware (GEMINI - AFTER TASK 2)
+## 🏪 TASK 2: Extract Shopify Service (GEMINI - AFTER TASK 1)
 
 **Priority**: HIGH
-**AI**: Gemini Pro (moderate usage)
+**AI**: Gemini Pro
 **Time**: 20 minutes
-**Dependencies**: Task 2 must be complete
 
 ### Instructions for Gemini:
 
-Extract middleware functions from `backend/server.js` into separate files.
+Extract all Shopify API interaction logic into a service.
 
-#### 3A: Extract Auth Middleware
-
-**File to create**: `backend/middleware/auth.js`
-
-**What to extract from server.js**:
-- `authenticateToken` function (around line ~100-120)
-- JWT verification logic
-
-**Template**:
-```javascript
-const jwt = require('jsonwebtoken');
-const { JWT_SECRET } = require('../config/environment');
-
-function authenticateToken(req, res, next) {
-  const authHeader = req.headers['authorization'];
-  const token = authHeader && authHeader.split(' ')[1];
-
-  if (!token) {
-    return res.status(401).json({ error: 'Authentication required' });
-  }
-
-  jwt.verify(token, JWT_SECRET, (err, user) => {
-    if (err) {
-      return res.status(403).json({ error: 'Invalid or expired token' });
-    }
-    req.user = user;
-    next();
-  });
-}
-
-module.exports = { authenticateToken };
-```
-
-#### 3B: Extract CORS Middleware
-
-**File to create**: `backend/middleware/cors.js`
+**File to create**: `backend/services/shopify.service.js`
 
 **What to extract**:
-- CORS configuration (around line ~35-45)
-- Allowed origins
+- Shopify product fetching
+- Shopify order fetching
+- Price update logic
+- OAuth token exchange
 
-**Template**:
+**Functions to create**:
+
 ```javascript
-const cors = require('cors');
+const axios = require('axios');
+const { supabase } = require('../config/database');
 
-const corsOptions = {
-  origin: [
-    'https://automerchant.vercel.app',
-    'http://localhost:3000'
-  ],
-  credentials: true,
-  optionsSuccessStatus: 200
-};
-
-module.exports = cors(corsOptions);
-```
-
-#### 3C: Extract Error Handler
-
-**File to create**: `backend/middleware/errorHandler.js`
-
-**What to create**:
-- Global error handler for Express
-- Logs errors and sends appropriate response
-
-**Template**:
-```javascript
-function errorHandler(err, req, res, next) {
-  console.error('❌ ERROR:', err);
-
-  const statusCode = err.statusCode || 500;
-  const message = err.message || 'Internal Server Error';
-
-  res.status(statusCode).json({
-    error: message,
-    ...(process.env.NODE_ENV === 'development' && { stack: err.stack })
-  });
+/**
+ * Fetch all products from Shopify
+ * @param {string} shop - Shop domain
+ * @param {string} accessToken - Shopify access token
+ * @returns {Promise<Array>} Products array
+ */
+async function fetchShopifyProducts(shop, accessToken) {
+  // TODO: Copy product fetching logic from products.routes.js (sync endpoint)
 }
 
-module.exports = { errorHandler };
+/**
+ * Fetch orders from Shopify (last 30 days)
+ * @param {string} shop - Shop domain
+ * @param {string} accessToken - Shopify access token
+ * @returns {Promise<Array>} Orders array
+ */
+async function fetchShopifyOrders(shop, accessToken, daysBack = 30) {
+  // TODO: Copy order fetching logic from server.js (in runAnalysisForUser)
+}
+
+/**
+ * Update product price on Shopify
+ * @param {string} shop - Shop domain
+ * @param {string} accessToken - Shopify access token
+ * @param {string} variantId - Variant ID
+ * @param {number} newPrice - New price
+ * @returns {Promise<Object>} Update result
+ */
+async function updateProductPrice(shop, accessToken, variantId, newPrice) {
+  // TODO: Copy price update logic from recommendations.routes.js (accept endpoint)
+}
+
+/**
+ * Exchange OAuth code for access token
+ * @param {string} shop - Shop domain
+ * @param {string} code - OAuth code
+ * @returns {Promise<Object>} Token response
+ */
+async function exchangeOAuthCode(shop, code) {
+  // TODO: Copy token exchange from auth.routes.js (callback endpoint)
+}
+
+module.exports = {
+  fetchShopifyProducts,
+  fetchShopifyOrders,
+  updateProductPrice,
+  exchangeOAuthCode
+};
 ```
 
+**Where to find the logic**:
+- `fetchShopifyProducts`: routes/products.routes.js → `/sync` endpoint
+- `fetchShopifyOrders`: server.js → inside `runAnalysisForUser`
+- `updateProductPrice`: routes/recommendations.routes.js → `/:id/accept`
+- `exchangeOAuthCode`: routes/auth.routes.js → `/shopify/callback`
+
 ### Success Criteria:
-- [ ] `backend/middleware/auth.js` created with `authenticateToken`
-- [ ] `backend/middleware/cors.js` created with CORS config
-- [ ] `backend/middleware/errorHandler.js` created
-- [ ] All files are valid JavaScript
-- [ ] Report back: "✅ TASK 3 COMPLETE - Middleware extracted"
+- [ ] `backend/services/shopify.service.js` created
+- [ ] All 4 functions implemented
+- [ ] Uses axios for HTTP requests
+- [ ] Proper error handling
+- [ ] Report back: "✅ TASK 2 COMPLETE - Shopify service extracted"
 
 ---
 
-## 🛣️ TASK 4: Extract Routes (QWEN - PARALLEL WITH TASK 5)
+## 🗄️ TASK 3: Create Database Models (QWEN - PARALLEL WITH TASK 4)
 
 **Priority**: HIGH
-**AI**: Qwen (free, unlimited) - This is LOTS of file operations
-**Time**: 30-45 minutes
-**Dependencies**: Tasks 1-3 must be complete
+**AI**: Qwen (lots of repetitive CRUD operations)
+**Time**: 30 minutes
 
 ### Instructions for Qwen:
 
-Extract all routes from `backend/server.js` into separate route files. This is repetitive work perfect for Qwen!
+Create model files for each database table. Models handle ALL database queries.
 
-#### 4A: Auth Routes
+#### 3A: User Model
 
-**File to create**: `backend/routes/auth.routes.js`
+**File to create**: `backend/models/user.model.js`
 
-**Routes to extract** (search server.js for these):
-- `POST /auth/shopify` - Initiate OAuth
-- `GET /auth/shopify/callback` - OAuth callback
-- `POST /check-approval` - Check user approval status
-
-**Template**:
 ```javascript
-const express = require('express');
-const router = express.Router();
+const { supabase } = require('../config/database');
 
-// POST /auth/shopify - Initiate Shopify OAuth
-router.post('/shopify', async (req, res) => {
-  // TODO: Copy logic from server.js
-});
+/**
+ * Find user by email
+ */
+async function findByEmail(email) {
+  const { data, error } = await supabase
+    .from('users')
+    .select('*')
+    .eq('email', email.toLowerCase())
+    .single();
 
-// GET /auth/shopify/callback - OAuth callback
-router.get('/shopify/callback', async (req, res) => {
-  // TODO: Copy logic from server.js
-});
+  if (error) throw error;
+  return data;
+}
 
-// POST /check-approval - Check if user is approved
-router.post('/check-approval', async (req, res) => {
-  // TODO: Copy logic from server.js
-});
+/**
+ * Find user by ID
+ */
+async function findById(userId) {
+  const { data, error } = await supabase
+    .from('users')
+    .select('*')
+    .eq('id', userId)
+    .single();
 
-module.exports = router;
+  if (error) throw error;
+  return data;
+}
+
+/**
+ * Create new user
+ */
+async function create(userData) {
+  const { data, error } = await supabase
+    .from('users')
+    .insert(userData)
+    .select()
+    .single();
+
+  if (error) throw error;
+  return data;
+}
+
+/**
+ * Update user
+ */
+async function update(userId, updates) {
+  const { data, error } = await supabase
+    .from('users')
+    .update(updates)
+    .eq('id', userId)
+    .select()
+    .single();
+
+  if (error) throw error;
+  return data;
+}
+
+/**
+ * Approve user
+ */
+async function approve(userId) {
+  return update(userId, { approved: true });
+}
+
+module.exports = {
+  findByEmail,
+  findById,
+  create,
+  update,
+  approve
+};
 ```
 
-**How to find routes in server.js**:
-1. Search for `app.post('/auth/shopify'`
-2. Copy entire function (from `async (req, res) => {` to matching `}`)
-3. Paste into router file
-4. Repeat for each route
+#### 3B: Product Model
 
-#### 4B: Products Routes
+**File to create**: `backend/models/product.model.js`
 
-**File to create**: `backend/routes/products.routes.js`
-
-**Routes to extract**:
-- `GET /api/products` - Get user's products
-- `POST /api/products/sync` - Sync from Shopify
-- `POST /api/products/:id/select` - Select product for analysis
-- `POST /api/products/:id/cost-price` - Update cost price
-
-**Template**:
 ```javascript
-const express = require('express');
-const router = express.Router();
-const { authenticateToken } = require('../middleware/auth');
+const { supabase } = require('../config/database');
 
-// GET /api/products
-router.get('/', authenticateToken, async (req, res) => {
-  // TODO: Copy logic from server.js
-});
+async function findByUserId(userId) {
+  const { data, error } = await supabase
+    .from('products')
+    .select('*')
+    .eq('user_id', userId);
 
-// POST /api/products/sync
-router.post('/sync', authenticateToken, async (req, res) => {
-  // TODO: Copy logic from server.js
-});
+  if (error) throw error;
+  return data || [];
+}
 
-// POST /api/products/:id/select
-router.post('/:id/select', authenticateToken, async (req, res) => {
-  // TODO: Copy logic from server.js
-});
+async function findById(productId) {
+  const { data, error } = await supabase
+    .from('products')
+    .select('*')
+    .eq('id', productId)
+    .single();
 
-// POST /api/products/:id/cost-price
-router.post('/:id/cost-price', authenticateToken, async (req, res) => {
-  // TODO: Copy logic from server.js
-});
+  if (error) throw error;
+  return data;
+}
 
-module.exports = router;
+async function create(productData) {
+  const { data, error } = await supabase
+    .from('products')
+    .insert(productData)
+    .select()
+    .single();
+
+  if (error) throw error;
+  return data;
+}
+
+async function update(productId, updates) {
+  const { data, error } = await supabase
+    .from('products')
+    .update(updates)
+    .eq('id', productId)
+    .select()
+    .single();
+
+  if (error) throw error;
+  return data;
+}
+
+async function updateCostPrice(productId, costPrice) {
+  return update(productId, { cost_price: costPrice });
+}
+
+async function toggleSelection(productId, selected) {
+  return update(productId, { selected_for_analysis: selected });
+}
+
+async function bulkUpsert(products) {
+  const { data, error } = await supabase
+    .from('products')
+    .upsert(products, { onConflict: 'shopify_product_id,user_id' });
+
+  if (error) throw error;
+  return data;
+}
+
+module.exports = {
+  findByUserId,
+  findById,
+  create,
+  update,
+  updateCostPrice,
+  toggleSelection,
+  bulkUpsert
+};
 ```
 
-#### 4C: Analysis Routes
+#### 3C: Recommendation Model
 
-**File to create**: `backend/routes/analysis.routes.js`
-
-**Routes to extract**:
-- `GET /api/analysis/status` - Get timer + limits
-- `POST /api/analyze` - Run manual analysis
-
-#### 4D: Recommendations Routes
-
-**File to create**: `backend/routes/recommendations.routes.js`
-
-**Routes to extract**:
-- `GET /api/recommendations` - Get all recommendations
-- `POST /api/recommendations/:id/accept` - Apply price
-- `POST /api/recommendations/:id/reject` - Reject recommendation
-
-#### 4E: Admin Routes
-
-**File to create**: `backend/routes/admin.routes.js`
-
-**Routes to extract**:
-- `GET /api/admin/stats` - Admin statistics
-- `POST /api/admin/approve-user` - Approve user
-- Any other `/api/admin/*` routes
-
-### Important Notes for Qwen:
-1. **Don't modify logic** - Just copy/paste entire route handlers
-2. **Keep all comments** - Preserve existing comments
-3. **Import dependencies** - Add all `require()` statements needed
-4. **Use authenticateToken** - Import from `../middleware/auth`
-5. **Export router** - End each file with `module.exports = router;`
-
-### Success Criteria:
-- [ ] All 5 route files created
-- [ ] All routes moved from server.js
-- [ ] Each file exports Express router
-- [ ] No syntax errors
-- [ ] Report back: "✅ TASK 4 COMPLETE - Routes extracted (X routes total)"
-
----
-
-## 🔌 TASK 5: Wire Everything Together (GEMINI - AFTER TASKS 2-4)
-
-**Priority**: HIGH
-**AI**: Gemini Pro (moderate usage)
-**Time**: 20 minutes
-**Dependencies**: Tasks 2, 3, 4 must be complete
-
-### Instructions for Gemini:
-
-Update `backend/server.js` to import and use all the extracted modules.
-
-#### 5A: Update Imports Section
-
-**At the top of server.js** (replace existing imports):
+**File to create**: `backend/models/recommendation.model.js`
 
 ```javascript
-const express = require('express');
-const { supabase } = require('./config/database');
-const config = require('./config/environment');
-const corsMiddleware = require('./middleware/cors');
-const { authenticateToken } = require('./middleware/auth');
-const { errorHandler } = require('./middleware/errorHandler');
+const { supabase } = require('../config/database');
 
-// Import routes
-const authRoutes = require('./routes/auth.routes');
-const productsRoutes = require('./routes/products.routes');
-const analysisRoutes = require('./routes/analysis.routes');
-const recommendationsRoutes = require('./routes/recommendations.routes');
-const adminRoutes = require('./routes/admin.routes');
+async function findByUserId(userId) {
+  const { data, error } = await supabase
+    .from('recommendations')
+    .select('*, products(*)')
+    .eq('user_id', userId)
+    .order('created_at', { ascending: false });
 
-const app = express();
+  if (error) throw error;
+  return data || [];
+}
+
+async function findById(recommendationId) {
+  const { data, error } = await supabase
+    .from('recommendations')
+    .select('*')
+    .eq('id', recommendationId)
+    .single();
+
+  if (error) throw error;
+  return data;
+}
+
+async function create(recommendationData) {
+  const { data, error } = await supabase
+    .from('recommendations')
+    .insert(recommendationData)
+    .select()
+    .single();
+
+  if (error) throw error;
+  return data;
+}
+
+async function upsert(recommendationData) {
+  const { data, error } = await supabase
+    .from('recommendations')
+    .upsert(recommendationData, { onConflict: 'user_id,product_id' });
+
+  if (error) throw error;
+  return data;
+}
+
+async function deleteById(recommendationId) {
+  const { error } = await supabase
+    .from('recommendations')
+    .delete()
+    .eq('id', recommendationId);
+
+  if (error) throw error;
+}
+
+module.exports = {
+  findByUserId,
+  findById,
+  create,
+  upsert,
+  deleteById
+};
 ```
 
-#### 5B: Setup Middleware
+#### 3D: Schedule Model
 
-**After creating app** (replace existing middleware setup):
-
-```javascript
-// Middleware
-app.use(express.json());
-app.use(corsMiddleware);
-
-// Health check (keep this simple route in server.js)
-app.get('/health', (req, res) => {
-  res.json({ status: 'ok' });
-});
-
-// Mount routes
-app.use('/auth', authRoutes);
-app.use('/api/products', productsRoutes);
-app.use('/api/analysis', analysisRoutes);
-app.use('/api/recommendations', recommendationsRoutes);
-app.use('/api/admin', adminRoutes);
-
-// Error handler (must be last)
-app.use(errorHandler);
-```
-
-#### 5C: Clean Up server.js
-
-**Remove from server.js**:
-1. All extracted route handlers (they're now in route files)
-2. `authenticateToken` function (now in middleware/auth.js)
-3. CORS config (now in middleware/cors.js)
-4. Supabase initialization (now in config/database.js)
-5. Environment variable references (import from config/environment.js)
-
-**Keep in server.js**:
-- Auto-analysis cron job (setInterval for 30-min analysis)
-- Helper functions like `runAnalysisForUser` (we'll extract these in Phase 3)
-- Server startup code (`app.listen`)
-
-#### 5D: Update Auto-Analysis Cron
-
-**Update the setInterval section** to use imported config:
+**File to create**: `backend/models/schedule.model.js`
 
 ```javascript
-const { supabase } = require('./config/database');
-const config = require('./config/environment');
+const { supabase } = require('../config/database');
 
-// Auto-analysis cron (keep this in server.js for now)
-setInterval(async () => {
-  console.log('🔄 Running auto-analysis check...');
+async function findByUserId(userId) {
+  const { data, error } = await supabase
+    .from('analysis_schedule')
+    .select('*')
+    .eq('user_id', userId)
+    .single();
 
-  const { data: dueUsers } = await supabase
+  if (error && error.code !== 'PGRST116') throw error; // Ignore "not found" error
+  return data;
+}
+
+async function upsert(scheduleData) {
+  const { data, error } = await supabase
+    .from('analysis_schedule')
+    .upsert(scheduleData, { onConflict: 'user_id' })
+    .select()
+    .single();
+
+  if (error) throw error;
+  return data;
+}
+
+async function updateNextDue(userId, nextDueDate) {
+  const { data, error } = await supabase
+    .from('analysis_schedule')
+    .update({
+      next_analysis_due: nextDueDate.toISOString(),
+      last_analysis_run: new Date().toISOString()
+    })
+    .eq('user_id', userId);
+
+  if (error) throw error;
+  return data;
+}
+
+async function findDueSchedules() {
+  const { data, error } = await supabase
     .from('analysis_schedule')
     .select('user_id')
     .lte('next_analysis_due', new Date().toISOString());
 
-  // ... rest of cron logic
-}, 30 * 60 * 1000);
+  if (error) throw error;
+  return data || [];
+}
+
+module.exports = {
+  findByUserId,
+  upsert,
+  updateNextDue,
+  findDueSchedules
+};
 ```
 
 ### Success Criteria:
-- [ ] server.js imports all new modules
-- [ ] All routes mounted correctly
-- [ ] server.js < 1000 lines (should be way less!)
-- [ ] No duplicate code
-- [ ] Server starts without errors: `node server.js`
-- [ ] Report back: "✅ TASK 5 COMPLETE - Everything wired, server.js now X lines"
+- [ ] All 4 model files created
+- [ ] Each exports CRUD functions
+- [ ] Uses Supabase client correctly
+- [ ] Proper error handling
+- [ ] Report back: "✅ TASK 3 COMPLETE - 4 models created"
 
 ---
 
-## 🧪 TASK 6: Verify Everything Works (CLAUDE - FINAL REVIEW)
+## 🎮 TASK 4: Create Controllers (GEMINI - PARALLEL WITH TASK 3)
 
-**Priority**: CRITICAL
-**AI**: Claude (expensive - only for final review!)
-**Time**: 15 minutes
-**Dependencies**: Tasks 1-5 must ALL be complete
+**Priority**: HIGH
+**AI**: Gemini Pro
+**Time**: 40 minutes
 
-### Instructions for User:
+### Instructions for Gemini:
 
-**Run Claude with this prompt**:
+Controllers orchestrate the request/response flow. They validate input, call services, and format responses.
+
+#### 4A: Analysis Controller
+
+**File to create**: `backend/controllers/analysis.controller.js`
+
+```javascript
+const analysisService = require('../services/analysis.service');
+
+/**
+ * GET /api/analysis/status
+ * Get analysis timer and limits
+ */
+async function getStatus(req, res) {
+  try {
+    const userId = req.user.id;
+    const status = await analysisService.getAnalysisStatus(userId);
+    res.json(status);
+  } catch (error) {
+    console.error('Error getting analysis status:', error);
+    res.status(500).json({ error: 'Failed to get analysis status' });
+  }
+}
+
+/**
+ * POST /api/analyze
+ * Run manual analysis
+ */
+async function runManualAnalysis(req, res) {
+  try {
+    const userId = req.user.id;
+
+    // Check limit
+    const limitCheck = await analysisService.checkManualAnalysisLimit(userId);
+    if (!limitCheck.allowed) {
+      return res.status(429).json({
+        error: 'Daily limit reached',
+        used: limitCheck.used,
+        remaining: limitCheck.remaining
+      });
+    }
+
+    // Run analysis
+    const results = await analysisService.runAnalysisForUser(userId);
+
+    res.json({
+      success: true,
+      ...results,
+      manualUsed: limitCheck.used,
+      manualRemaining: limitCheck.remaining
+    });
+  } catch (error) {
+    console.error('Error running analysis:', error);
+    res.status(500).json({ error: error.message });
+  }
+}
+
+module.exports = {
+  getStatus,
+  runManualAnalysis
+};
 ```
-"Phase 2 Tasks 1-5 complete. Please verify:
-1. Run: cd backend && node server.js (should start without errors)
-2. Run: npm test (all tests should pass)
-3. Check: wc -l backend/server.js (should be < 1000 lines, ideally < 500)
-4. Test: curl http://localhost:5000/health (should return {\"status\":\"ok\"})
-5. Review: Check for any obvious issues
 
-If everything passes, commit with message: 'Phase 2: Modularize backend structure'
-"
+#### 4B: Products Controller
+
+**File to create**: `backend/controllers/products.controller.js`
+
+```javascript
+const productModel = require('../models/product.model');
+const shopifyService = require('../services/shopify.service');
+
+/**
+ * GET /api/products
+ * Get user's products
+ */
+async function getProducts(req, res) {
+  try {
+    const userId = req.user.id;
+    const products = await productModel.findByUserId(userId);
+    res.json({ products });
+  } catch (error) {
+    console.error('Error fetching products:', error);
+    res.status(500).json({ error: 'Failed to fetch products' });
+  }
+}
+
+/**
+ * POST /api/products/sync
+ * Sync products from Shopify
+ */
+async function syncProducts(req, res) {
+  try {
+    const userId = req.user.id;
+    const { shop, accessToken } = req.shopify; // Set by shopifyAuth middleware
+
+    // Fetch from Shopify
+    const shopifyProducts = await shopifyService.fetchShopifyProducts(shop, accessToken);
+
+    // Transform and save
+    const productsToSave = shopifyProducts.map(p => ({
+      user_id: userId,
+      shopify_product_id: p.id.toString(),
+      shopify_variant_id: p.variants[0]?.id.toString(),
+      title: p.title,
+      price: parseFloat(p.variants[0]?.price || 0),
+      inventory: p.variants[0]?.inventory_quantity || 0,
+      image_url: p.image?.src
+    }));
+
+    await productModel.bulkUpsert(productsToSave);
+
+    res.json({ success: true, count: productsToSave.length });
+  } catch (error) {
+    console.error('Error syncing products:', error);
+    res.status(500).json({ error: error.message });
+  }
+}
+
+/**
+ * POST /api/products/:id/cost-price
+ * Update product cost price
+ */
+async function updateCostPrice(req, res) {
+  try {
+    const { id } = req.params;
+    const { costPrice } = req.body;
+
+    await productModel.updateCostPrice(parseInt(id), parseFloat(costPrice));
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error updating cost price:', error);
+    res.status(500).json({ error: error.message });
+  }
+}
+
+/**
+ * POST /api/products/:id/select
+ * Toggle product selection for analysis
+ */
+async function toggleSelection(req, res) {
+  try {
+    const { id } = req.params;
+    const { selected } = req.body;
+
+    await productModel.toggleSelection(parseInt(id), selected);
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error toggling selection:', error);
+    res.status(500).json({ error: error.message });
+  }
+}
+
+module.exports = {
+  getProducts,
+  syncProducts,
+  updateCostPrice,
+  toggleSelection
+};
+```
+
+#### 4C: Recommendations Controller
+
+**File to create**: `backend/controllers/recommendations.controller.js`
+
+```javascript
+const recommendationModel = require('../models/recommendation.model');
+const productModel = require('../models/product.model');
+const shopifyService = require('../services/shopify.service');
+
+/**
+ * GET /api/recommendations
+ * Get all recommendations for user
+ */
+async function getRecommendations(req, res) {
+  try {
+    const userId = req.user.id;
+    const recommendations = await recommendationModel.findByUserId(userId);
+    res.json({ recommendations });
+  } catch (error) {
+    console.error('Error fetching recommendations:', error);
+    res.status(500).json({ error: 'Failed to fetch recommendations' });
+  }
+}
+
+/**
+ * POST /api/recommendations/:id/accept
+ * Apply recommended price to Shopify
+ */
+async function acceptRecommendation(req, res) {
+  try {
+    const { id } = req.params;
+    const { shop, accessToken } = req.shopify;
+
+    // Get recommendation
+    const rec = await recommendationModel.findById(parseInt(id));
+    if (!rec) {
+      return res.status(404).json({ error: 'Recommendation not found' });
+    }
+
+    // Get product
+    const product = await productModel.findById(rec.product_id);
+
+    // Update Shopify
+    await shopifyService.updateProductPrice(
+      shop,
+      accessToken,
+      product.shopify_variant_id,
+      rec.recommended_price
+    );
+
+    // Update local DB
+    await productModel.update(product.id, { price: rec.recommended_price });
+
+    // Delete recommendation (it's been applied)
+    await recommendationModel.deleteById(rec.id);
+
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error accepting recommendation:', error);
+    res.status(500).json({ error: error.message });
+  }
+}
+
+/**
+ * POST /api/recommendations/:id/reject
+ * Reject recommendation
+ */
+async function rejectRecommendation(req, res) {
+  try {
+    const { id } = req.params;
+    await recommendationModel.deleteById(parseInt(id));
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error rejecting recommendation:', error);
+    res.status(500).json({ error: error.message });
+  }
+}
+
+module.exports = {
+  getRecommendations,
+  acceptRecommendation,
+  rejectRecommendation
+};
 ```
 
 ### Success Criteria:
-- [ ] Server starts without errors
-- [ ] All tests passing
-- [ ] server.js < 1000 lines
-- [ ] Health check works
-- [ ] Changes committed to git
-- [ ] Report: "✅ PHASE 2 COMPLETE"
+- [ ] All 3 controller files created
+- [ ] Controllers use services and models
+- [ ] Proper error handling
+- [ ] Clear, concise functions
+- [ ] Report back: "✅ TASK 4 COMPLETE - 3 controllers created"
+
+---
+
+## 🔌 TASK 5: Update Routes to Use Controllers (QWEN - AFTER TASKS 3-4)
+
+**Priority**: HIGH
+**AI**: Qwen (simple find/replace work)
+**Time**: 20 minutes
+
+### Instructions for Qwen:
+
+Replace route logic with controller calls.
+
+**Example - products.routes.js BEFORE**:
+```javascript
+router.get('/', authenticateToken, async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const products = await productModel.findByUserId(userId);
+    res.json({ products });
+  } catch (error) {
+    // ... error handling
+  }
+});
+```
+
+**AFTER**:
+```javascript
+const productsController = require('../controllers/products.controller');
+
+router.get('/', authenticateToken, productsController.getProducts);
+router.post('/sync', authenticateToken, productsController.syncProducts);
+router.post('/:id/cost-price', authenticateToken, productsController.updateCostPrice);
+router.post('/:id/select', authenticateToken, productsController.toggleSelection);
+```
+
+**Files to update**:
+1. `routes/analysis.routes.js` → Use `analysisController`
+2. `routes/products.routes.js` → Use `productsController`
+3. `routes/recommendations.routes.js` → Use `recommendationsController`
+
+**Pattern**:
+- Import controller at top
+- Replace `async (req, res) => { ... }` with `controller.methodName`
+- Remove all logic from route files
+
+### Success Criteria:
+- [ ] All 3 route files updated
+- [ ] Routes only have controller references
+- [ ] No inline logic in routes
+- [ ] Report back: "✅ TASK 5 COMPLETE - Routes use controllers"
+
+---
+
+## 🧹 TASK 6: Clean Up server.js (GEMINI - AFTER TASKS 1-5)
+
+**Priority**: HIGH
+**AI**: Gemini Pro
+**Time**: 15 minutes
+
+### Instructions for Gemini:
+
+Now that logic is extracted, remove it from server.js.
+
+**What to remove**:
+1. `runAnalysisForUser` function (moved to service)
+2. Any duplicate imports (already in services)
+3. Unused helper functions
+
+**What to keep**:
+- Auto-analysis cron (setInterval) - but UPDATE to use service:
+  ```javascript
+  const analysisService = require('./services/analysis.service');
+
+  setInterval(async () => {
+    const scheduleModel = require('./models/schedule.model');
+    const dueUsers = await scheduleModel.findDueSchedules();
+
+    for (const row of dueUsers) {
+      await analysisService.runAnalysisForUser(row.user_id);
+      // ... update schedule
+    }
+  }, 30 * 60 * 1000);
+  ```
+
+**Goal**: server.js should be < 500 lines and mostly routing + cron setup.
+
+### Success Criteria:
+- [ ] Duplicate logic removed
+- [ ] Cron uses analysisService
+- [ ] server.js < 500 lines
+- [ ] No syntax errors
+- [ ] Report back: "✅ TASK 6 COMPLETE - server.js cleaned (X lines)"
+
+---
+
+## 🧪 TASK 7: Verify & Test (CLAUDE - FINAL REVIEW)
+
+**Priority**: CRITICAL
+**AI**: Claude (me - final check only!)
+**Time**: 10 minutes
+
+I'll verify:
+1. ✅ Server starts
+2. ✅ All tests pass
+3. ✅ server.js < 500 lines
+4. ✅ MVC structure correct
+
+---
+
+## 🚀 TASK 8: DEPLOY TO VERCEL (QWEN - SAVE CLAUDE TOKENS!)
+
+**Priority**: HIGH
+**AI**: Qwen (free deployment!)
+**Time**: 10 minutes
+
+### Instructions for Qwen:
+
+Deploy the refactored backend to Vercel!
+
+**Commands**:
+```bash
+cd backend
+
+# Deploy to production
+vercel --prod
+
+# Wait for deployment
+# Copy the deployment URL
+
+# Test the health endpoint
+curl https://automerchant-backend-v2.vercel.app/health
+```
+
+**Success message to show user**:
+```
+✅ DEPLOYMENT COMPLETE!
+
+Backend URL: https://automerchant-backend-v2.vercel.app
+Health Check: ✅ OK
+
+Changes deployed:
+- Modular architecture (MVC)
+- Services extracted
+- Models extracted
+- Controllers extracted
+- server.js optimized
+
+Ready for production! 🚀
+```
+
+### Success Criteria:
+- [ ] Deployment successful
+- [ ] Health endpoint returns 200
+- [ ] Report deployment URL
+- [ ] Report back: "✅ TASK 8 COMPLETE - Deployed to Vercel!"
 
 ---
 
 ## 📊 TASK SUMMARY
 
-| Task | AI | Status | Time Est |
-|---|---|---|---|
-| 1. Directory Structure | Qwen | ⏳ TODO | 5 min |
-| 2. Extract Config | Gemini | ⏳ TODO | 15 min |
-| 3. Extract Middleware | Gemini | ⏳ TODO | 20 min |
-| 4. Extract Routes | Qwen | ⏳ TODO | 45 min |
-| 5. Wire Everything | Gemini | ⏳ TODO | 20 min |
-| 6. Verify & Commit | Claude | ⏳ TODO | 15 min |
+| Task | AI | Status | Time Est | Can Run in Parallel? |
+|------|-----|--------|----------|---------------------|
+| 1. Analysis Service | Gemini | ⏳ TODO | 30 min | START FIRST |
+| 2. Shopify Service | Gemini | ⏳ TODO | 20 min | After Task 1 |
+| 3. Database Models | Qwen | ⏳ TODO | 30 min | Parallel with Task 4 |
+| 4. Controllers | Gemini | ⏳ TODO | 40 min | Parallel with Task 3 |
+| 5. Update Routes | Qwen | ⏳ TODO | 20 min | After Tasks 3-4 |
+| 6. Clean server.js | Gemini | ⏳ TODO | 15 min | After Tasks 1-5 |
+| 7. Verify | Claude | ⏳ TODO | 10 min | After Task 6 |
+| 8. Deploy | Qwen | ⏳ TODO | 10 min | After Task 7 ✅ |
 
-**Total Estimated Time**: 2 hours
-**Total Claude Usage**: 15 minutes (only for final review!)
+**Total Time**: ~2.5 hours
+**Claude Usage**: 10 minutes only (Task 7)!
+**Qwen handles deployment**: SAVES YOUR TOKENS! 🎯
 
 ---
 
 ## 🚀 EXECUTION ORDER
 
-**DO TASKS IN THIS EXACT ORDER**:
+**CRITICAL - DO IN THIS ORDER**:
 
-1. **Qwen**: Task 1 (Directory Structure) - 5 min
-2. **Gemini**: Task 2 (Extract Config) - 15 min
-3. **Gemini**: Task 3 (Extract Middleware) - 20 min
-4. **Qwen**: Task 4 (Extract Routes) - 45 min
-5. **Gemini**: Task 5 (Wire Everything) - 20 min
-6. **Claude**: Task 6 (Verify & Commit) - 15 min
+1. **Gemini**: Task 1 (Analysis Service) - 30 min
+2. **Gemini**: Task 2 (Shopify Service) - 20 min
+3. **PARALLEL**:
+   - **Qwen**: Task 3 (Database Models) - 30 min
+   - **Gemini**: Task 4 (Controllers) - 40 min
+4. **Qwen**: Task 5 (Update Routes) - 20 min
+5. **Gemini**: Task 6 (Clean server.js) - 15 min
+6. **Claude**: Task 7 (Verify) - 10 min ⚠️ ONLY CALL CLAUDE HERE
+7. **Qwen**: Task 8 (Deploy to Vercel) - 10 min 🚀
 
-**IMPORTANT**:
-- Don't skip tasks!
-- Report completion after each task
-- Ask for help if stuck (but try to solve yourself first)
-- Only call Claude for TASK 6 (final review)
+**Optimization**: Tasks 3 and 4 can run in parallel to save time!
 
 ---
 
 ## 💬 COMPLETION REPORTING
 
-After each task, report in this format:
-
+After each task:
 ```
 ✅ TASK X COMPLETE
 AI: [Qwen/Gemini/Claude]
-Time: [actual time taken]
-Files Changed: [list files]
-Issues: [any problems encountered]
-Next: [next task number]
-```
-
-Example:
-```
-✅ TASK 1 COMPLETE
-AI: Qwen
-Time: 3 minutes
-Files Changed: Created 7 directories in backend/
-Issues: None
-Next: Task 2 (Gemini - Extract Config)
+Time: [actual time]
+Files: [files created/modified]
+Issues: [any problems]
+Next: [next task]
 ```
 
 ---
 
-**Ready to start? Run Qwen with Task 1 first!**
+**Ready to start Phase 3? Run Gemini with Task 1!** 🎯

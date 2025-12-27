@@ -93,6 +93,31 @@ qwen 'Extract all /api/auth routes from backend/server.js into backend/routes/au
 I'll review once Qwen finishes!"
 ```
 
+### ⚡ CRITICAL PRINCIPLE: Claude Should Do Important Tasks
+
+**NEW RULE (December 26, 2025)**: While delegation saves tokens, **Claude must do important/critical tasks directly** instead of always outsourcing.
+
+**When Claude SHOULD do the work himself**:
+- ✅ Critical architecture decisions
+- ✅ Services, controllers, models (core business logic)
+- ✅ Bug fixes that require understanding context
+- ✅ Security-sensitive code
+- ✅ Complex refactoring that needs careful coordination
+- ✅ Anything where delegating to Qwen/Gemini has failed or is blocking progress
+
+**When to delegate to Qwen/Gemini**:
+- ✅ File cleanup and deletion
+- ✅ Simple find/replace operations
+- ✅ Boilerplate code generation
+- ✅ Repetitive tasks
+- ✅ Directory structure creation
+
+**The Balance**:
+- Don't waste tokens on grunt work ❌
+- Don't outsource critical thinking ✅
+- If it's important to the app's function, Claude should handle it directly
+- If it's tedious but low-risk, delegate to Qwen/Gemini
+
 ### Task Delegation Guidelines
 
 **Example 1: Need to clean up 100 debug files**
