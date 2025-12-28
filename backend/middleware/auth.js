@@ -1,6 +1,6 @@
 const jwt = require('jsonwebtoken');
 const { JWT_SECRET, ADMIN_SECRET } = require('../config/environment');
-const { supabase } = require('../config/database');
+const { supabaseService } = require('../config/database');
 
 function authenticateToken(req, res, next) {
   const authHeader = req.headers['authorization'];
@@ -25,7 +25,8 @@ async function authenticateAdmin(req, res, next) {
   authenticateToken(req, res, async () => {
     try {
       // Check if user is in admin whitelist
-      const { data: adminUser, error } = await supabase
+      // Use supabaseService for admin auth checks (needs to query admin tables)
+      const { data: adminUser, error } = await supabaseService
         .from('admin_users')
         .select('id, email, role')
         .eq('user_id', req.user.id)
@@ -34,7 +35,7 @@ async function authenticateAdmin(req, res, next) {
 
       if (error || !adminUser) {
         // Alternative: Check if user email is in admin whitelist
-        const { data: emailAdmin, error: emailError } = await supabase
+        const { data: emailAdmin, error: emailError } = await supabaseService
           .from('users')
           .select('id, email, admin_level')
           .eq('id', req.user.id)

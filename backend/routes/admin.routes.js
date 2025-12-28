@@ -1,13 +1,14 @@
 const express = require('express');
 const router = express.Router();
 const { authenticateAdmin } = require('../middleware/auth');
-const { supabase } = require('../config/database');
+const { supabaseService } = require('../config/database');
 
 // GET /api/admin/stats - Admin statistics
 router.get('/stats', authenticateAdmin, async (req, res) => {
   try {
     // Get total user count
-    const { count: totalUsers, error: userError } = await supabase
+    // Use supabaseService for admin operations (needs access to all data)
+    const { count: totalUsers, error: userError } = await supabaseService
       .from('users')
       .select('*', { count: 'exact', head: true });
 
@@ -17,7 +18,7 @@ router.get('/stats', authenticateAdmin, async (req, res) => {
     }
 
     // Get approved user count
-    const { count: approvedUsers, error: approvedError } = await supabase
+    const { count: approvedUsers, error: approvedError } = await supabaseService
       .from('users')
       .select('*', { count: 'exact', head: true })
       .eq('approved', true);
@@ -28,7 +29,7 @@ router.get('/stats', authenticateAdmin, async (req, res) => {
     }
 
     // Get pending user count
-    const { count: pendingUsers, error: pendingError } = await supabase
+    const { count: pendingUsers, error: pendingError } = await supabaseService
       .from('users')
       .select('*', { count: 'exact', head: true })
       .eq('approved', false)
@@ -40,7 +41,7 @@ router.get('/stats', authenticateAdmin, async (req, res) => {
     }
 
     // Get suspended user count
-    const { count: suspendedUsers, error: suspendedError } = await supabase
+    const { count: suspendedUsers, error: suspendedError } = await supabaseService
       .from('users')
       .select('*', { count: 'exact', head: true })
       .eq('suspended', true);
@@ -51,7 +52,7 @@ router.get('/stats', authenticateAdmin, async (req, res) => {
     }
 
     // Get total product count
-    const { count: totalProducts, error: productError } = await supabase
+    const { count: totalProducts, error: productError } = await supabaseService
       .from('products')
       .select('*', { count: 'exact', head: true });
 
@@ -61,7 +62,7 @@ router.get('/stats', authenticateAdmin, async (req, res) => {
     }
 
     // Get total recommendation count
-    const { count: totalRecommendations, error: recError } = await supabase
+    const { count: totalRecommendations, error: recError } = await supabaseService
       .from('recommendations')
       .select('*', { count: 'exact', head: true });
 
@@ -101,7 +102,7 @@ router.post('/approve-user', authenticateAdmin, async (req, res) => {
 
     // If email provided instead of ID, look up the user
     if (email && !user_id) {
-      const { data: userData, error: userError } = await supabase
+      const { data: userData, error: userError } = await supabaseService
         .from('users')
         .select('id')
         .eq('email', email)
@@ -115,7 +116,7 @@ router.post('/approve-user', authenticateAdmin, async (req, res) => {
     }
 
     // Update user approval status
-    const { data: updatedUser, error: updateError } = await supabase
+    const { data: updatedUser, error: updateError } = await supabaseService
       .from('users')
       .update({
         approved: true,
@@ -133,7 +134,7 @@ router.post('/approve-user', authenticateAdmin, async (req, res) => {
 
     // If user was previously suspended, also unsuspend them
     if (updatedUser.suspended) {
-      await supabase
+      await supabaseService
         .from('users')
         .update({ suspended: false })
         .eq('id', userId);

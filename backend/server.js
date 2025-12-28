@@ -6,7 +6,7 @@
 const express = require('express');
 const crypto = require('crypto');
 const axios = require('axios');
-const { supabase } = require('./config/database');
+const { supabase, supabaseService } = require('./config/database');
 const config = require('./config/environment');
 const { AUTH_MODE, PORT, USE_ALGORITHM_V3, JWT_SECRET, ADMIN_SECRET } = config;
 const corsMiddleware = require('./middleware/cors');
@@ -876,7 +876,8 @@ app.get('/api/cron/auto-analysis', async (req, res) => {
     // console.log('✅ Cron authentication successful');
     // console.log('⏰ [CRON] Running automatic analysis check...');
 
-    const { data: dueUsers, error: dueError } = await supabase
+    // Use supabaseService for cron jobs (needs access to all users)
+    const { data: dueUsers, error: dueError } = await supabaseService
       .from('analysis_schedule')
       .select('user_id')
       .lte('next_analysis_due', new Date().toISOString());
@@ -906,7 +907,8 @@ app.get('/api/cron/auto-analysis', async (req, res) => {
           const now = new Date();
           const nextDue = getNextCronTime(); // Align with cron schedule (:00 and :30)
 
-          await supabase
+          // Use supabaseService for system operations
+          await supabaseService
             .from('analysis_schedule')
             .update({
               last_analysis_run: now.toISOString(),

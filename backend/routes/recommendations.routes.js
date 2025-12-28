@@ -130,6 +130,7 @@ router.post(
     );
 
     // Update recommendation status to accepted
+    // SECURITY: Include user_id check to prevent privilege escalation
     const { error: updateError } = await supabase
       .from('recommendations')
       .update({
@@ -137,20 +138,23 @@ router.post(
         applied_at: new Date().toISOString(),
         shopify_response: response.data
       })
-      .eq('id', id);
+      .eq('id', id)
+      .eq('user_id', userId);
 
     if (updateError) {
       console.error('Error updating recommendation status:', updateError);
     }
 
     // Update the product price in our database
+    // SECURITY: Include user_id check to prevent privilege escalation
     const { error: productUpdateError } = await supabase
       .from('products')
       .update({
         price: recommendation.new_price,
         updated_at: new Date().toISOString()
       })
-      .eq('id', product.id);
+      .eq('id', product.id)
+      .eq('user_id', userId);
 
     if (productUpdateError) {
       console.error('Error updating product price:', productUpdateError);

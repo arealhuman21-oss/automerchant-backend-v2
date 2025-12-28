@@ -2,7 +2,7 @@ const express = require('express');
 const crypto = require('crypto');
 const axios = require('axios');
 const router = express.Router();
-const { supabase } = require('../config/database');
+const { supabase, supabaseService } = require('../config/database');
 const { validate, schemas } = require('../middleware/validation');
 
 // GET /api/shopify/install - Initiate Shopify OAuth
@@ -36,7 +36,8 @@ router.get('/shopify/install', async (req, res) => {
     if (app_id) {
       // console.log(`🔐 [OAuth Install] Using app_id ${app_id} from database`);
 
-      const { data: app, error } = await supabase
+      // Use supabaseService for OAuth flows (pre-authentication)
+      const { data: app, error } = await supabaseService
         .from('shopify_apps')
         .select('client_id, shop_domain')
         .eq('id', app_id)
@@ -208,7 +209,8 @@ router.get('/shopify/callback', async (req, res) => {
     let user_id = null;
     if (user_email) {
       try {
-        const { data: userData, error: userError } = await supabase
+        // Use supabaseService for OAuth flows (pre-authentication)
+        const { data: userData, error: userError } = await supabaseService
           .from('users')
           .select('id')
           .eq('email', user_email)
@@ -219,7 +221,7 @@ router.get('/shopify/callback', async (req, res) => {
           // console.log(`✅ Linked shop to user: ${user_email} (ID: ${user_id})`);
 
           // CRITICAL: Also update the users table so existing code works
-          const { error: updateError } = await supabase
+          const { error: updateError } = await supabaseService
             .from('users')
             .update({
               shopify_shop: shop,
@@ -239,7 +241,8 @@ router.get('/shopify/callback', async (req, res) => {
     }
 
     // Store in shops table for multi-shop support
-    const { error: shopsError } = await supabase
+    // Use supabaseService for OAuth flows (pre-authentication)
+    const { error: shopsError } = await supabaseService
       .from('shops')
       .upsert({
         shop_domain: shop,
@@ -268,7 +271,8 @@ router.get('/shopify/callback', async (req, res) => {
 
     if (user_email) {
       try {
-        const { data: userData, error: checkError } = await supabase
+        // Use supabaseService for OAuth flows (pre-authentication)
+        const { data: userData, error: checkError } = await supabaseService
           .from('users')
           .select('approved')
           .eq('email', user_email)
