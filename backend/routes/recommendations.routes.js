@@ -2,6 +2,7 @@ const express = require('express');
 const axios = require('axios');
 const router = express.Router();
 const { authenticateToken } = require('../middleware/auth');
+const { validate, schemas } = require('../middleware/validation');
 const { supabase } = require('../config/database');
 
 // Helper function to get Shopify credentials based on AUTH_MODE
@@ -73,7 +74,11 @@ router.get('/', authenticateToken, async (req, res) => {
 });
 
 // POST /api/recommendations/:id/accept - Apply price
-router.post('/:id/accept', authenticateToken, async (req, res) => {
+router.post(
+  '/:id/accept',
+  authenticateToken,
+  validate(schemas.id, 'params'),
+  async (req, res) => {
   try {
     const { id } = req.params;
     const userId = req.user.id;
@@ -167,7 +172,11 @@ router.post('/:id/accept', authenticateToken, async (req, res) => {
 });
 
 // POST /api/recommendations/:id/reject - Reject recommendation
-router.post('/:id/reject', authenticateToken, async (req, res) => {
+router.post(
+  '/:id/reject',
+  authenticateToken,
+  validate(schemas.id, 'params'),
+  async (req, res) => {
   try {
     const { id } = req.params;
     const userId = req.user.id;

@@ -3,6 +3,7 @@ const crypto = require('crypto');
 const axios = require('axios');
 const router = express.Router();
 const { supabase } = require('../config/database');
+const { validate, schemas } = require('../middleware/validation');
 
 // GET /api/shopify/install - Initiate Shopify OAuth
 router.get('/shopify/install', async (req, res) => {
@@ -124,7 +125,11 @@ router.get('/shopify/callback', async (req, res) => {
         .update(message, 'utf8')
         .digest('hex');
 
-      if (generatedHmac !== hmac) {
+      // Timing-safe comparison to prevent timing attacks
+      if (!crypto.timingSafeEqual(
+        Buffer.from(generatedHmac),
+        Buffer.from(hmac)
+      )) {
         console.error('❌ Invalid HMAC for custom app install');
         return res.status(400).json({ error: 'Invalid HMAC' });
       }
@@ -154,7 +159,11 @@ router.get('/shopify/callback', async (req, res) => {
       .update(message, 'utf8')
       .digest('hex');
 
-    if (generatedHmac !== hmac) {
+    // Timing-safe comparison to prevent timing attacks
+    if (!crypto.timingSafeEqual(
+      Buffer.from(generatedHmac),
+      Buffer.from(hmac)
+    )) {
       console.error('❌ Invalid HMAC');
       return res.status(400).json({ error: 'Invalid HMAC' });
     }
@@ -292,5 +301,20 @@ router.get('/shopify/callback', async (req, res) => {
     res.redirect(errorUrl);
   }
 });
+
+// This is a placeholder as the controller doesn't exist
+const authController = {
+  initiateOAuth: (req, res) => {
+    res.json({ success: true, message: 'OAuth initiated' });
+  }
+};
+
+// POST /auth/shopify
+router.post(
+  '/shopify',
+  validate(schemas.shopDomain, 'body'),
+  validate(schemas.email, 'body'),
+  authController.initiateOAuth
+);
 
 module.exports = router;

@@ -2,6 +2,7 @@ const express = require('express');
 const axios = require('axios');
 const router = express.Router();
 const { authenticateToken } = require('../middleware/auth');
+const { validate, schemas } = require('../middleware/validation');
 const { supabase } = require('../config/database');
 
 // Helper function to get Shopify credentials based on AUTH_MODE
@@ -247,42 +248,67 @@ router.post('/sync', authenticateToken, async (req, res) => {
 });
 
 // POST /api/products/:id/cost-price
-router.post('/:id/cost-price', authenticateToken, async (req, res) => {
-  try {
-    const { id } = req.params;
-    const { cost_price } = req.body;
+router.post(
+  '/:id/cost-price',
+  authenticateToken,
+  validate(schemas.id, 'params'),
+  validate(schemas.costPrice, 'body'),
+  async (req, res) => {
+    try {
+      const { id } = req.params;
+      const { cost_price } = req.body;
 
-    if (typeof cost_price === 'undefined' || cost_price === null) {
-      return res.status(400).json({ error: 'Cost price is required' });
-    }
+      // Update the product with the new cost price
+      const { error } = await supabase
+        .from('products')
+        .update({
+          cost_price: cost_price,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', id)
+        .eq('user_id', req.user.id);
 
-    // Validate cost price is a number
-    const cost = parseFloat(cost_price);
-    if (isNaN(cost) || cost < 0) {
-      return res.status(400).json({ error: 'Cost price must be a positive number' });
-    }
+      if (error) {
+        console.error('❌ Cost price update error:', error);
+        return res.status(500).json({ error: 'Failed to update cost price' });
+      }
 
-    // Update the product with the new cost price
-    const { error } = await supabase
-      .from('products')
-      .update({
-        cost_price: cost,
-        updated_at: new Date().toISOString()
-      })
-      .eq('id', id)
-      .eq('user_id', req.user.id);
+      res.json({ success: true, message: 'Cost price updated successfully' });
 
-    if (error) {
+    } catch (error) {
       console.error('❌ Cost price update error:', error);
-      return res.status(500).json({ error: 'Failed to update cost price' });
+      res.status(500).json({ error: 'Failed to update cost price' });
     }
-
-    res.json({ success: true, message: 'Cost price updated successfully' });
-
-  } catch (error) {
-    console.error('❌ Cost price update error:', error);
-    res.status(500).json({ error: 'Failed to update cost price' });
   }
-});
+);
+
+// POST /api/products/:id/select
+router.post(
+  '/:id/select',
+  authenticateToken,
+  validate(schemas.id, 'params'),
+  validate(schemas.productSelection, 'body'),
+  async (req, res) => {
+    try {
+      const { id } = req.params;
+      const { selected } = req.body;
+
+      const { error } = await supabase
+        .from('products')
+        .update({ selected_for_analysis: selected })
+        .eq('id', id)
+        .eq('user_id', req.user.id);
+
+      if (error) {
+        throw error;
+      }
+
+      res.json({ success: true, selected });
+    } catch (error) {
+      console.error('Product selection error:', error);
+      res.status(500).json({ error: 'Failed to update product selection' });
+    }
+  }
+);
 
 module.exports = router;

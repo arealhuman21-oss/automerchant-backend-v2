@@ -4,15 +4,37 @@ import { Zap, Check, RefreshCw, TrendingUp, Package, DollarSign, AlertCircle, Lo
 // API URL - automatically uses production URL when deployed
 const API_URL = process.env.REACT_APP_API_URL || '';
 
+// This is a global variable to hold the CSRF token
+let csrfToken = null;
+
 const api = {
   async call(endpoint, options = {}) {
     const token = localStorage.getItem('authToken');
+
+    // Fetch CSRF token if not already fetched
+    if (!csrfToken) {
+      try {
+        const response = await fetch(`${API_URL}/api/csrf-token`, {
+          credentials: 'include'
+        });
+        const data = await response.json();
+        csrfToken = data.csrfToken;
+      } catch (err) {
+        console.error('Failed to fetch CSRF token:', err);
+      }
+    }
+
     const headers = {
       'Content-Type': 'application/json',
       ...(token && { 'Authorization': `Bearer ${token}` }),
+      ...(csrfToken && { 'X-CSRF-Token': csrfToken }),
       ...options.headers
     };
-    const response = await fetch(`${API_URL}${endpoint}`, { ...options, headers });
+    const response = await fetch(`${API_URL}${endpoint}`, {
+      ...options,
+      headers,
+      credentials: 'include' // Important for cookies
+    });
     if (!response.ok) {
       const error = await response.json();
       throw new Error(error.error || 'Request failed');

@@ -4,6 +4,7 @@
 // ============================================
 
 const express = require('express');
+const crypto = require('crypto');
 const axios = require('axios');
 const { supabase } = require('./config/database');
 const config = require('./config/environment');
@@ -11,6 +12,9 @@ const { AUTH_MODE, PORT, USE_ALGORITHM_V3, JWT_SECRET, ADMIN_SECRET } = config;
 const corsMiddleware = require('./middleware/cors');
 const { authenticateToken } = require('./middleware/auth');
 const { errorHandler } = require('./middleware/errorHandler');
+const helmet = require('helmet');
+const cookieParser = require('cookie-parser');
+const csrf = require('csurf');
 
 // Import routes
 const authRoutes = require('./routes/auth.routes');
@@ -137,10 +141,62 @@ function getNextCronTime() {
 app.use(express.json());
 app.use(corsMiddleware);
 
+// Security headers with helmet
+app.use(helmet({
+  contentSecurityPolicy: {
+    directives: {
+      defaultSrc: ["'self'"],
+      styleSrc: ["'self'", "'unsafe-inline'"],
+      scriptSrc: ["'self'"],
+      imgSrc: ["'self'", "data:", "https:'],
+      connectSrc: [
+        "'self'",
+        "https://mfuqxntaivvqiajfgjtv.supabase.co",
+        "https://*.shopify.com"
+      ],
+      fontSrc: ["'self'", "data:"],
+      objectSrc: ["'none'"],
+      upgradeInsecureRequests: []
+    }
+  },
+  hsts: {
+    maxAge: 31536000, // 1 year
+    includeSubDomains: true,
+    preload: true
+  },
+  frameguard: {
+    action: 'deny' // Prevent clickjacking
+  },
+  noSniff: true, // Prevent MIME sniffing
+  xssFilter: true // Enable XSS filter
+}));
+
 // Health check (keep this simple route in server.js)
 app.get('/health', (req, res) => {
   res.json({ status: 'ok' });
 });
+
+app.use(cookieParser());
+
+// CSRF protection for state-changing routes
+const csrfProtection = csrf({
+  cookie: {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: 'strict'
+  }
+});
+
+// GET /api/csrf-token - Get CSRF token for forms
+app.get('/api/csrf-token', csrfProtection, (req, res) => {
+  res.json({ csrfToken: req.csrfToken() });
+});
+
+// Apply CSRF to dangerous routes
+app.use('/api/recommendations/:id/accept', csrfProtection);
+app.use('/api/recommendations/:id/reject', csrfProtection);
+app.use('/api/products/:id/cost-price', csrfProtection);
+app.use('/api/admin/*', csrfProtection);
 
 // Mount routes
 app.use('/auth', authRoutes);
@@ -769,13 +825,55 @@ async function runAnalysisForUser(userId) {
 // CRON ENDPOINT - Runs every 30 minutes (triggered by cron-job.org)
 app.get('/api/cron/auto-analysis', async (req, res) => {
   try {
+    // Prevent rapid fire abuse (max 1 request per 20 minutes)
+    const lastCronRun = global.lastCronRun || 0;
+    const now = Date.now();
+    const twentyMinutes = 20 * 60 * 1000;
+
+    if (now - lastCronRun < twentyMinutes) {
+      console.warn('⚠️ Cron called too frequently, rate limited');
+      return res.status(429).json({
+        error: 'Too many requests',
+        nextAllowed: new Date(lastCronRun + twentyMinutes).toISOString()
+      });
+    }
+
+    global.lastCronRun = now;
+
     // Verify this is actually Vercel calling (security check)
     const authHeader = req.headers.authorization;
-    if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
-      console.log('⚠️ Unauthorized cron attempt');
+
+    // Validate header format
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      console.error('❌ Cron auth failed: Invalid header format');
       return res.status(401).json({ error: 'Unauthorized' });
     }
 
+    // Extract token
+    const providedSecret = authHeader.slice(7); // Remove 'Bearer '
+    const cronSecret = process.env.CRON_SECRET;
+
+    // Validate secret exists
+    if (!cronSecret || cronSecret.length < 32) {
+      console.error('❌ CRON_SECRET not configured properly');
+      return res.status(500).json({ error: 'Server configuration error' });
+    }
+
+    // Timing-safe comparison
+    try {
+      if (!crypto.timingSafeEqual(
+        Buffer.from(providedSecret),
+        Buffer.from(cronSecret)
+      )) {
+        console.error('❌ Cron auth failed: Invalid secret');
+        return res.status(401).json({ error: 'Unauthorized' });
+      }
+    } catch (err) {
+      console.error('❌ Cron auth failed: Comparison error', err);
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+
+    console.log('✅ Cron authentication successful');
     console.log('⏰ [CRON] Running automatic analysis check...');
 
     const { data: dueUsers, error: dueError } = await supabase
