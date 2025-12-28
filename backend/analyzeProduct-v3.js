@@ -686,8 +686,6 @@ async function analyzeProductV3(
   regretBudgets = {},
   elasticityLearners = {}
 ) {
-  console.log(`\n🔬 [V3] Analyzing: ${product.title}`);
-
   // ============================================
   // STEP 1: PARSE DATA
   // ============================================
@@ -701,9 +699,6 @@ async function analyzeProductV3(
 
   const velocity30d = sales30d / 30;
   const velocity7d = sales7d / 7;
-
-  console.log(`   Price: $${currentPrice}, Cost: $${costPrice}, Inventory: ${inventory}`);
-  console.log(`   Sales: 30d=${sales30d}, 7d=${sales7d}, Velocity: ${velocity30d.toFixed(2)}/day`);
 
   // ============================================
   // STEP 2: INITIALIZE LEARNERS
@@ -729,9 +724,6 @@ async function analyzeProductV3(
   }
 
   const elasticityPosterior = elasticityLearner.getPosterior();
-
-  console.log(`   Elasticity: μ=${elasticityPosterior.mean.toFixed(2)}, σ=${elasticityPosterior.sigma.toFixed(2)}, obs=${elasticityPosterior.observations}`);
-  console.log(`   Regret Budget: $${regretBudget.currentBudget.toFixed(2)} (${regretBudget.isFrozen() ? 'FROZEN' : 'OK'})`);
 
   // ============================================
   // STEP 3: SAFETY CHECKS
@@ -789,8 +781,6 @@ async function analyzeProductV3(
   const currentMargin = costPrice > 0 ? ((currentPrice - costPrice) / currentPrice) * 100 : 0;
   const dosMetrics = computeProbabilisticDOS(inventory, sales30d, sales7d);
   const dosRegime = getDOSRegime(dosMetrics.dos, dosMetrics.inventoryTrusted);
-
-  console.log(`   Margin: ${currentMargin.toFixed(1)}%, DOS: ${dosMetrics.dos.toFixed(1)} days (${dosRegime.regime}${dosMetrics.inventoryTrusted ? '' : ' - UNTRUSTED'})`);
 
   // ============================================
   // CRITICAL: DOS REGIME GATING
@@ -863,8 +853,6 @@ async function analyzeProductV3(
 
   uniqueCandidates = filteredCandidates.length > 0 ? filteredCandidates : [currentPrice]; // Always include current as fallback
 
-  console.log(`   Generated ${candidates.length} candidates, filtered to ${uniqueCandidates.length} (DOS regime: ${dosRegime.regime})`);
-
   // ============================================
   // STEP 6: EVALUATE CANDIDATES
   // ============================================
@@ -927,8 +915,6 @@ async function analyzeProductV3(
 
   const paretoFrontier = filterDominatedCandidates(evaluatedCandidates);
 
-  console.log(`   Pareto frontier: ${paretoFrontier.length} / ${evaluatedCandidates.length} candidates`);
-
   // ============================================
   // STEP 8: SELECT OPTIMAL PRICE
   // ============================================
@@ -955,7 +941,6 @@ async function analyzeProductV3(
 
   if (isIncrease && changePercent > (MAX_INCREASE_PER_ITERATION + EPSILON)) {
     const stagedPrice = currentPrice * (1 + MAX_INCREASE_PER_ITERATION / 100);
-    console.log(`   🎯 STAGING: ${bestCandidate.price.toFixed(2)} → ${stagedPrice.toFixed(2)}`);
 
     const stagedProfitSamples = [];
     for (const e of elasticityLearner.sample(100)) {

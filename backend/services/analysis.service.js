@@ -11,7 +11,7 @@ const config = require('../config/environment');
 const axios = require('axios');
 
 async function runAnalysisForUser(userId) {
-  console.log(`🤖 Running analysis for user ${userId}`);
+  // console.log(`🤖 Running analysis for user ${userId}`);
 
   // ============================================
   // DUAL-MODE AUTH: Get credentials based on AUTH_MODE
@@ -25,7 +25,7 @@ async function runAnalysisForUser(userId) {
     accessToken = config.SHOPIFY_ACCESS_TOKEN;
 
     if (!shop || !accessToken) {
-      console.log(`⚠️ User ${userId}: MANUAL MODE - SHOP and SHOPIFY_ACCESS_TOKEN not set in .env`);
+      // console.log(`⚠️ User ${userId}: MANUAL MODE - SHOP and SHOPIFY_ACCESS_TOKEN not set in .env`);
       return;
     }
   } else {
@@ -37,7 +37,7 @@ async function runAnalysisForUser(userId) {
       .single();
 
     if (userError || !user || !user.shopify_shop) {
-      console.log(`⚠️ User ${userId}: No shop domain found in users table`);
+      // console.log(`⚠️ User ${userId}: No shop domain found in users table`);
       return;
     }
 
@@ -49,7 +49,7 @@ async function runAnalysisForUser(userId) {
       .single();
 
     if (shopError || !shopData) {
-      console.log(`⚠️ User ${userId}: No OAuth token found for shop ${user.shopify_shop}`);
+      // console.log(`⚠️ User ${userId}: No OAuth token found for shop ${user.shopify_shop}`);
       return;
     }
 
@@ -61,7 +61,7 @@ async function runAnalysisForUser(userId) {
   // CRITICAL FIX: SYNC PRODUCTS BEFORE ANALYSIS
   // This ensures we have FRESH data, not stale data
   // ============================================  
-  console.log(`🔄 Syncing products from Shopify before analysis...`);
+  // console.log(`🔄 Syncing products from Shopify before analysis...`);
 
   try {
     // Fetch products from Shopify
@@ -78,11 +78,11 @@ async function runAnalysisForUser(userId) {
     let url = `https://${shop}/admin/api/2024-01/orders.json?status=any&created_at_min=${thirtyDaysAgo.toISOString()}&limit=250`;
     let pageCount = 0;
 
-    console.log('🔄 Fetching all orders with pagination...');
+    // console.log('🔄 Fetching all orders with pagination...');
 
     while (url) {
       pageCount++;
-      console.log(`   Page ${pageCount}: Fetching ${url}`);
+      // console.log(`   Page ${pageCount}: Fetching ${url}`);
 
       const response = await axios.get(url, {
         headers: { 'X-Shopify-Access-Token': accessToken }
@@ -90,7 +90,7 @@ async function runAnalysisForUser(userId) {
 
       const pageOrders = response.data.orders || [];
       allOrders = allOrders.concat(pageOrders);
-      console.log(`   ✅ Page ${pageCount}: Got ${pageOrders.length} orders (Total so far: ${allOrders.length})`);
+      // console.log(`   ✅ Page ${pageCount}: Got ${pageOrders.length} orders (Total so far: ${allOrders.length})`);
 
       // Parse Link header for next page (Shopify pagination)
       const linkHeader = response.headers['link'];
@@ -108,7 +108,7 @@ async function runAnalysisForUser(userId) {
       }
     }
 
-    console.log(`📦 TOTAL ORDERS FETCHED: ${allOrders.length} orders across ${pageCount} page(s)`);
+    // console.log(`📦 TOTAL ORDERS FETCHED: ${allOrders.length} orders across ${pageCount} page(s)`);
     const orders = allOrders;
 
     // Calculate sales per variant
@@ -166,7 +166,7 @@ async function runAnalysisForUser(userId) {
         });
     }
 
-    console.log(`✅ Products synced: ${productsResponse.data.products.length} products updated with fresh sales data`);
+    // console.log(`✅ Products synced: ${productsResponse.data.products.length} products updated with fresh sales data`);
   } catch (syncError) {
     console.error(`⚠️ Product sync failed for user ${userId}, continuing with database data:`, syncError.message);
     // Continue anyway - better to analyze with slightly stale data than skip analysis
@@ -179,11 +179,11 @@ async function runAnalysisForUser(userId) {
     .eq('selected_for_analysis', true);
 
   if (productsError || !products || products.length === 0) {
-    console.log(`⚠️ User ${userId}: No products selected for analysis`);
+    // console.log(`⚠️ User ${userId}: No products selected for analysis`);
     return;
   }
 
-  console.log(`📊 Analyzing ${products.length} selected products for user ${userId}`);
+  // console.log(`📊 Analyzing ${products.length} selected products for user ${userId}`);
 
   const allProducts = products;
   const userSettings = { target_margin: 40 };
@@ -208,7 +208,7 @@ async function runAnalysisForUser(userId) {
     });
   }
 
-  console.log(`📉 Price decrease history loaded: ${Object.keys(priceDecreaseHistory).length} products have decreases this month`);
+  // console.log(`📉 Price decrease history loaded: ${Object.keys(priceDecreaseHistory).length} products have decreases this month`);
 
   const sevenDaysAgo = new Date();
   sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
@@ -249,7 +249,7 @@ async function runAnalysisForUser(userId) {
 
   if (config.USE_ALGORITHM_V3) {
     try {
-      console.log(`📚 Loading V3 state...`);
+      // console.log(`📚 Loading V3 state...`);
       regretBudgets = await loadRegretBudgets(supabase, userId);
       elasticityLearners = await loadElasticityLearners(supabase, userId);
 
@@ -261,10 +261,10 @@ async function runAnalysisForUser(userId) {
         }
       }
 
-      console.log(`   ✅ Loaded: ${Object.keys(regretBudgets).length} budgets, ${Object.keys(elasticityLearners).length} learners, ${Object.keys(priceHistory).length} products with history`);
+      // console.log(`   ✅ Loaded: ${Object.keys(regretBudgets).length} budgets, ${Object.keys(elasticityLearners).length} learners, ${Object.keys(priceHistory).length} products with history`);
     } catch (error) {
       console.error('⚠️ V3 state loading failed (tables may not exist yet):', error.message);
-      console.log('   ERROR: V3 tables missing! Cannot proceed without V3.');
+      // console.log('   ERROR: V3 tables missing! Cannot proceed without V3.');
       throw new Error('V3 tables not found - run migrations first');
     }
   }
@@ -273,14 +273,14 @@ async function runAnalysisForUser(userId) {
 
   for (const product of allProducts) {
     try {
-      console.log(`
-🔍 Analyzing product: ${product.title} (ID: ${product.id})`);
-      console.log(`   Raw data:`, {
-        cost_price: product.cost_price,
-        price: product.price,
-        inventory: product.inventory,
-        sales_velocity: product.sales_velocity
-      });
+      // console.log(`
+// 🔍 Analyzing product: ${product.title} (ID: ${product.id})`);
+      // console.log(`   Raw data:`, {
+      //   cost_price: product.cost_price,
+      //   price: product.price,
+      //   inventory: product.inventory,
+      //   sales_velocity: product.sales_velocity
+      // });
 
       // Algorithm: V3 only (V2 removed)
       const analysis = await analyzeProductV3(
@@ -293,14 +293,14 @@ async function runAnalysisForUser(userId) {
         elasticityLearners
       );
 
-      console.log(`   Analysis result:`, {
-        shouldChangePrice: analysis.shouldChangePrice,
-        recommendedPrice: analysis.recommendedPrice,
-        urgency: analysis.urgency,
-        confidence: analysis.confidence,
-        algorithm: 'V3',
-        error: analysis.error || 'none'
-      });
+      // console.log(`   Analysis result:`, {
+      //   shouldChangePrice: analysis.shouldChangePrice,
+      //   recommendedPrice: analysis.recommendedPrice,
+      //   urgency: analysis.urgency,
+      //   confidence: analysis.confidence,
+      //   algorithm: 'V3',
+      //   error: analysis.error || 'none'
+      // });
 
       if (analysis.shouldChangePrice) {
         // UPSERT to prevent duplicate recommendations (atomic operation)
@@ -324,7 +324,7 @@ async function runAnalysisForUser(userId) {
         if (upsertError) {
           console.error('Error upserting recommendation:', upsertError);
         } else {
-          console.log(`   ✅ Recommendation created: $${product.price} → $${analysis.recommendedPrice}`);
+          // console.log(`   ✅ Recommendation created: $${product.price} → $${analysis.recommendedPrice}`);
           recommendationsCreated++;
 
           // Save V3 metadata if using V3
@@ -333,8 +333,8 @@ async function runAnalysisForUser(userId) {
           }
         }
       } else {
-        console.log(`   ✓ No price change needed`);
-        console.log(`   Reasoning: ${analysis.reasoning || analysis.error || 'Unknown'}`);
+        // console.log(`   ✓ No price change needed`);
+        // console.log(`   Reasoning: ${analysis.reasoning || analysis.error || 'Unknown'}`);
       }
 
       await supabase
@@ -360,8 +360,8 @@ async function runAnalysisForUser(userId) {
     }
   }
 
-  console.log(`
-✅ Analysis complete for user ${userId}: ${recommendationsCreated} recommendations created`);
+  // console.log(`
+// ✅ Analysis complete for user ${userId}: ${recommendationsCreated} recommendations created`);
   return { recommendationsCreated };
 }
 

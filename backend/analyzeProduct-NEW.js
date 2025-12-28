@@ -27,8 +27,8 @@ async function analyzeProduct(product, allProducts, userSettings, recentOrderDat
     ? (Date.now() - new Date(product.last_analyzed_at)) / (1000 * 60 * 60 * 24)
     : 999;
 
-  console.log(`   [ALGORITHM] Parsed values: cost=$${costPrice}, price=$${currentPrice}`);
-  console.log(`   [ALGORITHM] Sales data: 7d=${sales7d}, 30d=${sales30d}, velocity=${salesVelocity.toFixed(2)}/day`);
+  // console.log(`   [ALGORITHM] Parsed values: cost=$${costPrice}, price=$${currentPrice}`);
+  // console.log(`   [ALGORITHM] Sales data: 7d=${sales7d}, 30d=${sales30d}, velocity=${salesVelocity.toFixed(2)}/day`);
 
   // ============================================
   // STEP 2: DATA RELIABILITY CLASSIFICATION
@@ -62,13 +62,13 @@ async function analyzeProduct(product, allProducts, userSettings, recentOrderDat
     reliabilityIssues.push('limited sales data (< 20 units)');
   }
 
-  console.log(`   [DATA RELIABILITY] ${dataReliability} ${reliabilityIssues.length > 0 ? `(${reliabilityIssues.join(', ')})` : ''}`);
+  // console.log(`   [DATA RELIABILITY] ${dataReliability} ${reliabilityIssues.length > 0 ? `(${reliabilityIssues.join(', ')})` : ''}`);
 
   // ============================================
   // STEP 3: LOW RELIABILITY → PROTECTIVE ONLY
   // ============================================
   if (dataReliability === 'LOW') {
-    console.log(`   [ALGORITHM] ⚠️ LOW data reliability - PROTECTIVE ACTIONS ONLY`);
+    // console.log(`   [ALGORITHM] ⚠️ LOW data reliability - PROTECTIVE ACTIONS ONLY`);
 
     // ALLOWED: Prevent selling below cost
     if (currentPrice < costPrice) {
@@ -103,7 +103,7 @@ async function analyzeProduct(product, allProducts, userSettings, recentOrderDat
     }
 
     // FORBIDDEN with LOW data: decreases, experiments, aggressive increases
-    console.log(`   [ALGORITHM] ✓ LOW reliability + safe margin → DO NOTHING`);
+    // console.log(`   [ALGORITHM] ✓ LOW reliability + safe margin → DO NOTHING`);
     return {
       shouldChangePrice: false,
       reasoning: `⚠️ INSUFFICIENT DATA: Cannot make confident pricing recommendation due to: ${reliabilityIssues.join(', ')}. Current price $${currentPrice.toFixed(2)} (${currentMargin.toFixed(1)}% margin) appears safe. Need more sales history for optimization.`,
@@ -127,7 +127,7 @@ async function analyzeProduct(product, allProducts, userSettings, recentOrderDat
   const MAX_DECREASE_PERCENT = 0.25; // 25%
   const ZERO_SALES_THRESHOLD_7D = 0;
 
-  console.log(`   [ALGORITHM] Margin: ${currentMargin.toFixed(1)}%, Markup: ${currentMarkup.toFixed(1)}x`);
+  // console.log(`   [ALGORITHM] Margin: ${currentMargin.toFixed(1)}%, Markup: ${currentMarkup.toFixed(1)}x`);
 
   // ============================================
   // STEP 5: PRICING DECISION ORDER (DO NOT VIOLATE)
@@ -139,7 +139,7 @@ async function analyzeProduct(product, allProducts, userSettings, recentOrderDat
 
   // Safety Check A: Selling BELOW cost
   if (currentPrice < costPrice) {
-    console.log(`   [ALGORITHM] 🚨 SAFETY VIOLATION: Below cost`);
+    // console.log(`   [ALGORITHM] 🚨 SAFETY VIOLATION: Below cost`);
     const emergencyPrice = costPrice * 1.5;
     const increasePercent = ((emergencyPrice - currentPrice) / currentPrice * 100).toFixed(1);
     return {
@@ -155,7 +155,7 @@ async function analyzeProduct(product, allProducts, userSettings, recentOrderDat
 
   // Safety Check B: Margin dangerously low
   if (currentMargin < MIN_MARGIN_PERCENT) {
-    console.log(`   [ALGORITHM] 🛡️ SAFETY: Margin too low (${currentMargin.toFixed(1)}%)`);
+    // console.log(`   [ALGORITHM] 🛡️ SAFETY: Margin too low (${currentMargin.toFixed(1)}%)`);
     const targetPrice = costPrice / (1 - (TARGET_MARGIN / 100));
     const cappedPrice = Math.min(targetPrice, currentPrice * (1 + MAX_INCREASE_PERCENT));
     const increasePercent = ((cappedPrice - currentPrice) / currentPrice * 100).toFixed(1);
@@ -184,11 +184,11 @@ async function analyzeProduct(product, allProducts, userSettings, recentOrderDat
 
   // Mispricing A: Zero sales for 7+ days (with sufficient data quality)
   if (sales7d === 0 && daysSinceLastAnalysis >= 7 && dataReliability === 'HIGH') {
-    console.log(`   [ALGORITHM] 📉 MISPRICING: Zero sales for 7+ days`);
+    // console.log(`   [ALGORITHM] 📉 MISPRICING: Zero sales for 7+ days`);
 
     // PROTECTION: Max 3 decreases per month
     if (decreasesThisMonth >= 3) {
-      console.log(`   [ALGORITHM] ⚠️ BLOCKED: Price decrease limit reached (${decreasesThisMonth}/3)`);
+      // console.log(`   [ALGORITHM] ⚠️ BLOCKED: Price decrease limit reached (${decreasesThisMonth}/3)`);
       return {
         shouldChangePrice: false,
         reasoning: `⚠️ NO SALES IN 7 DAYS: Zero recent sales detected, but already made ${decreasesThisMonth} price decreases this month (max 3 for safety). Will retry next month. Current: $${currentPrice.toFixed(2)} (${currentMargin.toFixed(1)}% margin).`,
@@ -219,7 +219,7 @@ async function analyzeProduct(product, allProducts, userSettings, recentOrderDat
 
   // Mispricing B: Extremely high margin + slow demand
   if (currentMargin > MAX_MARGIN_PERCENT && salesVelocity < 0.5) {
-    console.log(`   [ALGORITHM] 💸 MISPRICING: Very high margin (${currentMargin.toFixed(1)}%) + slow sales`);
+    // console.log(`   [ALGORITHM] 💸 MISPRICING: Very high margin (${currentMargin.toFixed(1)}%) + slow sales`);
     const targetPrice = costPrice / (1 - (TARGET_MARGIN / 100));
     const cappedPrice = Math.max(targetPrice, currentPrice * (1 - MAX_DECREASE_PERCENT));
     const decreasePercent = ((currentPrice - cappedPrice) / currentPrice * 100).toFixed(1);
@@ -237,7 +237,7 @@ async function analyzeProduct(product, allProducts, userSettings, recentOrderDat
 
   // Mispricing C: Suspicious markup (pricing error detection)
   if (currentMarkup > SUSPICIOUS_MARKUP) {
-    console.log(`   [ALGORITHM] ⚠️ MISPRICING: Suspicious markup (${currentMarkup.toFixed(1)}x)`);
+    // console.log(`   [ALGORITHM] ⚠️ MISPRICING: Suspicious markup (${currentMarkup.toFixed(1)}x)`);
     const reasonablePrice = costPrice * MAX_MARKUP_RATIO;
     const decreasePercent = ((currentPrice - reasonablePrice) / currentPrice * 100).toFixed(1);
     return {
@@ -255,7 +255,7 @@ async function analyzeProduct(product, allProducts, userSettings, recentOrderDat
   // DECISION ORDER 3: OTHERWISE → NO CHANGE
   // ------------------------------------------
 
-  console.log(`   [ALGORITHM] ✓ No safety issues, no obvious mispricing → DO NOTHING`);
+  // console.log(`   [ALGORITHM] ✓ No safety issues, no obvious mispricing → DO NOTHING`);
 
   // Inventory can provide context notes, but NEVER initiates change
   let statusNote = '';

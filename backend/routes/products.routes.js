@@ -65,11 +65,11 @@ async function fetchAllOrdersPaginated(shop, accessToken, thirtyDaysAgo) {
   let url = `https://${shop}/admin/api/2024-01/orders.json?status=any&created_at_min=${thirtyDaysAgo.toISOString()}&limit=250`;
   let pageCount = 0;
 
-  console.log('🔄 Fetching all orders with pagination...');
+  // console.log('🔄 Fetching all orders with pagination...');
 
   while (url) {
     pageCount++;
-    console.log(`   Page ${pageCount}: Fetching ${url}`);
+    // console.log(`   Page ${pageCount}: Fetching ${url}`);
 
     const response = await axios.get(url, {
       headers: { 'X-Shopify-Access-Token': accessToken }
@@ -77,7 +77,7 @@ async function fetchAllOrdersPaginated(shop, accessToken, thirtyDaysAgo) {
 
     const pageOrders = response.data.orders || [];
     allOrders = allOrders.concat(pageOrders);
-    console.log(`   ✅ Page ${pageCount}: Got ${pageOrders.length} orders (Total so far: ${allOrders.length})`);
+    // console.log(`   ✅ Page ${pageCount}: Got ${pageOrders.length} orders (Total so far: ${allOrders.length})`);
 
     // Parse Link header for next page (Shopify pagination)
     const linkHeader = response.headers['link'];
@@ -95,7 +95,7 @@ async function fetchAllOrdersPaginated(shop, accessToken, thirtyDaysAgo) {
     }
   }
 
-  console.log(`📦 TOTAL ORDERS FETCHED: ${allOrders.length} orders across ${pageCount} page(s)`);
+  // console.log(`📦 TOTAL ORDERS FETCHED: ${allOrders.length} orders across ${pageCount} page(s)`);
   return allOrders;
 }
 
@@ -120,7 +120,7 @@ router.post('/sync', authenticateToken, async (req, res) => {
     const variantSales = {};
     const variantRevenue = {};
 
-    console.log(`📦 Processing ${orders.length} orders from last 30 days`);
+    // console.log(`📦 Processing ${orders.length} orders from last 30 days`);
 
     orders.forEach(order => {
       order.line_items?.forEach(item => {
@@ -130,12 +130,12 @@ router.post('/sync', authenticateToken, async (req, res) => {
           const revenue = parseFloat(item.price) * quantity;
           variantSales[variantId] = (variantSales[variantId] || 0) + quantity;
           variantRevenue[variantId] = (variantRevenue[variantId] || 0) + revenue;
-          console.log(`  ✅ Variant ${variantId}: +${quantity} units, +$${revenue.toFixed(2)}`);
+          // console.log(`  ✅ Variant ${variantId}: +${quantity} units, +$${revenue.toFixed(2)}`);
         }
       });
     });
 
-    console.log(`📊 Sales aggregated for ${Object.keys(variantSales).length} variants:`, variantSales);
+    // console.log(`📊 Sales aggregated for ${Object.keys(variantSales).length} variants:`, variantSales);
 
     // Get shop and app_id from database
     const { data: shopData } = await supabase
@@ -149,7 +149,7 @@ router.post('/sync', authenticateToken, async (req, res) => {
     const appId = shopData?.app_id || null;
 
     let syncedCount = 0;
-    console.log(`\n🔄 Syncing ${response.data.products.length} products...`);
+    // console.log(`\n🔄 Syncing ${response.data.products.length} products...`);
 
     for (const product of response.data.products) {
       const variant = product.variants[0];
@@ -158,11 +158,11 @@ router.post('/sync', authenticateToken, async (req, res) => {
       const totalRevenue = variantRevenue[variantId] || 0;
       const salesVelocity = totalSales / 30;
 
-      console.log(`\n📦 ${product.title}`);
-      console.log(`   Variant ID: ${variantId}`);
-      console.log(`   Sales (30d): ${totalSales} units`);
-      console.log(`   Revenue (30d): $${totalRevenue.toFixed(2)}`);
-      console.log(`   Velocity: ${salesVelocity.toFixed(3)} units/day`);
+      // console.log(`\n📦 ${product.title}`);
+      // console.log(`   Variant ID: ${variantId}`);
+      // console.log(`   Sales (30d): ${totalSales} units`);
+      // console.log(`   Revenue (30d): $${totalRevenue.toFixed(2)}`);
+      // console.log(`   Velocity: ${salesVelocity.toFixed(3)} units/day`);
 
       const productData = {
         user_id: req.user.id,
@@ -190,15 +190,15 @@ router.post('/sync', authenticateToken, async (req, res) => {
       if (upsertError) {
         console.error('❌ Error upserting product:', upsertError);
       } else {
-        console.log('   ✅ Saved to database');
+        // console.log('   ✅ Saved to database');
         syncedCount++;
       }
     }
 
-    console.log(`\n✅ Sync complete: ${syncedCount}/${response.data.products.length} products`);
+    // console.log(`\n✅ Sync complete: ${syncedCount}/${response.data.products.length} products`);
 
     // DELETE products that no longer exist in Shopify
-    console.log('\n🗑️ Checking for deleted products...');
+    // console.log('\n🗑️ Checking for deleted products...');
 
     // Get all Shopify variant IDs from this sync
     const shopifyVariantIds = response.data.products.map(p => p.variants[0].id.toString());
@@ -214,8 +214,8 @@ router.post('/sync', authenticateToken, async (req, res) => {
     );
 
     if (productsToDelete.length > 0) {
-      console.log(`🗑️ Found ${productsToDelete.length} products to delete:`);
-      productsToDelete.forEach(p => console.log(`   - ${p.title} (Variant: ${p.shopify_variant_id})`));
+      // console.log(`🗑️ Found ${productsToDelete.length} products to delete:`);
+      // productsToDelete.forEach(p => console.log(`   - ${p.title} (Variant: ${p.shopify_variant_id})`));
 
       const { error: deleteError } = await supabase
         .from('products')
@@ -225,10 +225,10 @@ router.post('/sync', authenticateToken, async (req, res) => {
       if (deleteError) {
         console.error('❌ Error deleting products:', deleteError);
       } else {
-        console.log(`✅ Deleted ${productsToDelete.length} products from database`);
+        // console.log(`✅ Deleted ${productsToDelete.length} products from database`);
       }
     } else {
-      console.log('✅ No products to delete');
+      // console.log('✅ No products to delete');
     }
 
     res.json({

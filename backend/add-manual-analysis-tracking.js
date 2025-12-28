@@ -10,11 +10,11 @@ const pool = new Pool({
 });
 
 async function addManualAnalysisTracking() {
-  console.log('🔧 Adding manual analysis tracking...\n');
+  // console.log('🔧 Adding manual analysis tracking...\n');
 
   try {
     // Create table to track manual analyses
-    console.log('1️⃣ Creating manual_analyses table...');
+    // console.log('1️⃣ Creating manual_analyses table...');
     await pool.query(`
       CREATE TABLE IF NOT EXISTS manual_analyses (
         id SERIAL PRIMARY KEY,
@@ -23,18 +23,18 @@ async function addManualAnalysisTracking() {
         products_analyzed INTEGER DEFAULT 0
       );
     `);
-    console.log('✅ manual_analyses table created\n');
+    // console.log('✅ manual_analyses table created\n');
 
     // Create index for faster queries
-    console.log('2️⃣ Creating index...');
+    // console.log('2️⃣ Creating index...');
     await pool.query(`
-      CREATE INDEX IF NOT EXISTS idx_manual_analyses_user_date 
+      CREATE INDEX IF NOT EXISTS idx_manual_analyses_user_date
       ON manual_analyses(user_id, triggered_at);
     `);
-    console.log('✅ Index created\n');
+    // console.log('✅ Index created\n');
 
-    console.log('🎉 Manual analysis tracking ready!');
-    console.log('✅ Users can now run 10 manual analyses per day');
+    // console.log('🎉 Manual analysis tracking ready!');
+    // console.log('✅ Users can now run 10 manual analyses per day');
     
   } catch (error) {
     console.error('❌ Error:', error);

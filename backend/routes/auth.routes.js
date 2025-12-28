@@ -34,7 +34,7 @@ router.get('/shopify/install', async (req, res) => {
     // MULTI-APP SUPPORT: Look up credentials from database
     // ============================================
     if (app_id) {
-      console.log(`🔐 [OAuth Install] Using app_id ${app_id} from database`);
+      // console.log(`🔐 [OAuth Install] Using app_id ${app_id} from database`);
 
       const { data: app, error } = await supabase
         .from('shopify_apps')
@@ -53,11 +53,11 @@ router.get('/shopify/install', async (req, res) => {
       SHOPIFY_API_KEY = app.client_id;
       SHOPIFY_SCOPES = process.env.SHOPIFY_SCOPES || 'read_products,write_products,read_orders,write_inventory';
 
-      console.log(`   Using app for shop: ${app.shop_domain}`);
+      // console.log(`   Using app for shop: ${app.shop_domain}`);
 
     } else {
       // Fall back to environment variables for backward compatibility
-      console.log(`🔐 [OAuth Install] Using credentials from environment variables`);
+      // console.log(`🔐 [OAuth Install] Using credentials from environment variables`);
       SHOPIFY_API_KEY = process.env.SHOPIFY_API_KEY;
       SHOPIFY_SCOPES = process.env.SHOPIFY_SCOPES || 'read_products,write_products,read_orders,write_inventory';
     }
@@ -82,9 +82,9 @@ router.get('/shopify/install', async (req, res) => {
       `redirect_uri=${encodeURIComponent(SHOPIFY_REDIRECT_URI)}&` +
       `state=${stateData}`;
 
-    console.log(`🔐 [OAuth Install] Redirecting shop ${shopDomain} to Shopify authorization`);
-    console.log(`   Scopes: ${SHOPIFY_SCOPES}`);
-    console.log(`   Redirect URI: ${SHOPIFY_REDIRECT_URI}`);
+    // console.log(`🔐 [OAuth Install] Redirecting shop ${shopDomain} to Shopify authorization`);
+    // console.log(`   Scopes: ${SHOPIFY_SCOPES}`);
+    // console.log(`   Redirect URI: ${SHOPIFY_REDIRECT_URI}`);
 
     // Redirect merchant to Shopify's grant screen
     res.redirect(authUrl);
@@ -108,10 +108,10 @@ router.get('/shopify/callback', async (req, res) => {
     // ============================================
     // Custom distribution apps send: hmac, shop, host, timestamp (NO code)
     if (!code) {
-      console.log('🔐 [Custom App Install] Processing custom app installation');
-      console.log(`   Shop: ${shop}`);
-      console.log(`   Host: ${host}`);
-      console.log(`   Timestamp: ${timestamp}`);
+      // console.log('🔐 [Custom App Install] Processing custom app installation');
+      // console.log(`   Shop: ${shop}`);
+      // console.log(`   Host: ${host}`);
+      // console.log(`   Timestamp: ${timestamp}`);
 
       // Verify HMAC for custom app install
       const map = { shop, host, timestamp };
@@ -136,16 +136,16 @@ router.get('/shopify/callback', async (req, res) => {
 
       // For custom app installs, redirect to App URL root with success message
       const appUrl = `https://automerchant.vercel.app?custom_app_install=success&shop=${encodeURIComponent(shop)}`;
-      console.log(`🎉 Custom app install complete! Redirecting to: ${appUrl}`);
+      // console.log(`🎉 Custom app install complete! Redirecting to: ${appUrl}`);
       return res.redirect(appUrl);
     }
 
     // ============================================
     // HANDLE STANDARD OAUTH FLOW (WITH CODE)
     // ============================================
-    console.log('🔐 [Standard OAuth] Processing standard OAuth callback');
-    console.log(`   Shop: ${shop}`);
-    console.log(`   Code: ${code.substring(0, 6)}...`);
+    // console.log('🔐 [Standard OAuth] Processing standard OAuth callback');
+    // console.log(`   Shop: ${shop}`);
+    // console.log(`   Code: ${code.substring(0, 6)}...`);
 
     // Verify HMAC for security
     const map = { shop, code, state, timestamp };
@@ -179,8 +179,8 @@ router.get('/shopify/callback', async (req, res) => {
       }
     }
 
-    console.log(`   App ID: ${app_id || 'none'}`);
-    console.log(`   User Email: ${user_email || 'none'}`);
+    // console.log(`   App ID: ${app_id || 'none'}`);
+    // console.log(`   User Email: ${user_email || 'none'}`);
 
     // Exchange code for access token
     const tokenResponse = await axios.post(
@@ -198,8 +198,8 @@ router.get('/shopify/callback', async (req, res) => {
 
     const { access_token, scope } = tokenResponse.data;
 
-    console.log('✅ Access token received from Shopify');
-    console.log(`   Scope: ${scope}`);
+    // console.log('✅ Access token received from Shopify');
+    // console.log(`   Scope: ${scope}`);
 
     // ============================================
     // STORE TOKEN IN DATABASE
@@ -216,7 +216,7 @@ router.get('/shopify/callback', async (req, res) => {
 
         if (!userError && userData) {
           user_id = userData.id;
-          console.log(`✅ Linked shop to user: ${user_email} (ID: ${user_id})`);
+          // console.log(`✅ Linked shop to user: ${user_email} (ID: ${user_id})`);
 
           // CRITICAL: Also update the users table so existing code works
           const { error: updateError } = await supabase
@@ -230,7 +230,7 @@ router.get('/shopify/callback', async (req, res) => {
           if (updateError) {
             console.error('Error updating users table:', updateError);
           } else {
-            console.log(`✅ Updated users table for user ID ${user_id}`);
+            // console.log(`✅ Updated users table for user ID ${user_id}`);
           }
         }
       } catch (err) {
@@ -258,7 +258,7 @@ router.get('/shopify/callback', async (req, res) => {
       console.error('Error storing in shops table:', shopsError);
     }
 
-    console.log(`✅ Token stored in shops table for shop: ${shop} with app_id: ${app_id}`);
+    // console.log(`✅ Token stored in shops table for shop: ${shop} with app_id: ${app_id}`);
 
     // ============================================
     // REDIRECT TO APP WITH SUCCESS MESSAGE
@@ -277,11 +277,11 @@ router.get('/shopify/callback', async (req, res) => {
         if (!checkError && userData && userData.approved) {
           // User is approved - redirect to product with auto-login
           appUrl = `https://automerchant.vercel.app?oauth_success=true&email=${encodeURIComponent(user_email)}`;
-          console.log(`✅ Approved user ${user_email} - redirecting to product dashboard`);
+          // console.log(`✅ Approved user ${user_email} - redirecting to product dashboard`);
         } else {
           // User is NOT approved - redirect to waitlist
           appUrl = `https://automerchant.vercel.app?waitlist=true&message=${encodeURIComponent('Thanks for installing! Your account is pending approval.')}`;
-          console.log(`⏳ Pending user ${user_email} - redirecting to waitlist`);
+          // console.log(`⏳ Pending user ${user_email} - redirecting to waitlist`);
         }
       } catch (err) {
         console.error('Error checking user approval:', err);
@@ -289,7 +289,7 @@ router.get('/shopify/callback', async (req, res) => {
       }
     }
 
-    console.log(`🎉 OAuth installation complete! Redirecting to: ${appUrl}`);
+    // console.log(`🎉 OAuth installation complete! Redirecting to: ${appUrl}`);
 
     res.redirect(appUrl);
 
