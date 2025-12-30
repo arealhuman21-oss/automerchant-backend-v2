@@ -3,20 +3,35 @@ const { JWT_SECRET, ADMIN_SECRET } = require('../config/environment');
 const { supabaseService } = require('../config/database');
 
 function authenticateToken(req, res, next) {
-  const authHeader = req.headers['authorization'];
-  const token = authHeader && authHeader.split(' ')[1];
+  try {
+    const authHeader = req.headers['authorization'];
+    const token = authHeader && authHeader.split(' ')[1];
 
-  if (!token) {
-    return res.status(401).json({ error: 'Authentication required' });
-  }
+    console.log('🔐 Auth check - Token present:', !!token);
 
-  jwt.verify(token, JWT_SECRET, (err, user) => {
-    if (err) {
-      return res.status(403).json({ error: 'Invalid or expired token' });
+    if (!token) {
+      console.log('❌ No token provided');
+      return res.status(401).json({ error: 'Authentication required' });
     }
-    req.user = user;
-    next();
-  });
+
+    if (!JWT_SECRET) {
+      console.error('❌ CRITICAL: JWT_SECRET is not configured!');
+      return res.status(500).json({ error: 'Server configuration error' });
+    }
+
+    jwt.verify(token, JWT_SECRET, (err, user) => {
+      if (err) {
+        console.log('❌ Token verification failed:', err.message);
+        return res.status(403).json({ error: 'Invalid or expired token' });
+      }
+      console.log('✅ Token verified for userId:', user.userId);
+      req.user = user;
+      next();
+    });
+  } catch (error) {
+    console.error('❌ Auth middleware error:', error);
+    return res.status(500).json({ error: 'Authentication error' });
+  }
 }
 
 // Admin authentication middleware
@@ -29,7 +44,7 @@ async function authenticateAdmin(req, res, next) {
       const { data: adminUser, error } = await supabaseService
         .from('admin_users')
         .select('id, email, role')
-        .eq('user_id', req.user.id)
+        .eq('user_id', req.user.userId)
         .eq('active', true)
         .single();
 
@@ -38,7 +53,7 @@ async function authenticateAdmin(req, res, next) {
         const { data: emailAdmin, error: emailError } = await supabaseService
           .from('users')
           .select('id, email, admin_level')
-          .eq('id', req.user.id)
+          .eq('id', req.user.userId)
           .eq('admin_level', 'admin')
           .single();
 

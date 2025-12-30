@@ -4,39 +4,36 @@ import { Zap, Check, RefreshCw, TrendingUp, Package, DollarSign, AlertCircle, Lo
 // API URL - automatically uses production URL when deployed
 const API_URL = process.env.REACT_APP_API_URL || '';
 
-// This is a global variable to hold the CSRF token
-let csrfToken = null;
-
 const api = {
   async call(endpoint, options = {}) {
     const token = localStorage.getItem('authToken');
 
-    // Fetch CSRF token if not already fetched
-    if (!csrfToken) {
-      try {
-        const response = await fetch(`${API_URL}/api/csrf-token`, {
-          credentials: 'include'
-        });
-        const data = await response.json();
-        csrfToken = data.csrfToken;
-      } catch (err) {
-        console.error('Failed to fetch CSRF token:', err);
-      }
+    // Debug: Log if token is missing
+    if (!token) {
+      console.error('⚠️ No authToken in localStorage!');
     }
 
     const headers = {
       'Content-Type': 'application/json',
       ...(token && { 'Authorization': `Bearer ${token}` }),
-      ...(csrfToken && { 'X-CSRF-Token': csrfToken }),
       ...options.headers
     };
+
+    console.log(`📡 API Call: ${options.method || 'GET'} ${endpoint}`);
+
     const response = await fetch(`${API_URL}${endpoint}`, {
       ...options,
       headers,
-      credentials: 'include' // Important for cookies
+      credentials: 'include'
     });
     if (!response.ok) {
       const error = await response.json();
+      console.error(`❌ API Error ${response.status}:`, error);
+
+      // If auth error, suggest re-login
+      if (response.status === 401 || response.status === 403) {
+        throw new Error('Session expired. Please log out and log back in.');
+      }
       throw new Error(error.error || 'Request failed');
     }
     return response.json();
@@ -58,7 +55,7 @@ function CostPriceModal({ isOpen, onClose, product, onSave }) {
     try {
       await api.call(`/api/products/${product.id}/cost-price`, {
         method: 'POST',
-        body: JSON.stringify({ costPrice: parseFloat(costPrice) })
+        body: JSON.stringify({ cost_price: parseFloat(costPrice) })
       });
       onSave();
       onClose();
@@ -135,6 +132,7 @@ function CostPriceModal({ isOpen, onClose, product, onSave }) {
           <button
             onClick={handleSave}
             disabled={saving}
+            type="button"
             className="w-full py-3 bg-purple-600 hover:bg-purple-700 disabled:bg-slate-700 text-white font-semibold rounded-lg transition"
           >
             {saving ? 'Saving...' : 'Save Cost Price'}
@@ -255,13 +253,21 @@ function SettingsModal({ isOpen, onClose, onConnect, shopifyConnected }) {
 
 // Display actual scheduled time (synced with cron-job.org schedule)
 function NextAnalysisTime({ nextAnalysisDue, showIcon = true }) {
-  if (!nextAnalysisDue) {
-    return (
-      <div className="flex items-center space-x-2">
-        {showIcon && <Clock className="w-4 h-4 text-purple-400" />}
-        <span className="text-white font-semibold">Calculating...</span>
-      </div>
-    );
+  // CRITICAL FIX: If backend doesn't provide time, calculate client-side
+  // Cron runs every 30 minutes at :00 and :30 marks
+  let displayTime = nextAnalysisDue;
+
+  if (!displayTime) {
+    // Calculate next :00 or :30 mark
+    const now = new Date();
+    const minutes = now.getMinutes();
+    const nextCronMinute = minutes < 30 ? 30 : 60;
+    const minutesToAdd = nextCronMinute - minutes;
+
+    const nextCron = new Date(now.getTime() + minutesToAdd * 60 * 1000);
+    nextCron.setSeconds(0);
+    nextCron.setMilliseconds(0);
+    displayTime = nextCron.toISOString();
   }
 
   const formatTime = (dateString) => {
@@ -298,7 +304,7 @@ function NextAnalysisTime({ nextAnalysisDue, showIcon = true }) {
     <div className="flex items-center space-x-2">
       {showIcon && <Clock className="w-4 h-4 text-purple-400" />}
       <span className="text-white font-semibold">
-        {formatTime(nextAnalysisDue)}
+        {formatTime(displayTime)}
       </span>
     </div>
   );
@@ -552,7 +558,18 @@ function ProductDashboard({ userEmail, onLogout }) {
 
       const loadedProducts = productsData.products || [];
       setProducts(loadedProducts);
-      setRecommendations(recsData.recommendations || []);
+
+      // CRITICAL FIX: Filter out stale recommendations where recommended price = current price
+      const allRecs = recsData.recommendations || [];
+      const validRecs = allRecs.filter(rec => {
+        const product = loadedProducts.find(p => p.id === rec.product_id);
+        if (!product) return false;
+        const currentPrice = parseFloat(product.price);
+        const recommendedPrice = parseFloat(rec.recommended_price);
+        const priceChange = Math.abs(recommendedPrice - currentPrice);
+        return priceChange >= 0.01; // Only show if price change is at least 1 cent
+      });
+      setRecommendations(validRecs);
       setOrders(ordersData.orders || []);
       setStats(statsData);
 
@@ -578,7 +595,7 @@ function ProductDashboard({ userEmail, onLogout }) {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
-              'Authorization': `Bearer ${localStorage.getItem('token')}`
+              'Authorization': `Bearer ${localStorage.getItem('authToken')}`
             },
             body: JSON.stringify({ productIds: autoSelectIds })
           });
@@ -690,7 +707,8 @@ function ProductDashboard({ userEmail, onLogout }) {
     }
   };
 
-  const rejectRecommendation = async (recId, productId) => {
+  const rejectRecommendation = async (recId, productId, e) => {
+    if (e) e.preventDefault();
     try {
       await api.call(`/api/recommendations/${recId}/reject`, {
         method: 'POST',
@@ -718,7 +736,7 @@ function ProductDashboard({ userEmail, onLogout }) {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${localStorage.getItem('token')}`
+          'Authorization': `Bearer ${localStorage.getItem('authToken')}`
         },
         body: JSON.stringify({ selected: !isCurrentlySelected })
       });
@@ -757,7 +775,7 @@ function ProductDashboard({ userEmail, onLogout }) {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${localStorage.getItem('token')}`
+          'Authorization': `Bearer ${localStorage.getItem('authToken')}`
         },
         body: JSON.stringify({ productIds: idsToSelect })
       });
@@ -785,7 +803,7 @@ function ProductDashboard({ userEmail, onLogout }) {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${localStorage.getItem('token')}`
+          'Authorization': `Bearer ${localStorage.getItem('authToken')}`
         },
         body: JSON.stringify({ productIds: [] })
       });
@@ -807,6 +825,14 @@ function ProductDashboard({ userEmail, onLogout }) {
   };
 
   const runAnalysis = async () => {
+    // CRITICAL: Check auth token first
+    const authToken = localStorage.getItem('authToken');
+    if (!authToken) {
+      setError('⚠️ Session expired. Please log out and log back in.');
+      setTimeout(() => setError(null), 5000);
+      return;
+    }
+
     // Check if any products have cost price set (frontend validation)
     const productsWithCost = products.filter(p => p.cost_price > 0);
     if (productsWithCost.length === 0) {
@@ -824,7 +850,8 @@ function ProductDashboard({ userEmail, onLogout }) {
 
     try {
       setAnalysisStatus({ ...analysisStatus, analyzing: true });
-      const result = await api.call('/api/analyze', {
+      console.log('🔄 Running analysis with token:', authToken.substring(0, 20) + '...');
+      const result = await api.call('/api/analysis', {
         method: 'POST',
         body: JSON.stringify({
           productIds: products.length > 10 ? selectedProductIds : productsWithCost.map(p => p.id)
@@ -1213,7 +1240,9 @@ function ProductDashboard({ userEmail, onLogout }) {
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 {/* Sync Products Button - ALWAYS VISIBLE */}
                 <button
-                  onClick={async () => {
+                  type="button"
+                  onClick={async (e) => {
+                    e.preventDefault();
                     try {
                       setLoading(true);
                       setError(null);
@@ -1235,7 +1264,8 @@ function ProductDashboard({ userEmail, onLogout }) {
 
                 {/* Analysis Button */}
                 <button
-                  onClick={runAnalysis}
+                  type="button"
+                  onClick={(e) => { e.preventDefault(); runAnalysis(); }}
                   disabled={analysisStatus.analyzing || !shopifyConnected || (analysisStatus.manualRemaining || 10) === 0}
                   className="flex items-center justify-center space-x-3 px-6 py-3 bg-purple-600 hover:bg-purple-700 disabled:bg-slate-700 disabled:cursor-not-allowed text-white rounded-lg font-semibold transition shadow-lg shadow-purple-500/20"
                 >
@@ -1453,9 +1483,19 @@ function ProductDashboard({ userEmail, onLogout }) {
                   {recommendations.map((rec) => {
                     const isExpanded = expandedRecommendation === rec.id;
                     const product = products.find(p => p.id === rec.product_id);
-                    const priceChange = parseFloat(rec.recommended_price) - parseFloat(rec.current_price);
-                    const isIncrease = priceChange > 0;
-                    const changePercent = (Math.abs(priceChange) / parseFloat(rec.current_price)) * 100;
+                    if (!product) return null; // Skip if product not found
+                    const currentPrice = parseFloat(product.price);
+                    const recommendedPrice = parseFloat(rec.recommended_price);
+                    const priceChange = recommendedPrice - currentPrice;
+                    // CRITICAL FIX: Handle edge case where price change is 0 or negligible
+                    const isNegligibleChange = Math.abs(priceChange) < 0.01;
+                    const isIncrease = priceChange > 0.01; // Must be at least 1 cent increase
+                    const isDecrease = priceChange < -0.01; // Must be at least 1 cent decrease
+                    const changePercent = (Math.abs(priceChange) / currentPrice) * 100;
+
+                    // Calculate estimated monthly profit increase
+                    const salesVelocity = parseFloat(product.sales_velocity) || 0;
+                    const monthlyProfitIncrease = priceChange * salesVelocity * 30;
 
                     return (
                     <div key={rec.id} className={`p-6 bg-gradient-to-br rounded-xl relative transition border-2 ${
@@ -1490,9 +1530,10 @@ function ProductDashboard({ userEmail, onLogout }) {
                           <h4 className="text-xl font-bold text-white mb-2">{rec.title}</h4>
                         </div>
                         <button
-                          onClick={() => rejectRecommendation(rec.id, rec.product_id)}
+                          onClick={(e) => rejectRecommendation(rec.id, rec.product_id, e)}
                           className="absolute top-4 right-4 p-2 hover:bg-slate-700/50 rounded-lg transition"
                           title="Dismiss recommendation"
+                          type="button"
                         >
                           <X className="w-5 h-5 text-gray-400 hover:text-white" />
                         </button>
@@ -1502,8 +1543,8 @@ function ProductDashboard({ userEmail, onLogout }) {
                       <div className="bg-slate-900/50 border border-slate-700 rounded-lg p-5 mb-4">
                         <div className="flex items-center justify-between mb-3">
                           <p className="text-gray-400 text-sm font-semibold">Recommended Action:</p>
-                          <p className={`text-2xl font-bold ${isIncrease ? 'text-green-400' : 'text-yellow-400'}`}>
-                            {isIncrease ? '📈 Increase Price' : '📉 Lower Price'}
+                          <p className={`text-2xl font-bold ${isNegligibleChange ? 'text-gray-400' : isIncrease ? 'text-green-400' : 'text-yellow-400'}`}>
+                            {isNegligibleChange ? '✓ Price Optimal' : isIncrease ? '📈 Increase Price' : '📉 Lower Price'}
                           </p>
                         </div>
                         <div className="flex items-center justify-between p-4 bg-slate-800 rounded-lg mb-3">
@@ -1515,30 +1556,33 @@ function ProductDashboard({ userEmail, onLogout }) {
                           </div>
                           <div className="text-center px-4">
                             <p className="text-gray-400 text-sm">Change:</p>
-                            <p className={`text-2xl font-bold ${isIncrease ? 'text-green-400' : 'text-yellow-400'}`}>
-                              {isIncrease ? '+' : '-'}${Math.abs(priceChange).toFixed(2)}
+                            <p className={`text-2xl font-bold ${isNegligibleChange ? 'text-gray-400' : isIncrease ? 'text-green-400' : 'text-yellow-400'}`}>
+                              {isNegligibleChange ? '$0.00' : `${isIncrease ? '+' : '-'}$${Math.abs(priceChange).toFixed(2)}`}
                             </p>
                             <p className="text-sm text-gray-400">({changePercent.toFixed(1)}%)</p>
                           </div>
                           <div className="text-right">
                             <p className="text-gray-400 text-sm">Current:</p>
                             <p className="text-2xl font-bold text-white">
-                              ${parseFloat(rec.current_price).toFixed(2)}
+                              ${currentPrice.toFixed(2)}
                             </p>
                           </div>
                         </div>
-                        {/* Profit Increase */}
-                        {rec.profit_increase_monthly != null && (
+                        {/* Profit Increase - Always show if there's sales velocity */}
+                        {salesVelocity > 0 && (
                           <div className="p-3 bg-gradient-to-r from-green-900/30 to-emerald-900/30 border border-green-500/30 rounded-lg">
                             <div className="flex items-center justify-between">
                               <div className="flex items-center space-x-2">
                                 <TrendingUp className="w-5 h-5 text-green-400" />
-                                <span className="text-gray-300 text-sm font-medium">Monthly Estimated Profit Increase:</span>
+                                <span className="text-gray-300 text-sm font-medium">Estimated Monthly Profit Increase:</span>
                               </div>
-                              <span className="text-2xl font-bold text-green-400">
-                                +${Math.abs(rec.profit_increase_monthly).toFixed(2)}/mo
+                              <span className={`text-2xl font-bold ${isNegligibleChange ? 'text-gray-400' : 'text-green-400'}`}>
+                                {isNegligibleChange ? '$0.00/mo' : `${isIncrease ? '+' : ''}$${monthlyProfitIncrease.toFixed(2)}/mo`}
                               </span>
                             </div>
+                            <p className="text-xs text-gray-400 mt-2">
+                              Based on {salesVelocity.toFixed(2)} sales/day × ${Math.abs(priceChange).toFixed(2)} price change × 30 days
+                            </p>
                           </div>
                         )}
                       </div>
@@ -1568,7 +1612,7 @@ function ProductDashboard({ userEmail, onLogout }) {
                             <div className="grid grid-cols-2 gap-3 text-sm">
                               <div className="p-3 bg-slate-800 rounded">
                                 <p className="text-gray-400">Current Price</p>
-                                <p className="text-white font-bold">${parseFloat(rec.current_price).toFixed(2)}</p>
+                                <p className="text-white font-bold">${currentPrice.toFixed(2)}</p>
                               </div>
                               <div className="p-3 bg-slate-800 rounded">
                                 <p className="text-gray-400">Cost Price</p>
@@ -1577,7 +1621,7 @@ function ProductDashboard({ userEmail, onLogout }) {
                               <div className="p-3 bg-slate-800 rounded">
                                 <p className="text-gray-400">Current Margin</p>
                                 <p className="text-white font-bold">
-                                  {product.cost_price ? `${(((parseFloat(rec.current_price) - product.cost_price) / parseFloat(rec.current_price)) * 100).toFixed(1)}%` : 'N/A'}
+                                  {product.cost_price ? `${(((currentPrice - product.cost_price) / currentPrice) * 100).toFixed(1)}%` : 'N/A'}
                                 </p>
                               </div>
                               <div className="p-3 bg-slate-800 rounded">
@@ -1622,7 +1666,7 @@ function ProductDashboard({ userEmail, onLogout }) {
                               <div className="flex items-center space-x-2">
                                 <span className="text-green-400">✓</span>
                                 <span className="text-gray-300">
-                                  {Math.abs(priceChange) <= parseFloat(rec.current_price) * 0.25
+                                  {Math.abs(priceChange) <= currentPrice * 0.25
                                     ? `Change within safe limits (${changePercent.toFixed(1)}% ≤ 25% max)`
                                     : `Large change (${changePercent.toFixed(1)}%)`}
                                 </span>
@@ -1666,15 +1710,17 @@ function ProductDashboard({ userEmail, onLogout }) {
                       {/* Action Buttons */}
                       <div className="flex items-center space-x-3">
                         <button
-                          onClick={() => rejectRecommendation(rec.id, rec.product_id)}
+                          onClick={(e) => rejectRecommendation(rec.id, rec.product_id, e)}
                           className="px-6 py-3 bg-slate-700 text-white rounded-lg font-semibold hover:bg-slate-600 transition flex items-center space-x-2"
+                          type="button"
                         >
                           <X className="w-4 h-4" />
                           <span>Reject</span>
                         </button>
                         <button
-                          onClick={() => applyRecommendation(rec.id, rec.product_id, parseFloat(rec.recommended_price))}
+                          onClick={(e) => { e.preventDefault(); applyRecommendation(rec.id, rec.product_id, parseFloat(rec.recommended_price)); }}
                           className="flex-1 px-6 py-3 bg-gradient-to-r from-green-600 to-emerald-600 text-white rounded-lg font-bold hover:from-green-700 hover:to-emerald-700 transition flex items-center justify-center space-x-2 shadow-lg shadow-green-500/20"
+                          type="button"
                         >
                           <Check className="w-5 h-5" />
                           <span>Apply This Price to Shopify</span>
@@ -1838,7 +1884,8 @@ function ProductDashboard({ userEmail, onLogout }) {
                   Set cost prices for your products and run your first AI analysis to get pricing recommendations.
                 </p>
                 <button
-                  onClick={runAnalysis}
+                  type="button"
+                  onClick={(e) => { e.preventDefault(); runAnalysis(); }}
                   disabled={products.filter(p => p.cost_price > 0).length === 0}
                   className="px-8 py-3 bg-purple-600 hover:bg-purple-700 disabled:bg-slate-700 disabled:cursor-not-allowed text-white rounded-lg font-bold transition"
                 >

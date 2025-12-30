@@ -61,7 +61,9 @@
       "Bash(where:*)",
       "Bash(powershell:*)",
       "Bash(if not exist testsunit mkdir testsunit)",
-      "Bash(if not exist testsintegration mkdir testsintegration)"
+      "Bash(if not exist testsintegration mkdir testsintegration)",
+      "Bash(grep:*)",
+      "Bash(find:*)"
     ],
     "deny": [],
     "ask": []

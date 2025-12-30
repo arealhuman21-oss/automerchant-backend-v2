@@ -28,7 +28,7 @@ router.get('/shopify/install', async (req, res) => {
     }
 
     let SHOPIFY_API_KEY, SHOPIFY_SCOPES;
-    const SHOPIFY_REDIRECT_URI = process.env.SHOPIFY_REDIRECT_URI || 'https://automerchant-backend-v2.vercel.app/api/shopify/callback';
+    const SHOPIFY_REDIRECT_URI = process.env.SHOPIFY_REDIRECT_URI || 'https://automerchant-backend-v2.vercel.app/auth/shopify/callback';
 
     // ============================================
     // MULTI-APP SUPPORT: Look up credentials from database
@@ -190,7 +190,7 @@ router.get('/shopify/callback', async (req, res) => {
         client_id: process.env.SHOPIFY_API_KEY,
         client_secret: process.env.SHOPIFY_API_SECRET,
         code,
-        redirect_uri: process.env.SHOPIFY_REDIRECT_URI || 'https://automerchant-backend-v2.vercel.app/api/shopify/callback'
+        redirect_uri: process.env.SHOPIFY_REDIRECT_URI || 'https://automerchant-backend-v2.vercel.app/auth/shopify/callback'
       },
       {
         headers: { 'Content-Type': 'application/json' }
@@ -303,6 +303,57 @@ router.get('/shopify/callback', async (req, res) => {
     // Redirect to dashboard with error
     const errorUrl = `https://automerchant.vercel.app/dashboard?error=oauth_failed&message=${encodeURIComponent(error.message)}`;
     res.redirect(errorUrl);
+  }
+});
+
+// POST /auth/check-approval - Check if user is approved
+router.post('/check-approval', async (req, res) => {
+  try {
+    const { email } = req.body;
+
+    if (!email) {
+      return res.status(400).json({ error: 'Email is required' });
+    }
+
+    // Use supabaseService for pre-authentication checks
+    const { data: user, error } = await supabaseService
+      .from('users')
+      .select('id, email, approved, shopify_shop')
+      .eq('email', email.toLowerCase())
+      .single();
+
+    if (error || !user) {
+      return res.json({
+        approved: false,
+        exists: false
+      });
+    }
+
+    if (user.approved) {
+      // Generate JWT token for approved users
+      const jwt = require('jsonwebtoken');
+      const token = jwt.sign(
+        { userId: user.id, email: user.email },
+        process.env.JWT_SECRET,
+        { expiresIn: '7d' }
+      );
+
+      return res.json({
+        approved: true,
+        exists: true,
+        token,
+        shopifyConnected: !!user.shopify_shop
+      });
+    }
+
+    return res.json({
+      approved: false,
+      exists: true
+    });
+
+  } catch (error) {
+    console.error('❌ Check approval error:', error);
+    res.status(500).json({ error: 'Failed to check approval status' });
   }
 });
 

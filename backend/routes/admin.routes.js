@@ -3,6 +3,65 @@ const router = express.Router();
 const { authenticateAdmin } = require('../middleware/auth');
 const { supabaseService } = require('../config/database');
 
+// GET /api/admin/db-check - Check database tables (no auth for diagnostics)
+router.get('/db-check', async (req, res) => {
+  try {
+    const results = {
+      supabaseClientExists: !!supabaseService,
+      tables: {}
+    };
+
+    // Check users table
+    const { data: usersCheck, error: usersError } = await supabaseService
+      .from('users')
+      .select('id')
+      .limit(1);
+    results.tables.users = usersError ? `ERROR: ${JSON.stringify(usersError)}` : 'OK';
+
+    // Check products table
+    const { data: productsCheck, error: productsError } = await supabaseService
+      .from('products')
+      .select('id')
+      .limit(1);
+    results.tables.products = productsError ? `ERROR: ${JSON.stringify(productsError)}` : 'OK';
+
+    // Check recommendations table
+    const { data: recsCheck, error: recsError } = await supabaseService
+      .from('recommendations')
+      .select('id')
+      .limit(1);
+    results.tables.recommendations = recsError ? `ERROR: ${JSON.stringify(recsError)}` : 'OK';
+
+    // Check manual_analyses table (THIS IS THE PROBLEM TABLE)
+    const { data: manualCheck, error: manualError } = await supabaseService
+      .from('manual_analyses')
+      .select('id')
+      .limit(1);
+    results.tables.manual_analyses = manualError ? `ERROR: ${JSON.stringify(manualError)}` : 'OK';
+
+    // Check analysis_schedule table
+    const { data: scheduleCheck, error: scheduleError } = await supabaseService
+      .from('analysis_schedule')
+      .select('id')
+      .limit(1);
+    results.tables.analysis_schedule = scheduleError ? `ERROR: ${JSON.stringify(scheduleError)}` : 'OK';
+
+    // Check system_cron_runs table
+    const { data: cronCheck, error: cronError } = await supabaseService
+      .from('system_cron_runs')
+      .select('id')
+      .limit(1);
+    results.tables.system_cron_runs = cronError ? `ERROR: ${JSON.stringify(cronError)}` : 'OK';
+
+    res.json(results);
+  } catch (error) {
+    res.status(500).json({
+      error: 'Database check failed',
+      message: error.message
+    });
+  }
+});
+
 // GET /api/admin/stats - Admin statistics
 router.get('/stats', authenticateAdmin, async (req, res) => {
   try {
@@ -157,6 +216,46 @@ router.post('/approve-user', authenticateAdmin, async (req, res) => {
   }
 });
 
-// Additional admin routes can be added here as needed
+// GET /api/admin/users - Get all users
+router.get('/users', authenticateAdmin, async (req, res) => {
+  try {
+    const { data: users, error } = await supabaseService
+      .from('users')
+      .select('id, email, approved, suspended, shopify_shop, created_at')
+      .order('created_at', { ascending: false });
+
+    if (error) {
+      console.error('Error fetching users:', error);
+      return res.status(500).json({ error: 'Failed to fetch users' });
+    }
+
+    res.json({ users: users || [] });
+
+  } catch (error) {
+    console.error('Admin users error:', error);
+    res.status(500).json({ error: 'Failed to fetch users' });
+  }
+});
+
+// GET /api/admin/apps - Get all Shopify apps
+router.get('/apps', authenticateAdmin, async (req, res) => {
+  try {
+    const { data: apps, error } = await supabaseService
+      .from('shopify_apps')
+      .select('*')
+      .order('created_at', { ascending: false });
+
+    if (error) {
+      console.error('Error fetching apps:', error);
+      return res.status(500).json({ error: 'Failed to fetch apps' });
+    }
+
+    res.json({ apps: apps || [] });
+
+  } catch (error) {
+    console.error('Admin apps error:', error);
+    res.status(500).json({ error: 'Failed to fetch apps' });
+  }
+});
 
 module.exports = router;

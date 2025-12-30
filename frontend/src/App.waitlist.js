@@ -807,10 +807,14 @@ function App() {
               return;
             }
 
+            // CRITICAL: Save to BOTH waitlist_emails AND users table
+            const userEmail = session.user.email.toLowerCase();
+
+            // 1. Save to waitlist_emails (for counter)
             const { data: existing } = await supabase
               .from('waitlist_emails')
               .select('email, created_at')
-              .eq('email', session.user.email.toLowerCase())
+              .eq('email', userEmail)
               .maybeSingle();
 
             if (existing) {
@@ -822,7 +826,7 @@ function App() {
             } else {
               const { error: insertError } = await supabase
                 .from('waitlist_emails')
-                .insert([{ email: session.user.email.toLowerCase() }])
+                .insert([{ email: userEmail }])
                 .select();
 
               if (insertError && insertError.code !== '23505') {
@@ -832,6 +836,26 @@ function App() {
               if (rpcError) console.warn('⚠️ Counter increment failed (non-fatal):', rpcError);
               const { count } = await supabase.from('waitlist_emails').select('*', { count: 'exact', head: true });
               setSignupNumber(count || 1);
+            }
+
+            // 2. CRITICAL: ALSO save to users table (for approval/dashboard access)
+            try {
+              const { error: userInsertError } = await supabase
+                .from('users')
+                .insert([{
+                  email: userEmail,
+                  approved: false,
+                  created_at: new Date().toISOString()
+                }])
+                .select();
+
+              if (userInsertError && userInsertError.code !== '23505') {
+                console.warn('⚠️ Failed to create user record:', userInsertError);
+              } else {
+                console.log('✅ User record created in users table');
+              }
+            } catch (userErr) {
+              console.warn('⚠️ User creation error (non-fatal):', userErr);
             }
             window.history.replaceState({}, document.title, window.location.pathname);
             setView('success');
@@ -855,6 +879,40 @@ function App() {
               setView('success');
               return;
             }
+
+            // CRITICAL: Ensure user exists in database (for users who signed up before this fix)
+            try {
+              const userEmail = user.email.toLowerCase();
+
+              // Check if user exists in users table
+              const { data: existingUser } = await supabase
+                .from('users')
+                .select('id')
+                .eq('email', userEmail)
+                .maybeSingle();
+
+              // If not, create them now
+              if (!existingUser) {
+                console.log('⚠️ Returning user not in database, creating now...');
+                const { error: userInsertError } = await supabase
+                  .from('users')
+                  .insert([{
+                    email: userEmail,
+                    approved: false,
+                    created_at: new Date().toISOString()
+                  }])
+                  .select();
+
+                if (userInsertError && userInsertError.code !== '23505') {
+                  console.warn('⚠️ Failed to create returning user record:', userInsertError);
+                } else {
+                  console.log('✅ Returning user record created');
+                }
+              }
+            } catch (userErr) {
+              console.warn('⚠️ Returning user creation error (non-fatal):', userErr);
+            }
+
             await checkBackendApprovalStatus(user.email);
           }
         }

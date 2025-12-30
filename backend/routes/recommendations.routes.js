@@ -3,10 +3,10 @@ const axios = require('axios');
 const router = express.Router();
 const { authenticateToken } = require('../middleware/auth');
 const { validate, schemas } = require('../middleware/validation');
-const { supabase } = require('../config/database');
+const { supabaseService } = require('../config/database');
 
 // Helper function to get Shopify credentials based on AUTH_MODE
-async function getShopifyCredentials(req, supabase) {
+async function getShopifyCredentials(req) {
   const AUTH_MODE = process.env.AUTH_MODE || 'oauth';
 
   if (AUTH_MODE === 'manual') {
@@ -21,10 +21,10 @@ async function getShopifyCredentials(req, supabase) {
     return { shop, accessToken };
   } else {
     // OAuth mode: Get from database using user_id
-    const userId = req.user.id;
+    const userId = req.user.userId;
 
     // Get shop and token from shops table
-    const { data: shopData, error: shopError } = await supabase
+    const { data: shopData, error: shopError } = await supabaseService
       .from('shops')
       .select('shop_domain, access_token')
       .eq('user_id', userId)
@@ -42,10 +42,10 @@ async function getShopifyCredentials(req, supabase) {
 // GET /api/recommendations - Get all recommendations
 router.get('/', authenticateToken, async (req, res) => {
   try {
-    const userId = req.user.id;
+    const userId = req.user.userId;
 
     // Get recommendations with product info
-    const { data: recommendations, error } = await supabase
+    const { data: recommendations, error } = await supabaseService
       .from('recommendations')
       .select(`
         *,
@@ -81,10 +81,10 @@ router.post(
   async (req, res) => {
   try {
     const { id } = req.params;
-    const userId = req.user.id;
+    const userId = req.user.userId;
 
     // Get the recommendation
-    const { data: recommendation, error: recError } = await supabase
+    const { data: recommendation, error: recError } = await supabaseService
       .from('recommendations')
       .select(`
         *,
@@ -105,7 +105,7 @@ router.post(
     const product = recommendation.products;
 
     // Get Shopify credentials
-    const { shop, accessToken } = await getShopifyCredentials(req, supabase);
+    const { shop, accessToken } = await getShopifyCredentials(req);
 
     // Update the product price on Shopify
     const updateData = {
@@ -131,7 +131,7 @@ router.post(
 
     // Update recommendation status to accepted
     // SECURITY: Include user_id check to prevent privilege escalation
-    const { error: updateError } = await supabase
+    const { error: updateError } = await supabaseService
       .from('recommendations')
       .update({
         status: 'accepted',
@@ -147,7 +147,7 @@ router.post(
 
     // Update the product price in our database
     // SECURITY: Include user_id check to prevent privilege escalation
-    const { error: productUpdateError } = await supabase
+    const { error: productUpdateError } = await supabaseService
       .from('products')
       .update({
         price: recommendation.new_price,
@@ -175,18 +175,14 @@ router.post(
   }
 });
 
-// POST /api/recommendations/:id/reject - Reject recommendation
-router.post(
-  '/:id/reject',
-  authenticateToken,
-  validate(schemas.id, 'params'),
-  async (req, res) => {
+// Reject recommendation handler (shared by POST and GET)
+async function rejectRecommendationHandler(req, res) {
   try {
     const { id } = req.params;
-    const userId = req.user.id;
+    const userId = req.user.userId;
 
     // Update recommendation status to rejected
-    const { data: updatedRec, error } = await supabase
+    const { data: updatedRec, error } = await supabaseService
       .from('recommendations')
       .update({
         status: 'rejected',
@@ -215,6 +211,124 @@ router.post(
   } catch (error) {
     console.error('Reject recommendation error:', error);
     res.status(500).json({ error: 'Failed to reject recommendation' });
+  }
+}
+
+// POST /api/recommendations/:id/reject - Reject recommendation
+router.post('/:id/reject', authenticateToken, validate(schemas.id, 'params'), rejectRecommendationHandler);
+
+// GET /api/recommendations/:id/reject - Fallback for form submissions
+router.get('/:id/reject', authenticateToken, validate(schemas.id, 'params'), rejectRecommendationHandler);
+
+// POST /api/recommendations/:id/apply - Apply recommendation (update Shopify price)
+router.post(
+  '/:id/apply',
+  authenticateToken,
+  async (req, res) => {
+  try {
+    const { id } = req.params;
+    const userId = req.user.userId;
+
+    // Get the recommendation with product data
+    const { data: recommendation, error: recError } = await supabaseService
+      .from('recommendations')
+      .select('*, product_id')
+      .eq('id', id)
+      .eq('user_id', userId)
+      .single();
+
+    if (recError || !recommendation) {
+      return res.status(404).json({ error: 'Recommendation not found' });
+    }
+
+    // Get the product
+    const { data: product, error: productError } = await supabaseService
+      .from('products')
+      .select('*')
+      .eq('id', recommendation.product_id)
+      .eq('user_id', userId)
+      .single();
+
+    if (productError || !product) {
+      return res.status(404).json({ error: 'Product not found' });
+    }
+
+    const oldPrice = parseFloat(product.price);
+    const newPrice = parseFloat(recommendation.recommended_price);
+
+    // Get Shopify credentials
+    const { shop, accessToken } = await getShopifyCredentials(req);
+
+    // Update the product price on Shopify
+    const updateData = {
+      variant: {
+        id: parseInt(product.shopify_variant_id),
+        price: newPrice.toFixed(2)
+      }
+    };
+
+    console.log(`🔄 Updating Shopify price for variant ${product.shopify_variant_id}: $${oldPrice} → $${newPrice}`);
+
+    const response = await axios.put(
+      `https://${shop}/admin/api/2024-01/variants/${product.shopify_variant_id}.json`,
+      updateData,
+      {
+        headers: {
+          'X-Shopify-Access-Token': accessToken,
+          'Content-Type': 'application/json'
+        }
+      }
+    );
+
+    console.log('✅ Shopify price updated successfully');
+
+    // Record price change in price_changes table
+    await supabaseService
+      .from('price_changes')
+      .insert({
+        user_id: userId,
+        product_id: product.id,
+        old_price: oldPrice,
+        new_price: newPrice,
+        recommendation_id: id,
+        created_at: new Date().toISOString()
+      });
+
+    // Update recommendation status to accepted
+    await supabaseService
+      .from('recommendations')
+      .update({
+        status: 'accepted',
+        applied_at: new Date().toISOString()
+      })
+      .eq('id', id)
+      .eq('user_id', userId);
+
+    // Update the product price in our database
+    await supabaseService
+      .from('products')
+      .update({
+        price: newPrice,
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', product.id)
+      .eq('user_id', userId);
+
+    console.log('✅ Database updated with new price');
+
+    res.json({
+      success: true,
+      message: `Price updated from $${oldPrice.toFixed(2)} to $${newPrice.toFixed(2)}`,
+      oldPrice,
+      newPrice
+    });
+
+  } catch (error) {
+    console.error('❌ Apply recommendation error:', error);
+    res.status(500).json({
+      error: 'Failed to apply recommendation',
+      message: error.message
+    });
   }
 });
 

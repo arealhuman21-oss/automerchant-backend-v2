@@ -1,5 +1,11 @@
-const {supabase} = require('../config/database');
+const {supabaseService} = require('../config/database');
 const { analyzeProductV3 } = require('../analyzeProduct-v3');
+
+// Verify Supabase connection on module load
+if (!supabaseService) {
+  console.error('❌ CRITICAL: supabaseService is not initialized!');
+}
+console.log('📦 Analysis service loaded, supabaseService available:', !!supabaseService);
 const {
   loadRegretBudgets,
   loadElasticityLearners,
@@ -30,7 +36,7 @@ async function runAnalysisForUser(userId) {
     }
   } else {
     // OAuth mode: fetch from database
-    const { data: user, error: userError } = await supabase
+    const { data: user, error: userError } = await supabaseService
       .from('users')
       .select('shopify_shop')
       .eq('id', userId)
@@ -41,7 +47,7 @@ async function runAnalysisForUser(userId) {
       return;
     }
 
-    const { data: shopData, error: shopError } = await supabase
+    const { data: shopData, error: shopError } = await supabaseService
       .from('shops')
       .select('access_token')
       .eq('shop_domain', user.shopify_shop)
@@ -125,7 +131,7 @@ async function runAnalysisForUser(userId) {
     });
 
     // Get shop data for app_id (using shop domain, not user_id)
-    const { data: shopDataForSync } = await supabase
+    const { data: shopDataForSync } = await supabaseService
       .from('shops')
       .select('shop_domain, app_id')
       .eq('shop_domain', shop)
@@ -159,7 +165,7 @@ async function runAnalysisForUser(userId) {
         updated_at: new Date().toISOString()
       };
 
-      await supabase
+      await supabaseService
         .from('products')
         .upsert(productData, {
           onConflict: 'user_id,shopify_variant_id'
@@ -172,7 +178,7 @@ async function runAnalysisForUser(userId) {
     // Continue anyway - better to analyze with slightly stale data than skip analysis
   }
 
-  const { data: products, error: productsError } = await supabase
+  const { data: products, error: productsError } = await supabaseService
     .from('products')
     .select('*')
     .eq('user_id', userId)
@@ -192,7 +198,7 @@ async function runAnalysisForUser(userId) {
   const thirtyDaysAgo = new Date();
   thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
 
-  const { data: decreaseHistory, error: historyError } = await supabase
+  const { data: decreaseHistory, error: historyError } = await supabaseService
     .from('price_changes')
     .select('product_id, old_price, new_price')
     .eq('user_id', userId)
@@ -247,26 +253,26 @@ async function runAnalysisForUser(userId) {
   let elasticityLearners = {};
   let priceHistory = {};
 
-  if (config.USE_ALGORITHM_V3) {
-    try {
-      // console.log(`📚 Loading V3 state...`);
-      regretBudgets = await loadRegretBudgets(supabase, userId);
-      elasticityLearners = await loadElasticityLearners(supabase, userId);
+  // ALWAYS use V3 algorithm (V2 removed)
+  // Load V3 state: regret budgets, elasticity learners, price history
+  try {
+    // console.log(`📚 Loading V3 state...`);
+    regretBudgets = await loadRegretBudgets(supabase, userId);
+    elasticityLearners = await loadElasticityLearners(supabase, userId);
 
-      // Load price change observations for elasticity learning
-      for (const product of allProducts) {
-        const observations = await loadPriceChangeObservations(supabase, userId, product.id, 10);
-        if (observations.length > 0) {
-          priceHistory[product.id] = observations;
-        }
+    // Load price change observations for elasticity learning
+    for (const product of allProducts) {
+      const observations = await loadPriceChangeObservations(supabase, userId, product.id, 10);
+      if (observations.length > 0) {
+        priceHistory[product.id] = observations;
       }
-
-      // console.log(`   ✅ Loaded: ${Object.keys(regretBudgets).length} budgets, ${Object.keys(elasticityLearners).length} learners, ${Object.keys(priceHistory).length} products with history`);
-    } catch (error) {
-      console.error('⚠️ V3 state loading failed (tables may not exist yet):', error.message);
-      // console.log('   ERROR: V3 tables missing! Cannot proceed without V3.');
-      throw new Error('V3 tables not found - run migrations first');
     }
+
+    // console.log(`   ✅ Loaded: ${Object.keys(regretBudgets).length} budgets, ${Object.keys(elasticityLearners).length} learners, ${Object.keys(priceHistory).length} products with history`);
+  } catch (error) {
+    console.error('⚠️ V3 state loading failed (tables may not exist yet):', error.message);
+    // Continue with empty state - will still work but without learning history
+    // Don't throw - allow analysis to run with default priors
   }
 
   let recommendationsCreated = 0;
@@ -302,9 +308,14 @@ async function runAnalysisForUser(userId) {
       //   error: analysis.error || 'none'
       // });
 
-      if (analysis.shouldChangePrice) {
+      // CRITICAL FIX: Only create recommendation if price actually changes
+      const currentPrice = parseFloat(product.price);
+      const recommendedPrice = parseFloat(analysis.recommendedPrice);
+      const priceActuallyChanges = Math.abs(recommendedPrice - currentPrice) >= 0.01; // At least 1 cent difference
+
+      if (analysis.shouldChangePrice && priceActuallyChanges) {
         // UPSERT to prevent duplicate recommendations (atomic operation)
-        const { data: newRec, error: upsertError } = await supabase
+        const { data: newRec, error: upsertError } = await supabaseService
           .from('recommendations')
           .upsert({
             user_id: userId,
@@ -327,8 +338,8 @@ async function runAnalysisForUser(userId) {
           // console.log(`   ✅ Recommendation created: $${product.price} → $${analysis.recommendedPrice}`);
           recommendationsCreated++;
 
-          // Save V3 metadata if using V3
-          if (config.USE_ALGORITHM_V3 && analysis.v3Metadata && newRec) {
+          // Save V3 metadata (always use V3)
+          if (analysis.v3Metadata && newRec) {
             await saveV3Metadata(supabase, newRec.id, analysis.v3Metadata);
           }
         }
@@ -337,7 +348,7 @@ async function runAnalysisForUser(userId) {
         // console.log(`   Reasoning: ${analysis.reasoning || analysis.error || 'Unknown'}`);
       }
 
-      await supabase
+      await supabaseService
         .from('products')
         .update({ last_analyzed_at: new Date().toISOString() })
         .eq('id', product.id);
@@ -348,16 +359,14 @@ async function runAnalysisForUser(userId) {
     }
   }
 
-  // ============================================  
-  // V3: SAVE PERSISTENCE STATE
-  // ============================================  
-  if (config.USE_ALGORITHM_V3) {
-    try {
-      const shopId = allProducts[0]?.shop_id || null;
-      await saveV3State(supabase, userId, shopId, regretBudgets, elasticityLearners);
-    } catch (error) {
-      console.error('⚠️ V3 state saving failed:', error.message);
-    }
+  // ============================================
+  // V3: SAVE PERSISTENCE STATE (always runs)
+  // ============================================
+  try {
+    const shopId = allProducts[0]?.shop_id || null;
+    await saveV3State(supabase, userId, shopId, regretBudgets, elasticityLearners);
+  } catch (error) {
+    console.error('⚠️ V3 state saving failed:', error.message);
   }
 
   // console.log(`
@@ -375,23 +384,43 @@ async function checkManualAnalysisLimit(userId) {
   startOfDay.setHours(0, 0, 0, 0);
   const startOfDayISO = startOfDay.toISOString();
 
-  const { count: manualCount, error: countError } = await supabase
-    .from('manual_analyses')
-    .select('*', { count: 'exact', head: true })
-    .eq('user_id', userId)
-    .gte('created_at', startOfDayISO);
+  console.log(`📊 Checking manual analysis limit for userId: ${userId}`);
+  console.log(`   Supabase client available: ${!!supabaseService}`);
+  console.log(`   Query date: ${startOfDayISO}`);
 
-  if (countError) {
-    throw new Error('Failed to check manual analysis limit');
+  let manualCount = 0;
+  try {
+    const result = await supabaseService
+      .from('manual_analyses')
+      .select('*', { count: 'exact', head: true })
+      .eq('user_id', userId)
+      .gte('created_at', startOfDayISO);
+
+    console.log(`   Query result:`, JSON.stringify(result, null, 2));
+
+    if (result.error) {
+      console.error('❌ Supabase error:', result.error);
+      throw new Error(`Supabase error: ${JSON.stringify(result.error)}`);
+    }
+
+    manualCount = result.count || 0;
+  } catch (queryError) {
+    console.error('❌ Query exception:', queryError);
+    console.error('   Stack:', queryError.stack);
+    throw new Error(`Query failed: ${queryError.message}`);
   }
 
-  const dailyLimit = 3;
+  console.log(`✅ Manual analyses today: ${manualCount}`);
+
+
+  const dailyLimit = 10; // CRITICAL: 10 manual analyses per day
   const allowed = manualCount < dailyLimit;
 
   return {
     allowed,
     used: manualCount,
-    remaining: dailyLimit - manualCount
+    remaining: Math.max(0, dailyLimit - manualCount),
+    dailyLimit
   };
 }
 
@@ -402,37 +431,73 @@ async function checkManualAnalysisLimit(userId) {
  */
 async function getAnalysisStatus(userId) {
   const now = new Date().toISOString();
+  console.log(`📊 Getting analysis status for userId: ${userId}`);
 
   // Get user's last analysis
-  const { data: userData, error: userError } = await supabase
+  const { data: userData, error: userError } = await supabaseService
     .from('users')
     .select('last_analysis, created_at')
     .eq('id', userId)
     .single();
 
-  if (userError) throw userError;
+  if (userError) {
+    console.error('❌ Error getting user data:', JSON.stringify(userError, null, 2));
+    throw new Error(`User query failed: ${userError.message || userError.code}`);
+  }
+  console.log(`✅ User data loaded: lastAnalysis=${userData?.last_analysis}`);
+
 
   // Count manual analyses today
   const startOfDay = new Date();
   startOfDay.setHours(0, 0, 0, 0);
   const startOfDayISO = startOfDay.toISOString();
 
-  const { count: manualCount, error: countError } = await supabase
+  const { count: manualCount, error: countError } = await supabaseService
     .from('manual_analyses')
     .select('*', { count: 'exact', head: true })
     .eq('user_id', userId)
     .gte('created_at', startOfDayISO);
 
-  if (countError) throw countError;
+  if (countError) {
+    console.error('❌ Error counting manual analyses:', JSON.stringify(countError, null, 2));
+    throw new Error(`Manual analyses count failed: ${countError.message || countError.code}`);
+  }
+  console.log(`✅ Manual analyses count: ${manualCount}`);
 
   // Get next analysis due time
-  const { data: scheduleData } = await supabase
+  const { data: scheduleData } = await supabaseService
     .from('analysis_schedule')
     .select('next_analysis_due')
     .eq('user_id', userId)
     .single();
 
-  const nextAnalysisDue = scheduleData?.next_analysis_due || null;
+  let nextAnalysisDue = scheduleData?.next_analysis_due || null;
+
+  // CRITICAL FIX: If no schedule exists, create one aligned with cron schedule
+  if (!scheduleData) {
+    // Calculate next cron time (:00 and :30 marks)
+    const now = new Date();
+    const minutes = now.getMinutes();
+    const nextCronMinute = minutes < 30 ? 30 : 60;
+    const minutesToAdd = nextCronMinute - minutes;
+
+    const nextCron = new Date(now.getTime() + minutesToAdd * 60 * 1000);
+    nextCron.setSeconds(0);
+    nextCron.setMilliseconds(0);
+
+    // Create schedule entry
+    await supabaseService
+      .from('analysis_schedule')
+      .insert({
+        user_id: userId,
+        next_analysis_due: nextCron.toISOString(),
+        created_at: now.toISOString(),
+        updated_at: now.toISOString()
+      });
+
+    nextAnalysisDue = nextCron.toISOString();
+    console.log(`✅ Created analysis schedule for user ${userId}, next due: ${nextAnalysisDue}`);
+  }
 
   // Calculate time until next
   let timeUntilNext = 0;
@@ -442,14 +507,19 @@ async function getAnalysisStatus(userId) {
     timeUntilNext = Math.max(0, nextTime - currentTime);
   }
 
-  const canRunNow = timeUntilNext === 0 && manualCount < 3;
+  const dailyLimit = 10; // CRITICAL: 10 manual analyses per day
+  const canRunNow = timeUntilNext === 0 && manualCount < dailyLimit;
 
   return {
     canRunNow,
     timeUntilNextMs: timeUntilNext,
     timeUntilNextMinutes: Math.ceil(timeUntilNext / 60000),
+    // Frontend-compatible field names
+    timeRemaining: Math.floor(timeUntilNext / 1000), // Convert to seconds
+    manualUsedToday: manualCount || 0,
+    manualRemaining: Math.max(0, dailyLimit - (manualCount || 0)),
+    dailyLimit,
     manualAnalysesToday: manualCount,
-    dailyLimit: 3,
     lastAnalysis: userData?.last_analysis || null,
     nextAnalysisDue,
     userCreatedAt: userData?.created_at || null

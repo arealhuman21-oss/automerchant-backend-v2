@@ -53,18 +53,18 @@ async function getShopifyCredentials(req, supabase) {
 
     if (!shop) {
       // Fallback: Try to get from authenticated user's connected shop
-      if (req.user && req.user.id) {
+      if (req.user && req.user.userId) {
         const { data: shopData, error } = await supabase
           .from('shops')
           .select('shop_domain, access_token')
-          .eq('user_id', req.user.id)
+          .eq('user_id', req.user.userId)
           .eq('is_active', true)
           .order('installed_at', { ascending: false })
           .limit(1)
           .single();
 
         if (!error && shopData) {
-          console.log(`🔑 [OAUTH MODE] Using shop from user ${req.user.id}: ${shopData.shop_domain}`);
+          console.log(`🔑 [OAUTH MODE] Using shop from user ${req.user.userId}: ${shopData.shop_domain}`);
 
           return {
             shop: shopData.shop_domain,

@@ -30,7 +30,7 @@ function validate(schema, property = 'body') {
 const schemas = {
   // Product validation
   costPrice: Joi.object({
-    costPrice: Joi.number()
+    cost_price: Joi.number()
       .positive()
       .max(1000000)
       .required()

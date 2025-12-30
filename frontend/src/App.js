@@ -97,7 +97,7 @@ function CostPriceModal({ isOpen, onClose, product, onSave }) {
     try {
       await api.call(`/api/products/${product.id}/cost-price`, {
         method: 'POST',
-        body: JSON.stringify({ costPrice: parseFloat(costPrice) })
+        body: JSON.stringify({ cost_price: parseFloat(costPrice) })
       });
       onSave();
       onClose();

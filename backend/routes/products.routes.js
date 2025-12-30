@@ -3,10 +3,10 @@ const axios = require('axios');
 const router = express.Router();
 const { authenticateToken } = require('../middleware/auth');
 const { validate, schemas } = require('../middleware/validation');
-const { supabase } = require('../config/database');
+const { supabaseService } = require('../config/database');
 
 // Helper function to get Shopify credentials based on AUTH_MODE
-async function getShopifyCredentials(req, supabase) {
+async function getShopifyCredentials(req) {
   const AUTH_MODE = process.env.AUTH_MODE || 'oauth';
 
   if (AUTH_MODE === 'manual') {
@@ -21,10 +21,10 @@ async function getShopifyCredentials(req, supabase) {
     return { shop, accessToken };
   } else {
     // OAuth mode: Get from database using user_id
-    const userId = req.user.id;
+    const userId = req.user.userId;
 
     // Get shop and token from shops table
-    const { data: shopData, error: shopError } = await supabase
+    const { data: shopData, error: shopError } = await supabaseService
       .from('shops')
       .select('shop_domain, access_token')
       .eq('user_id', userId)
@@ -42,10 +42,10 @@ async function getShopifyCredentials(req, supabase) {
 // GET /api/products
 router.get('/', authenticateToken, async (req, res) => {
   try {
-    const { data: products, error } = await supabase
+    const { data: products, error } = await supabaseService
       .from('products')
       .select('*')
-      .eq('user_id', req.user.id)
+      .eq('user_id', req.user.userId)
       .order('created_at', { ascending: false });
 
     if (error) {
@@ -105,7 +105,7 @@ router.post('/sync', authenticateToken, async (req, res) => {
     // ============================================
     // DUAL-MODE AUTH: Get credentials based on AUTH_MODE
     // ============================================
-    const { shop, accessToken } = await getShopifyCredentials(req, supabase);
+    const { shop, accessToken } = await getShopifyCredentials(req);
 
     const response = await axios.get(
       `https://${shop}/admin/api/2024-01/products.json?limit=250`,
@@ -138,10 +138,10 @@ router.post('/sync', authenticateToken, async (req, res) => {
     // console.log(`📊 Sales aggregated for ${Object.keys(variantSales).length} variants:`, variantSales);
 
     // Get shop and app_id from database
-    const { data: shopData } = await supabase
+    const { data: shopData } = await supabaseService
       .from('shops')
       .select('shop_domain, app_id')
-      .eq('user_id', req.user.id)
+      .eq('user_id', req.user.userId)
       .eq('is_active', true)
       .single();
 
@@ -165,7 +165,7 @@ router.post('/sync', authenticateToken, async (req, res) => {
       // console.log(`   Velocity: ${salesVelocity.toFixed(3)} units/day`);
 
       const productData = {
-        user_id: req.user.id,
+        user_id: req.user.userId,
         shop_domain: shopDomain,
         app_id: appId,
         shopify_product_id: product.id.toString(),
@@ -180,7 +180,7 @@ router.post('/sync', authenticateToken, async (req, res) => {
         updated_at: new Date().toISOString()
       };
 
-      const { error: upsertError, data: upsertData } = await supabase
+      const { error: upsertError, data: upsertData } = await supabaseService
         .from('products')
         .upsert(productData, {
           onConflict: 'user_id,shopify_variant_id'
@@ -204,10 +204,10 @@ router.post('/sync', authenticateToken, async (req, res) => {
     const shopifyVariantIds = response.data.products.map(p => p.variants[0].id.toString());
 
     // Find products in database that aren't in Shopify anymore
-    const { data: dbProducts } = await supabase
+    const { data: dbProducts } = await supabaseService
       .from('products')
       .select('id, shopify_variant_id, title')
-      .eq('user_id', req.user.id);
+      .eq('user_id', req.user.userId);
 
     const productsToDelete = dbProducts.filter(
       dbProduct => !shopifyVariantIds.includes(dbProduct.shopify_variant_id)
@@ -217,7 +217,7 @@ router.post('/sync', authenticateToken, async (req, res) => {
       // console.log(`🗑️ Found ${productsToDelete.length} products to delete:`);
       // productsToDelete.forEach(p => console.log(`   - ${p.title} (Variant: ${p.shopify_variant_id})`));
 
-      const { error: deleteError } = await supabase
+      const { error: deleteError } = await supabaseService
         .from('products')
         .delete()
         .in('id', productsToDelete.map(p => p.id));
@@ -259,14 +259,14 @@ router.post(
       const { cost_price } = req.body;
 
       // Update the product with the new cost price
-      const { error } = await supabase
+      const { error } = await supabaseService
         .from('products')
         .update({
           cost_price: cost_price,
           updated_at: new Date().toISOString()
         })
         .eq('id', id)
-        .eq('user_id', req.user.id);
+        .eq('user_id', req.user.userId);
 
       if (error) {
         console.error('❌ Cost price update error:', error);
@@ -293,11 +293,11 @@ router.post(
       const { id } = req.params;
       const { selected } = req.body;
 
-      const { error } = await supabase
+      const { error } = await supabaseService
         .from('products')
         .update({ selected_for_analysis: selected })
         .eq('id', id)
-        .eq('user_id', req.user.id);
+        .eq('user_id', req.user.userId);
 
       if (error) {
         throw error;

@@ -55,9 +55,16 @@ function AdminPanel({ userEmail, onLogout }) {
   const [loadingStats, setLoadingStats] = useState(false);
 
   const getAuthToken = async () => {
+    // CRITICAL FIX: Check localStorage first (same as ProductDashboard)
+    const localToken = localStorage.getItem('authToken');
+    if (localToken) {
+      console.log('✅ Using localStorage authToken for admin auth');
+      return localToken;
+    }
+
+    // Fallback to Supabase session
     if (supabase) {
       try {
-        // Add timeout to prevent hanging
         const sessionPromise = supabase.auth.getSession();
         const timeoutPromise = new Promise((_, reject) =>
           setTimeout(() => reject(new Error('Session check timeout')), 2000)
