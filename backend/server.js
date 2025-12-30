@@ -23,6 +23,9 @@ const analysisRoutes = require('./routes/analysis.routes');
 const recommendationsRoutes = require('./routes/recommendations.routes');
 const adminRoutes = require('./routes/admin.routes');
 
+// Import analysis service (for cron job)
+const analysisService = require('./services/analysis.service');
+
 const app = express();
 
 // SECURITY FIX: Enable rate limiting to prevent brute force and abuse
@@ -671,7 +674,11 @@ async function analyzeProduct(product, allProducts, userSettings, recentOrderDat
 
 
 // ============ HELPER FUNCTION FOR ANALYSIS ============
+// NOTE: This function is DEPRECATED - use analysisService.runAnalysisForUser() instead!
+// The function below had a bug that wiped out cost_price during sync.
+// Keeping it commented out for reference.
 
+/* DEPRECATED - DO NOT USE
 async function runAnalysisForUser(userId) {
   // console.log(`🤖 Running analysis for user ${userId}`);
 
@@ -988,6 +995,7 @@ async function runAnalysisForUser(userId) {
   // console.log(`\n✅ Analysis complete for user ${userId}: ${recommendationsCreated} recommendations created`);
   return recommendationsCreated;
 }
+// END DEPRECATED */
 
 
 
@@ -1110,7 +1118,8 @@ app.get('/api/cron/auto-analysis', async (req, res) => {
 
         try {
           // console.log(`🤖 [CRON] Processing user ${userId}...`);
-          await runAnalysisForUser(userId);
+          // CRITICAL: Use the service function which preserves cost_price!
+          await analysisService.runAnalysisForUser(userId);
 
           const now = new Date();
           const nextDue = getNextCronTime(); // Align with cron schedule (:00 and :30)
