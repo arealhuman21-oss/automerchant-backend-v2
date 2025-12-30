@@ -164,53 +164,53 @@ router.post('/sync', authenticateToken, async (req, res) => {
       // console.log(`   Revenue (30d): $${totalRevenue.toFixed(2)}`);
       // console.log(`   Velocity: ${salesVelocity.toFixed(3)} units/day`);
 
-      // First, check if product exists to preserve cost_price and selected_for_analysis
-      const { data: existingProduct, error: lookupError } = await supabaseService
+      // CRITICAL FIX: Only UPDATE Shopify data, never touch cost_price!
+      // Try UPDATE first (for existing products)
+      const { data: updateResult, error: updateError } = await supabaseService
         .from('products')
-        .select('id, cost_price, selected_for_analysis')
+        .update({
+          title: product.title,
+          price: variant.price,
+          inventory: variant.inventory_quantity || 0,
+          image_url: product.image?.src || null,
+          total_sales_30d: totalSales,
+          revenue_30d: totalRevenue,
+          sales_velocity: salesVelocity,
+          updated_at: new Date().toISOString()
+          // NOTE: cost_price and selected_for_analysis are NEVER touched by sync
+        })
         .eq('user_id', req.user.userId)
         .eq('shopify_variant_id', variantId)
-        .single();
-
-      // Debug logging for cost_price preservation
-      if (existingProduct?.cost_price) {
-        console.log(`📦 Sync ${product.title}: Preserving cost_price=${existingProduct.cost_price}`);
-      }
-      if (lookupError && lookupError.code !== 'PGRST116') {
-        // PGRST116 = no rows returned, which is expected for new products
-        console.log(`⚠️ Sync ${product.title}: Lookup error - ${lookupError.message}`);
-      }
-
-      const productData = {
-        user_id: req.user.userId,
-        shop_domain: shopDomain,
-        app_id: appId,
-        shopify_product_id: product.id.toString(),
-        shopify_variant_id: variantId,
-        title: product.title,
-        price: variant.price,
-        inventory: variant.inventory_quantity || 0,
-        image_url: product.image?.src || null,
-        total_sales_30d: totalSales,
-        revenue_30d: totalRevenue,
-        sales_velocity: salesVelocity,
-        updated_at: new Date().toISOString(),
-        // PRESERVE user-set values
-        cost_price: existingProduct?.cost_price || null,
-        selected_for_analysis: existingProduct?.selected_for_analysis ?? true
-      };
-
-      const { error: upsertError, data: upsertData } = await supabaseService
-        .from('products')
-        .upsert(productData, {
-          onConflict: 'user_id,shopify_variant_id'
-        })
         .select();
 
-      if (upsertError) {
-        console.error('❌ Error upserting product:', upsertError);
+      if (!updateResult || updateResult.length === 0) {
+        // Product doesn't exist, INSERT new one
+        const { error: insertError } = await supabaseService
+          .from('products')
+          .insert({
+            user_id: req.user.userId,
+            shop_domain: shopDomain,
+            app_id: appId,
+            shopify_product_id: product.id.toString(),
+            shopify_variant_id: variantId,
+            title: product.title,
+            price: variant.price,
+            inventory: variant.inventory_quantity || 0,
+            image_url: product.image?.src || null,
+            total_sales_30d: totalSales,
+            revenue_30d: totalRevenue,
+            sales_velocity: salesVelocity,
+            updated_at: new Date().toISOString(),
+            cost_price: null,
+            selected_for_analysis: true
+          });
+
+        if (insertError) {
+          console.error('❌ Error inserting product:', insertError);
+        } else {
+          syncedCount++;
+        }
       } else {
-        // console.log('   ✅ Saved to database');
         syncedCount++;
       }
     }

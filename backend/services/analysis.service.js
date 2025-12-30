@@ -149,49 +149,46 @@ async function runAnalysisForUser(userId) {
       const totalRevenue = variantRevenue[variantId] || 0;
       const salesVelocity = totalSales / 30;
 
-      // Preserve cost_price and selected_for_analysis
-      const { data: existingProduct, error: lookupError } = await supabaseService
+      // CRITICAL FIX: Only UPDATE sales data, don't touch cost_price!
+      // Use UPDATE instead of UPSERT to preserve user-set fields
+      const { error: updateError } = await supabaseService
         .from('products')
-        .select('id, cost_price, selected_for_analysis')
+        .update({
+          title: product.title,
+          price: variant.price,
+          inventory: variant.inventory_quantity || 0,
+          image_url: product.image?.src || null,
+          total_sales_30d: totalSales,
+          revenue_30d: totalRevenue,
+          sales_velocity: salesVelocity,
+          updated_at: new Date().toISOString()
+          // NOTE: cost_price and selected_for_analysis are NOT touched here
+        })
         .eq('user_id', userId)
-        .eq('shopify_variant_id', variantId)
-        .single();
+        .eq('shopify_variant_id', variantId);
 
-      // Debug: Log what we found
-      console.log(`🔄 Sync ${product.title}:`);
-      console.log(`   Lookup by variantId ${variantId}: ${existingProduct ? 'FOUND' : 'NOT FOUND'}`);
-      if (lookupError) console.log(`   Lookup error: ${lookupError.message}`);
-      if (existingProduct) {
-        console.log(`   Existing cost_price: ${existingProduct.cost_price} (type: ${typeof existingProduct.cost_price})`);
+      if (updateError) {
+        // Product doesn't exist yet, insert it (new product from Shopify)
+        await supabaseService
+          .from('products')
+          .insert({
+            user_id: userId,
+            shop_domain: shopDomain,
+            app_id: appId,
+            shopify_product_id: product.id.toString(),
+            shopify_variant_id: variantId,
+            title: product.title,
+            price: variant.price,
+            inventory: variant.inventory_quantity || 0,
+            image_url: product.image?.src || null,
+            total_sales_30d: totalSales,
+            revenue_30d: totalRevenue,
+            sales_velocity: salesVelocity,
+            updated_at: new Date().toISOString(),
+            cost_price: null,
+            selected_for_analysis: true
+          });
       }
-
-      const preservedCostPrice = existingProduct?.cost_price || null;
-      console.log(`   Will save cost_price: ${preservedCostPrice}`);
-
-      const productData = {
-        user_id: userId,
-        shop_domain: shopDomain,
-        app_id: appId,
-        shopify_product_id: product.id.toString(),
-        shopify_variant_id: variantId,
-        title: product.title,
-        price: variant.price,
-        inventory: variant.inventory_quantity || 0,
-        image_url: product.image?.src || null,
-        total_sales_30d: totalSales,
-        revenue_30d: totalRevenue,
-        sales_velocity: salesVelocity,
-        updated_at: new Date().toISOString(),
-        // PRESERVE user-set values
-        cost_price: preservedCostPrice,
-        selected_for_analysis: existingProduct?.selected_for_analysis ?? true
-      };
-
-      await supabaseService
-        .from('products')
-        .upsert(productData, {
-          onConflict: 'user_id,shopify_variant_id'
-        });
     }
 
     // console.log(`✅ Products synced: ${productsResponse.data.products.length} products updated with fresh sales data`);
