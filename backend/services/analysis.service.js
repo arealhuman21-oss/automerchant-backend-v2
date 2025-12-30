@@ -149,6 +149,9 @@ async function runAnalysisForUser(userId) {
       const totalRevenue = variantRevenue[variantId] || 0;
       const salesVelocity = totalSales / 30;
 
+      // DEBUG: Log what Shopify returns
+      console.log(`🛒 Shopify sync - ${product.title}: variant.price = ${variant.price}`);
+
       // CRITICAL FIX: Only UPDATE sales data, don't touch cost_price!
       // Use UPDATE instead of UPSERT to preserve user-set fields
       const { error: updateError } = await supabaseService
