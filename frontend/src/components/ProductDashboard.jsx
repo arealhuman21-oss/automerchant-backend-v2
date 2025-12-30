@@ -563,17 +563,34 @@ function ProductDashboard({ userEmail, onLogout }) {
 
       // CRITICAL FIX: Filter out rejected/applied and stale recommendations
       const allRecs = recsData.recommendations || [];
+      console.log(`🔍 Frontend received ${allRecs.length} recommendations from API`);
+      allRecs.forEach((rec, idx) => {
+        console.log(`   [${idx}] ID: ${rec.id}, Product ID: ${rec.product_id}, Recommended: $${rec.recommended_price}, Status: ${rec.status}`);
+      });
+
       const validRecs = allRecs.filter(rec => {
         // Filter out rejected or applied recommendations
-        if (rec.status === 'rejected' || rec.status === 'accepted') return false;
+        if (rec.status === 'rejected' || rec.status === 'accepted') {
+          console.log(`   ❌ Filtered out rec ${rec.id} due to status: ${rec.status}`);
+          return false;
+        }
 
         const product = loadedProducts.find(p => p.id === rec.product_id);
-        if (!product) return false;
+        if (!product) {
+          console.log(`   ❌ Filtered out rec ${rec.id} - no matching product for product_id: ${rec.product_id}`);
+          return false;
+        }
         const currentPrice = parseFloat(product.price);
         const recommendedPrice = parseFloat(rec.recommended_price);
         const priceChange = Math.abs(recommendedPrice - currentPrice);
-        return priceChange >= 0.01; // Only show if price change is at least 1 cent
+        if (priceChange < 0.01) {
+          console.log(`   ❌ Filtered out rec ${rec.id} - price change too small: ${priceChange}`);
+          return false;
+        }
+        console.log(`   ✅ Keeping rec ${rec.id} - ${product.title}: $${currentPrice} → $${recommendedPrice} (change: $${priceChange})`);
+        return true;
       });
+      console.log(`✅ After filtering: ${validRecs.length} valid recommendations`);
       setRecommendations(validRecs);
       setOrders(ordersData.orders || []);
       setStats(statsData);

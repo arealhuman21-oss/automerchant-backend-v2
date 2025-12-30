@@ -65,6 +65,12 @@ router.get('/', authenticateToken, async (req, res) => {
       product: rec.products
     }));
 
+    console.log(`📊 GET /api/recommendations for userId ${userId}:`);
+    console.log(`   Found ${formattedRecommendations.length} recommendations`);
+    formattedRecommendations.forEach((rec, idx) => {
+      console.log(`   [${idx}] ID: ${rec.id}, Product ID: ${rec.product_id}, Recommended Price: ${rec.recommended_price}, Status: ${rec.status}, Product: ${rec.products ? rec.products.title : 'NULL'}`);
+    });
+
     res.json({ recommendations: formattedRecommendations });
 
   } catch (error) {
