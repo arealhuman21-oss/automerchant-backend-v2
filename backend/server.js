@@ -279,6 +279,15 @@ app.get('/api/debug/reset-manual-count', async (req, res) => {
   }
 });
 
+// TEMP DEBUG: Test if new code is deployed
+app.get('/api/debug/version', (req, res) => {
+  res.json({
+    version: 'BYPASS_ACTIVE_v2',
+    timestamp: new Date().toISOString(),
+    message: 'All rate limits bypassed for user 7'
+  });
+});
+
 // GET /api/shopify/status - Check if user has Shopify connected
 app.get('/api/shopify/status', authenticateToken, async (req, res) => {
   try {

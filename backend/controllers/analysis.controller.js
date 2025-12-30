@@ -39,6 +39,10 @@ async function runManualAnalysis(req, res) {
   try {
     const userId = req.user.userId;
 
+    console.log('🚀🚀🚀 NEW CODE RUNNING - BYPASS ACTIVE 🚀🚀🚀');
+    console.log(`   User ID: ${userId}`);
+    console.log(`   Timestamp: ${new Date().toISOString()}`);
+
     // DEBUG: Log what's in the database BEFORE analysis
     const { data: debugProducts } = await supabaseService
       .from('products')
