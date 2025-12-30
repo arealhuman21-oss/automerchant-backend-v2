@@ -863,6 +863,18 @@ function ProductDashboard({ userEmail, onLogout }) {
         })
       });
 
+      // DEBUG: Log the full result including debug data
+      console.log('📊 ANALYSIS RESULT:', result);
+      if (result._debug) {
+        console.log('🐛 DEBUG DATA:');
+        result._debug.forEach(item => {
+          console.log(`   ${item.title}:`);
+          console.log(`      price: ${item.price}`);
+          console.log(`      cost_price: ${item.cost_price}`);
+          console.log(`      belowCost: ${item.belowCost}`);
+        });
+      }
+
       // Update analysis status with backend response
       setAnalysisStatus({
         ...analysisStatus,
