@@ -406,6 +406,16 @@ async function runAnalysisForUser(userId) {
  * @returns {Promise<Object>} { allowed, used, remaining }
  */
 async function checkManualAnalysisLimit(userId) {
+  // TEMP: Unlimited for user 7 (benjamincao98@gmail.com) for debugging
+  if (userId === 7) {
+    return {
+      allowed: true,
+      used: 0,
+      remaining: 999,
+      dailyLimit: 999
+    };
+  }
+
   const startOfDay = new Date();
   startOfDay.setHours(0, 0, 0, 0);
   const startOfDayISO = startOfDay.toISOString();
