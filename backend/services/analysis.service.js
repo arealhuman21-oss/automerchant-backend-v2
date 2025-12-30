@@ -150,12 +150,23 @@ async function runAnalysisForUser(userId) {
       const salesVelocity = totalSales / 30;
 
       // Preserve cost_price and selected_for_analysis
-      const { data: existingProduct } = await supabaseService
+      const { data: existingProduct, error: lookupError } = await supabaseService
         .from('products')
         .select('id, cost_price, selected_for_analysis')
         .eq('user_id', userId)
         .eq('shopify_variant_id', variantId)
         .single();
+
+      // Debug: Log what we found
+      console.log(`🔄 Sync ${product.title}:`);
+      console.log(`   Lookup by variantId ${variantId}: ${existingProduct ? 'FOUND' : 'NOT FOUND'}`);
+      if (lookupError) console.log(`   Lookup error: ${lookupError.message}`);
+      if (existingProduct) {
+        console.log(`   Existing cost_price: ${existingProduct.cost_price} (type: ${typeof existingProduct.cost_price})`);
+      }
+
+      const preservedCostPrice = existingProduct?.cost_price || null;
+      console.log(`   Will save cost_price: ${preservedCostPrice}`);
 
       const productData = {
         user_id: userId,
@@ -172,7 +183,7 @@ async function runAnalysisForUser(userId) {
         sales_velocity: salesVelocity,
         updated_at: new Date().toISOString(),
         // PRESERVE user-set values
-        cost_price: existingProduct?.cost_price || null,
+        cost_price: preservedCostPrice,
         selected_for_analysis: existingProduct?.selected_for_analysis ?? true
       };
 
