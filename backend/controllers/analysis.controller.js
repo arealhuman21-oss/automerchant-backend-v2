@@ -39,6 +39,18 @@ async function runManualAnalysis(req, res) {
   try {
     const userId = req.user.userId;
 
+    // DEBUG: Log what's in the database BEFORE analysis
+    const { data: debugProducts } = await supabaseService
+      .from('products')
+      .select('id, title, price, cost_price, selected_for_analysis')
+      .eq('user_id', userId);
+
+    console.log('🔍 DEBUG - Products BEFORE analysis:');
+    debugProducts?.forEach(p => {
+      console.log(`   ${p.title}: price=${p.price}, cost_price=${p.cost_price}, selected=${p.selected_for_analysis}`);
+      console.log(`   Below cost check: ${parseFloat(p.price)} <= ${parseFloat(p.cost_price)} = ${parseFloat(p.price) <= parseFloat(p.cost_price)}`);
+    });
+
     // Check limit
     const limitCheck = await analysisService.checkManualAnalysisLimit(userId);
     if (!limitCheck.allowed) {
@@ -68,11 +80,20 @@ async function runManualAnalysis(req, res) {
       // Don't fail the request, just log
     }
 
+    // DEBUG: Also include what was in DB for troubleshooting
+    const debugInfo = debugProducts?.map(p => ({
+      title: p.title,
+      price: p.price,
+      cost_price: p.cost_price,
+      belowCost: parseFloat(p.price) <= parseFloat(p.cost_price || 0)
+    }));
+
     res.json({
       success: true,
       ...results,
       manualUsed: limitCheck.used + 1,
-      manualRemaining: limitCheck.remaining - 1
+      manualRemaining: limitCheck.remaining - 1,
+      _debug: debugInfo  // Temporary debug field
     });
   } catch (error) {
     console.error('Error running analysis:', error);
