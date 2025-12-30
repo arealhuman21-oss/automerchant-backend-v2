@@ -699,6 +699,7 @@ async function analyzeProductV3(
   const currentPrice = parseFloat(product.price);
 
   console.log(`   Parsed costPrice: ${costPrice}, currentPrice: ${currentPrice}`);
+  console.log(`   🚨 BELOW COST CHECK: ${currentPrice} <= ${costPrice} = ${currentPrice <= costPrice}`);
   const inventory = parseInt(product.inventory) || 0;
   const sales30d = parseInt(product.total_sales_30d) || 0;
   const revenue30d = parseFloat(product.revenue_30d) || 0;
@@ -737,7 +738,9 @@ async function analyzeProductV3(
   // ============================================
 
   // FIX #4: Critical - At or below cost
-  if (currentPrice <= costPrice) {
+  console.log(`   🔴 Checking: currentPrice(${currentPrice}) <= costPrice(${costPrice}) ? ${currentPrice <= costPrice}`);
+  if (costPrice > 0 && currentPrice <= costPrice) {
+    console.log(`   🚨🚨🚨 BELOW COST DETECTED! Triggering urgent recommendation...`);
     const safePrice = Math.max(costPrice * 1.3, costPrice / (1 - 0.30));
     const lossPerSale = costPrice - currentPrice;
     const dailyLoss = lossPerSale * velocity30d;
