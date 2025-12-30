@@ -59,8 +59,7 @@ const analysisLimiter = rateLimit({
     return req.user?.id?.toString() || 'anonymous';
   },
   skip: (req) => {
-    // Skip for dev OR user 7 (debugging)
-    return process.env.NODE_ENV === 'development' || req.user?.userId === 7;
+    return process.env.NODE_ENV === 'development';
   }
 });
 
