@@ -51,9 +51,9 @@ async function runManualAnalysis(req, res) {
       console.log(`   Below cost check: ${parseFloat(p.price)} <= ${parseFloat(p.cost_price)} = ${parseFloat(p.price) <= parseFloat(p.cost_price)}`);
     });
 
-    // Check limit
+    // Check limit (skip for user 7 - debugging)
     const limitCheck = await analysisService.checkManualAnalysisLimit(userId);
-    if (!limitCheck.allowed) {
+    if (!limitCheck.allowed && userId !== 7) {
       return res.status(429).json({
         error: 'Daily limit reached',
         message: `Maximum ${limitCheck.dailyLimit} manual analyses per day. Try again tomorrow.`,
@@ -66,18 +66,20 @@ async function runManualAnalysis(req, res) {
     // Run analysis
     const results = await analysisService.runAnalysisForUser(userId);
 
-    // Record this manual analysis for rate limiting
-    try {
-      await supabaseService
-        .from('manual_analyses')
-        .insert({
-          user_id: userId,
-          triggered_at: new Date().toISOString(),
-          created_at: new Date().toISOString()
-        });
-    } catch (insertError) {
-      console.warn('Failed to record manual analysis:', insertError.message);
-      // Don't fail the request, just log
+    // Record this manual analysis for rate limiting (skip for user 7)
+    if (userId !== 7) {
+      try {
+        await supabaseService
+          .from('manual_analyses')
+          .insert({
+            user_id: userId,
+            triggered_at: new Date().toISOString(),
+            created_at: new Date().toISOString()
+          });
+      } catch (insertError) {
+        console.warn('Failed to record manual analysis:', insertError.message);
+        // Don't fail the request, just log
+      }
     }
 
     // DEBUG: Also include what was in DB for troubleshooting
