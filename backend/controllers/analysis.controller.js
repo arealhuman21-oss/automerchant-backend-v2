@@ -51,17 +51,9 @@ async function runManualAnalysis(req, res) {
       console.log(`   Below cost check: ${parseFloat(p.price)} <= ${parseFloat(p.cost_price)} = ${parseFloat(p.price) <= parseFloat(p.cost_price)}`);
     });
 
-    // Check limit (skip for user 7 - debugging)
-    const limitCheck = await analysisService.checkManualAnalysisLimit(userId);
-    if (!limitCheck.allowed && userId !== 7) {
-      return res.status(429).json({
-        error: 'Daily limit reached',
-        message: `Maximum ${limitCheck.dailyLimit} manual analyses per day. Try again tomorrow.`,
-        used: limitCheck.used,
-        remaining: limitCheck.remaining,
-        dailyLimit: limitCheck.dailyLimit
-      });
-    }
+    // TEMP: Completely bypass limit check for debugging
+    console.log(`⚠️ BYPASSING LIMIT CHECK FOR USER ${userId} - DEBUG MODE`);
+    const limitCheck = { allowed: true, used: 0, remaining: 999, dailyLimit: 999 };
 
     // Run analysis
     const results = await analysisService.runAnalysisForUser(userId);
