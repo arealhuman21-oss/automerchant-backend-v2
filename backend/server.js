@@ -259,6 +259,25 @@ app.use('/api/admin', adminRoutes);
 // Shopify app is configured to redirect to /api/shopify/callback
 app.use('/api', authRoutes);
 
+// TEMP DEBUG: Reset manual analysis count for user 7
+app.get('/api/debug/reset-manual-count', async (req, res) => {
+  try {
+    const userId = 7; // benjamincao98@gmail.com
+    const { error } = await supabaseService
+      .from('manual_analyses')
+      .delete()
+      .eq('user_id', userId);
+
+    if (error) {
+      return res.status(500).json({ error: error.message });
+    }
+
+    res.json({ success: true, message: 'Manual analysis count reset for user 7' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // GET /api/shopify/status - Check if user has Shopify connected
 app.get('/api/shopify/status', authenticateToken, async (req, res) => {
   try {
