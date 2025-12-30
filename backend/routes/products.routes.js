@@ -165,12 +165,21 @@ router.post('/sync', authenticateToken, async (req, res) => {
       // console.log(`   Velocity: ${salesVelocity.toFixed(3)} units/day`);
 
       // First, check if product exists to preserve cost_price and selected_for_analysis
-      const { data: existingProduct } = await supabaseService
+      const { data: existingProduct, error: lookupError } = await supabaseService
         .from('products')
         .select('id, cost_price, selected_for_analysis')
         .eq('user_id', req.user.userId)
         .eq('shopify_variant_id', variantId)
         .single();
+
+      // Debug logging for cost_price preservation
+      if (existingProduct?.cost_price) {
+        console.log(`📦 Sync ${product.title}: Preserving cost_price=${existingProduct.cost_price}`);
+      }
+      if (lookupError && lookupError.code !== 'PGRST116') {
+        // PGRST116 = no rows returned, which is expected for new products
+        console.log(`⚠️ Sync ${product.title}: Lookup error - ${lookupError.message}`);
+      }
 
       const productData = {
         user_id: req.user.userId,
