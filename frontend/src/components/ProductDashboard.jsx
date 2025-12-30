@@ -271,7 +271,9 @@ function NextAnalysisTime({ nextAnalysisDue, showIcon = true }) {
   }
 
   const formatTime = (dateString) => {
-    const date = new Date(dateString);
+    // CRITICAL: Database stores timestamps without timezone, so append Z to treat as UTC
+    const utcDateString = dateString.endsWith('Z') ? dateString : dateString + 'Z';
+    const date = new Date(utcDateString);
     const now = new Date();
 
     // Format time as "4:30 PM"
@@ -559,9 +561,12 @@ function ProductDashboard({ userEmail, onLogout }) {
       const loadedProducts = productsData.products || [];
       setProducts(loadedProducts);
 
-      // CRITICAL FIX: Filter out stale recommendations where recommended price = current price
+      // CRITICAL FIX: Filter out rejected/applied and stale recommendations
       const allRecs = recsData.recommendations || [];
       const validRecs = allRecs.filter(rec => {
+        // Filter out rejected or applied recommendations
+        if (rec.status === 'rejected' || rec.status === 'accepted') return false;
+
         const product = loadedProducts.find(p => p.id === rec.product_id);
         if (!product) return false;
         const currentPrice = parseFloat(product.price);

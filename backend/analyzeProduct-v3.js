@@ -690,8 +690,15 @@ async function analyzeProductV3(
   // STEP 1: PARSE DATA
   // ============================================
 
+  // DEBUG: Log what we're receiving
+  console.log(`🔍 [V3] Analyzing ${product.title}:`);
+  console.log(`   Raw cost_price: ${product.cost_price} (type: ${typeof product.cost_price})`);
+  console.log(`   Raw price: ${product.price}`);
+
   const costPrice = parseFloat(product.cost_price) || 0;
   const currentPrice = parseFloat(product.price);
+
+  console.log(`   Parsed costPrice: ${costPrice}, currentPrice: ${currentPrice}`);
   const inventory = parseInt(product.inventory) || 0;
   const sales30d = parseInt(product.total_sales_30d) || 0;
   const revenue30d = parseFloat(product.revenue_30d) || 0;
@@ -732,17 +739,36 @@ async function analyzeProductV3(
   // FIX #4: Critical - At or below cost
   if (currentPrice <= costPrice) {
     const safePrice = Math.max(costPrice * 1.3, costPrice / (1 - 0.30));
+    const lossPerSale = costPrice - currentPrice;
+    const dailyLoss = lossPerSale * velocity30d;
+    const monthlyLoss = dailyLoss * 30;
+    const projectedProfit = (safePrice - costPrice) * velocity30d * 30;
+
+    let reasoning = `🚨 URGENT: You're currently LOSING $${lossPerSale.toFixed(2)} on every sale.\n\n`;
+    reasoning += `📊 Sales Analysis:\n`;
+    reasoning += `• Selling ${velocity30d.toFixed(2)} units/day (${sales30d} in last 30 days)\n`;
+    reasoning += `• Current loss: $${monthlyLoss.toFixed(2)}/month at this price\n`;
+    reasoning += `• Revenue: $${revenue30d.toFixed(2)} last 30 days, but costs exceed revenue\n\n`;
+    reasoning += `💰 With New Price ($${safePrice.toFixed(2)}):\n`;
+    reasoning += `• Profit per sale: $${(safePrice - costPrice).toFixed(2)} (30% margin)\n`;
+    reasoning += `• Projected profit: +$${projectedProfit.toFixed(2)}/month\n`;
+    reasoning += `• Turnaround: $${(monthlyLoss + projectedProfit).toFixed(2)}/month swing\n\n`;
+    reasoning += `⚠️ Every day at the current price costs you money. This price increase protects your margins while remaining competitive.`;
+
     return {
       shouldChangePrice: true,
       recommendedPrice: safePrice,
-      reasoning: `🚨 CRITICAL: Selling at or below cost ($${currentPrice.toFixed(2)} <= $${costPrice.toFixed(2)}). Raising to $${safePrice.toFixed(2)} for 30% protective margin.`,
+      reasoning,
       urgency: 'CRITICAL',
-      confidence: 100,  // This is correct - selling below cost is a critical issue
+      confidence: 100,
       priceChange: safePrice - currentPrice,
       changePercent: ((safePrice - currentPrice) / currentPrice) * 100,
       v3Metadata: {
         algorithm: 'V3',
-        trigger: 'SAFETY_BELOW_COST'
+        trigger: 'SAFETY_BELOW_COST',
+        lossPerSale,
+        monthlyLoss,
+        projectedProfit
       }
     };
   }

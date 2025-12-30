@@ -181,13 +181,12 @@ async function rejectRecommendationHandler(req, res) {
     const { id } = req.params;
     const userId = req.user.userId;
 
-    // Update recommendation status to rejected
+    console.log(`📥 Rejecting recommendation ${id} for user ${userId}`);
+
+    // First, just update the status (rejected_at might not exist)
     const { data: updatedRec, error } = await supabaseService
       .from('recommendations')
-      .update({
-        status: 'rejected',
-        rejected_at: new Date().toISOString()
-      })
+      .update({ status: 'rejected' })
       .eq('id', id)
       .eq('user_id', userId)
       .select()
@@ -195,7 +194,7 @@ async function rejectRecommendationHandler(req, res) {
 
     if (error) {
       console.error('Error rejecting recommendation:', error);
-      return res.status(500).json({ error: 'Failed to reject recommendation' });
+      return res.status(500).json({ error: 'Failed to reject recommendation', details: error.message });
     }
 
     if (!updatedRec) {
@@ -210,7 +209,7 @@ async function rejectRecommendationHandler(req, res) {
 
   } catch (error) {
     console.error('Reject recommendation error:', error);
-    res.status(500).json({ error: 'Failed to reject recommendation' });
+    res.status(500).json({ error: 'Failed to reject recommendation', details: error.message });
   }
 }
 

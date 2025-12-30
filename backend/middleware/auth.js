@@ -7,10 +7,7 @@ function authenticateToken(req, res, next) {
     const authHeader = req.headers['authorization'];
     const token = authHeader && authHeader.split(' ')[1];
 
-    console.log('🔐 Auth check - Token present:', !!token);
-
     if (!token) {
-      console.log('❌ No token provided');
       return res.status(401).json({ error: 'Authentication required' });
     }
 

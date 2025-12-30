@@ -1,4 +1,5 @@
 const analysisService = require('../services/analysis.service');
+const { supabaseService } = require('../config/database');
 
 /**
  * GET /api/analysis/status
@@ -52,6 +53,20 @@ async function runManualAnalysis(req, res) {
 
     // Run analysis
     const results = await analysisService.runAnalysisForUser(userId);
+
+    // Record this manual analysis for rate limiting
+    try {
+      await supabaseService
+        .from('manual_analyses')
+        .insert({
+          user_id: userId,
+          triggered_at: new Date().toISOString(),
+          created_at: new Date().toISOString()
+        });
+    } catch (insertError) {
+      console.warn('Failed to record manual analysis:', insertError.message);
+      // Don't fail the request, just log
+    }
 
     res.json({
       success: true,

@@ -164,6 +164,14 @@ router.post('/sync', authenticateToken, async (req, res) => {
       // console.log(`   Revenue (30d): $${totalRevenue.toFixed(2)}`);
       // console.log(`   Velocity: ${salesVelocity.toFixed(3)} units/day`);
 
+      // First, check if product exists to preserve cost_price and selected_for_analysis
+      const { data: existingProduct } = await supabaseService
+        .from('products')
+        .select('id, cost_price, selected_for_analysis')
+        .eq('user_id', req.user.userId)
+        .eq('shopify_variant_id', variantId)
+        .single();
+
       const productData = {
         user_id: req.user.userId,
         shop_domain: shopDomain,
@@ -177,7 +185,10 @@ router.post('/sync', authenticateToken, async (req, res) => {
         total_sales_30d: totalSales,
         revenue_30d: totalRevenue,
         sales_velocity: salesVelocity,
-        updated_at: new Date().toISOString()
+        updated_at: new Date().toISOString(),
+        // PRESERVE user-set values
+        cost_price: existingProduct?.cost_price || null,
+        selected_for_analysis: existingProduct?.selected_for_analysis ?? true
       };
 
       const { error: upsertError, data: upsertData } = await supabaseService
@@ -258,22 +269,31 @@ router.post(
       const { id } = req.params;
       const { cost_price } = req.body;
 
+      console.log(`💰 Cost price update request:`);
+      console.log(`   Product ID: ${id}`);
+      console.log(`   User ID: ${req.user.userId}`);
+      console.log(`   cost_price received: ${cost_price} (type: ${typeof cost_price})`);
+
       // Update the product with the new cost price
-      const { error } = await supabaseService
+      const { data: updateResult, error } = await supabaseService
         .from('products')
         .update({
           cost_price: cost_price,
           updated_at: new Date().toISOString()
         })
         .eq('id', id)
-        .eq('user_id', req.user.userId);
+        .eq('user_id', req.user.userId)
+        .select('id, title, cost_price')
+        .single();
 
       if (error) {
         console.error('❌ Cost price update error:', error);
         return res.status(500).json({ error: 'Failed to update cost price' });
       }
 
-      res.json({ success: true, message: 'Cost price updated successfully' });
+      console.log(`   ✅ Updated successfully:`, updateResult);
+
+      res.json({ success: true, message: 'Cost price updated successfully', product: updateResult });
 
     } catch (error) {
       console.error('❌ Cost price update error:', error);
