@@ -63,7 +63,11 @@
       "Bash(if not exist testsunit mkdir testsunit)",
       "Bash(if not exist testsintegration mkdir testsintegration)",
       "Bash(grep:*)",
-      "Bash(find:*)"
+      "Bash(find:*)",
+      "Bash(npm ls:*)",
+      "Bash(del \"C:\\\\Users\\\\ben_l\\\\automerchant-local\\\\frontend\\\\package-lock.json\")",
+      "Bash(rm:*)",
+      "Bash(pushd:*)"
     ],
     "deny": [],
     "ask": []

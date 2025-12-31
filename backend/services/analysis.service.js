@@ -350,6 +350,7 @@ async function runAnalysisForUser(userId) {
             reasoning: analysis.reasoning,
             urgency: analysis.urgency || 'MEDIUM',
             confidence: analysis.confidence,
+            status: 'pending',  // CRITICAL: Reset status so rejected recs get shown again!
             created_at: new Date().toISOString()  // Force timestamp update
           }, {
             onConflict: 'user_id,product_id',  // Uses unique constraint from migration
@@ -569,5 +570,88 @@ async function getAnalysisStatus(userId) {
 module.exports = {
   runAnalysisForUser,
   checkManualAnalysisLimit,
-  getAnalysisStatus
+  getAnalysisStatus,
+  handleAutoAnalysisCron // Export the new function
 };
+
+// Helper function to calculate next cron schedule time (aligns with :00 and :30 marks)
+function getNextCronTime() {
+  const now = new Date();
+  const minutes = now.getMinutes();
+  const nextCronMinute = minutes < 30 ? 30 : 60;
+  const minutesToAdd = nextCronMinute - minutes;
+
+  const nextCron = new Date(now.getTime() + minutesToAdd * 60 * 1000);
+  nextCron.setSeconds(0);
+  nextCron.setMilliseconds(0);
+
+  return nextCron;
+}
+
+/**
+ * Handles the logic for the automatic analysis cron job.
+ * This function is designed to be called by an external trigger (e.g., /api/cron/auto-analysis).
+ * It identifies users whose analysis is due and runs the analysis for them.
+ *
+ * @returns {Object} A summary of the cron job execution.
+ */
+async function handleAutoAnalysisCron() {
+  console.log('⏰ [CRON] Starting automatic analysis check...');
+  const results = {
+    usersProcessed: 0,
+    usersSucceeded: 0,
+    usersFailed: 0,
+    errors: []
+  };
+
+  try {
+    // Use supabaseService for cron jobs (needs access to all users)
+    const { data: dueUsers, error: dueError } = await supabaseService
+      .from('analysis_schedule')
+      .select('user_id')
+      .lte('next_analysis_due', new Date().toISOString());
+
+    if (dueError) {
+      throw dueError;
+    }
+
+    console.log(`📊 [CRON] Found ${dueUsers ? dueUsers.length : 0} users due for analysis`);
+
+    if (dueUsers) {
+      for (const row of dueUsers) {
+        const userId = row.user_id;
+        results.usersProcessed++;
+
+        try {
+          console.log(`🤖 [CRON] Processing user ${userId}...`);
+          await runAnalysisForUser(userId); // Use the existing function
+
+          const now = new Date();
+          const nextDue = getNextCronTime(); // Align with cron schedule (:00 and :30)
+
+          // Use supabaseService for system operations
+          await supabaseService
+            .from('analysis_schedule')
+            .update({
+              last_analysis_run: now.toISOString(),
+              next_analysis_due: nextDue.toISOString()
+            })
+            .eq('user_id', userId);
+
+          results.usersSucceeded++;
+          console.log(`✅ [CRON] User ${userId}: Analysis completed, next due at ${nextDue.toISOString()}`);
+        } catch (error) {
+          results.usersFailed++;
+          results.errors.push({ userId, error: error.message });
+          console.error(`❌ [CRON] Error running analysis for user ${userId}:`, error);
+        }
+      }
+    }
+  } catch (error) {
+    results.errors.push({ general: error.message });
+    console.error('❌ [CRON] General background analysis job error:', error);
+  }
+
+  console.log(`✅ [CRON] Auto-analysis complete: ${results.usersSucceeded}/${results.usersProcessed} succeeded`);
+  return results;
+}

@@ -242,6 +242,7 @@ router.get('/shopify/callback', async (req, res) => {
 
     // Store in shops table for multi-shop support
     // Use supabaseService for OAuth flows (pre-authentication)
+    // NOTE: Do NOT include app_id - that column doesn't exist in shops table!
     const { error: shopsError } = await supabaseService
       .from('shops')
       .upsert({
@@ -249,7 +250,6 @@ router.get('/shopify/callback', async (req, res) => {
         access_token,
         scope,
         user_id,
-        app_id,
         installed_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
         is_active: true
@@ -258,8 +258,12 @@ router.get('/shopify/callback', async (req, res) => {
       });
 
     if (shopsError) {
-      console.error('Error storing in shops table:', shopsError);
+      console.error('CRITICAL: Failed to store token in shops table:', shopsError);
+      // Don't silently fail - redirect with error so user knows something went wrong
+      return res.redirect(`https://automerchant.vercel.app?oauth_error=token_storage_failed&shop=${encodeURIComponent(shop)}`);
     }
+
+    console.log(`✅ Token stored successfully in shops table for shop: ${shop}`);
 
     // console.log(`✅ Token stored in shops table for shop: ${shop} with app_id: ${app_id}`);
 

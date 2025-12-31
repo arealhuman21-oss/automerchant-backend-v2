@@ -709,6 +709,34 @@ async function analyzeProductV3(
   const velocity7d = sales7d / 7;
 
   // ============================================
+  // TREND DETECTION: Compare 7d vs 30d velocity
+  // ============================================
+  // Trend > 1.0 = growing, < 1.0 = declining
+  const velocityTrend = velocity30d > 0.1 ? velocity7d / velocity30d : 1.0;
+  const trendCategory = velocityTrend > 1.3 ? 'GROWING' :
+                        velocityTrend > 0.9 ? 'STABLE' :
+                        velocityTrend > 0.5 ? 'DECLINING' : 'STALLING';
+
+  console.log(`   📈 Trend: ${trendCategory} (7d/30d ratio: ${velocityTrend.toFixed(2)})`);
+
+  // If product is declining rapidly, we may need to act faster
+  const urgencyBoost = trendCategory === 'STALLING' || trendCategory === 'DECLINING';
+
+  // NEW SAFETY CHECK: Abort if cost price is invalid
+  if (costPrice <= 0) {
+    return {
+      shouldChangePrice: false,
+      reasoning: `ACTION REQUIRED: Set a valid cost price for this product to enable analysis. The current cost is missing or invalid.`,
+      urgency: 'HIGH',
+      confidence: 100, // We are 100% confident they need to set the cost.
+      v3Metadata: {
+        algorithm: 'V3',
+        trigger: 'SAFETY_INVALID_COST',
+      }
+    };
+  }
+
+  // ============================================
   // STEP 2: INITIALIZE LEARNERS
   // ============================================
 
@@ -815,16 +843,32 @@ async function analyzeProductV3(
   // CRITICAL: DOS REGIME GATING
   // ============================================
 
-  // If inventory is untrusted, forbid all price changes
-  if (!dosMetrics.inventoryTrusted) {
+  // If inventory is untrusted, still analyze but skip DOS-based logic
+  // Don't block recommendations - just ignore inventory-based triggers
+  const skipDOSLogic = !dosMetrics.inventoryTrusted;
+  if (skipDOSLogic) {
+    console.log(`   ⚠️ High inventory detected (${inventory} units). Skipping DOS logic, using margin-based analysis.`);
+  }
+
+  // CRITICAL: Still check margin even with high inventory
+  // If margin is dangerously low, we MUST recommend a price increase
+  if (skipDOSLogic && currentMargin < 20) {
+    const targetPrice = costPrice / (1 - 0.30); // Target 30% margin
+    const profitIncrease = (targetPrice - currentPrice) * velocity30d * 30;
+
     return {
-      shouldChangePrice: false,
-      reasoning: `⚠️ INVENTORY DATA CORRUPT: Inventory shows ${inventory} units (${dosMetrics.rawDOS.toFixed(0)} days of supply at current velocity). This is clearly unreliable. Holding price at $${currentPrice.toFixed(2)} until inventory data is corrected. Current margin: ${currentMargin.toFixed(1)}%.`,
-      confidence: 100,
+      shouldChangePrice: true,
+      recommendedPrice: targetPrice,
+      reasoning: `📊 LOW MARGIN ALERT: Current margin is only ${currentMargin.toFixed(1)}% (target: 30%). With ${sales30d} sales/month, increasing to $${targetPrice.toFixed(2)} would add ~$${profitIncrease.toFixed(2)}/month in profit. Note: Inventory data (${inventory} units) is unusually high and was not used in this calculation.`,
+      urgency: currentMargin < 10 ? 'HIGH' : 'MEDIUM',
+      confidence: 70,
+      trendCategory,
+      velocityTrend,
       v3Metadata: {
         algorithm: 'V3',
-        trigger: 'INVENTORY_CORRUPTION',
-        dosMetrics
+        trigger: 'LOW_MARGIN_HIGH_INVENTORY',
+        dosMetrics,
+        marginBased: true
       }
     };
   }
@@ -1111,16 +1155,20 @@ async function analyzeProductV3(
   let reasoning = `${emoji} ${direction} (V3): `;
   reasoning += `$${currentPrice.toFixed(2)} → $${bestCandidate.price.toFixed(2)} (${changePercent > 0 ? '+' : ''}${changePercent.toFixed(1)}%). `;
   reasoning += `Expected profit lift: +$${profitLift.toFixed(2)}/day (+${(profitLift / Math.max(currentCandidate.expectedProfit, 0.01) * 100).toFixed(1)}%). `;
-  reasoning += `DOS: ${dosMetrics.dos.toFixed(0)}d (${dosRegime.regime}, ${dosMetrics.stockoutRisk < 0.1 ? 'low' : 'moderate'} stockout risk). `;
+  reasoning += `DOS: ${dosMetrics.dos.toFixed(0)}d (${dosRegime.regime}). `;
+  reasoning += `Trend: ${trendCategory} (${velocityTrend > 1 ? '+' : ''}${((velocityTrend - 1) * 100).toFixed(0)}% vs 30d avg). `;
   reasoning += `Elasticity: ${elasticityPosterior.mean.toFixed(2)}±${elasticityPosterior.sigma.toFixed(2)}. `;
-  reasoning += `Downside protection: ${Math.abs(bestCandidate.cvar).toFixed(2)}/day worst-case.`;
+  reasoning += `Downside protection: $${Math.abs(bestCandidate.cvar).toFixed(2)}/day worst-case.`;
 
-  // FIX #9: Improved urgency classification
+  // FIX #9: Improved urgency classification with trend detection
   let urgency = 'MEDIUM';
   if (currentMargin < 30) urgency = 'HIGH';
   if (dosMetrics.stockoutRisk > 0.3) urgency = 'HIGH';
   if (profitLift > currentCandidate.expectedProfit * 0.20) urgency = 'HIGH';
   if (needsClearance && dosMetrics.dos > 180) urgency = 'HIGH'; // Time-sensitive clearance
+  // Trend-based urgency: act faster if sales are declining
+  if (urgencyBoost && currentMargin < 40) urgency = 'HIGH';
+  if (trendCategory === 'STALLING' && dosMetrics.dos > 60) urgency = 'HIGH'; // Stalling + high inventory
   // Adjust for low regret budget
   if (regretBudget.currentBudget < 20 && regretBudget.currentBudget > 0) urgency = 'MEDIUM';
   if (regretBudget.currentBudget <= 0) urgency = 'HIGH';
@@ -1135,6 +1183,16 @@ async function analyzeProductV3(
   }
   if (sales30d < 20) {
     whatWouldChange.push(`More sales history (currently ${sales30d} units in 30 days)`);
+  }
+  // Trend-based suggestions
+  if (trendCategory === 'DECLINING') {
+    whatWouldChange.push(`⚠️ Sales declining (${((velocityTrend - 1) * 100).toFixed(0)}% vs 30d avg) - consider price adjustment or marketing`);
+  }
+  if (trendCategory === 'STALLING') {
+    whatWouldChange.push(`🚨 Sales stalling rapidly - urgent attention needed`);
+  }
+  if (trendCategory === 'GROWING' && currentMargin > 40) {
+    whatWouldChange.push(`📈 Growing demand with healthy margin - potential for price increase`);
   }
 
   const explanation = generateExplanation({
@@ -1187,13 +1245,21 @@ async function analyzeProductV3(
     dosRegime: dosMetrics.dos < 14 ? 'TIGHT' : dosMetrics.dos < 60 ? 'NORMAL' : dosMetrics.dos < 120 ? 'EXCESS' : 'CLEARANCE',
     currentDailyProfit: currentCandidate.expectedProfit,
     newDailyProfit: bestCandidate.expectedProfit,
+    trendCategory,
+    velocityTrend,
     v3Metadata: {
       algorithm: 'V3',
       explanation,
       paretoFrontierSize: paretoFrontier.length,
       eviMetrics: bestCandidate.eviMetrics,
       regretStatus: regretBudget.getStatus(),
-      elasticityPosterior
+      elasticityPosterior,
+      trendInfo: {
+        category: trendCategory,
+        ratio: velocityTrend,
+        velocity7d,
+        velocity30d
+      }
     }
   };
 }

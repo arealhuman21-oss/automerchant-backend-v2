@@ -362,6 +362,7 @@ function ProductDashboard({ userEmail, onLogout }) {
   const [stats, setStats] = useState(null);
   const [shopifyConnected, setShopifyConnected] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState(null);
   const [successMessage, setSuccessMessage] = useState(null);
   const [showSettings, setShowSettings] = useState(false);
@@ -700,6 +701,35 @@ function ProductDashboard({ userEmail, onLogout }) {
     }
   };
 
+  // Refresh products data from Shopify (without full page reload)
+  const refreshProducts = async () => {
+    setRefreshing(true);
+    setError(null);
+    try {
+      console.log('🔄 Refreshing products from Shopify...');
+      const response = await api.call('/api/products/refresh', { method: 'POST' });
+      if (response.products) {
+        setProducts(response.products);
+        setSuccessMessage('✅ Products refreshed from Shopify!');
+        setTimeout(() => setSuccessMessage(null), 3000);
+        console.log(`✅ Refreshed ${response.products.length} products`);
+      }
+      // Also reload recommendations and stats
+      const [recsData, statsData] = await Promise.all([
+        api.call('/api/recommendations'),
+        api.call('/api/stats')
+      ]);
+      setRecommendations(recsData.recommendations || []);
+      setStats(statsData);
+    } catch (err) {
+      console.error('Refresh error:', err);
+      setError('Failed to refresh products. Try again.');
+      setTimeout(() => setError(null), 3000);
+    } finally {
+      setRefreshing(false);
+    }
+  };
+
   const applyRecommendation = async (recId, productId, newPrice) => {
     try {
       await api.call(`/api/recommendations/${recId}/apply`, {
@@ -996,11 +1026,11 @@ function ProductDashboard({ userEmail, onLogout }) {
               </button>
             </div>
             <div className="p-4">
-              {analysisResults.recommendations && analysisResults.recommendations.length > 0 ? (
+              {analysisResults.recommendationsCreated > 0 ? (
                 <div className="space-y-2">
                   <p className="text-green-400 font-semibold flex items-center space-x-2">
                     <Check className="w-4 h-4" />
-                    <span>Found {analysisResults.recommendations.length} price optimization{analysisResults.recommendations.length > 1 ? 's' : ''}!</span>
+                    <span>Found {analysisResults.recommendationsCreated} price optimization{analysisResults.recommendationsCreated > 1 ? 's' : ''}!</span>
                   </p>
                   <p className="text-sm text-gray-400">
                     Scroll down to see recommendations below
@@ -1391,7 +1421,17 @@ function ProductDashboard({ userEmail, onLogout }) {
 
             {/* Products List Section */}
             <div className="mb-8">
-              <h3 className="text-2xl font-bold text-white mb-4">Your Products</h3>
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-2xl font-bold text-white">Your Products</h3>
+                <button
+                  onClick={refreshProducts}
+                  disabled={refreshing}
+                  className="flex items-center px-4 py-2 bg-slate-700 hover:bg-slate-600 disabled:bg-slate-800 text-white rounded-lg font-medium transition text-sm"
+                >
+                  <RefreshCw className={`w-4 h-4 mr-2 ${refreshing ? 'animate-spin' : ''}`} />
+                  {refreshing ? 'Refreshing...' : 'Refresh Data'}
+                </button>
+              </div>
               {products.length === 0 ? (
                 <div className="bg-slate-800/50 border border-slate-700 rounded-xl p-8 text-center">
                   <Package className="w-16 h-16 text-gray-600 mx-auto mb-4" />
@@ -1527,9 +1567,22 @@ function ProductDashboard({ userEmail, onLogout }) {
                     const isDecrease = priceChange < -0.01; // Must be at least 1 cent decrease
                     const changePercent = (Math.abs(priceChange) / currentPrice) * 100;
 
-                    // Calculate estimated monthly profit increase
+                    // Calculate estimated monthly profit increase (with elasticity)
                     const salesVelocity = parseFloat(product.sales_velocity) || 0;
-                    const monthlyProfitIncrease = priceChange * salesVelocity * 30;
+                    const costPrice = parseFloat(product.cost_price) || 0;
+
+                    // Use elasticity to estimate new velocity (default -1.2)
+                    const elasticity = -1.2;
+                    const priceRatio = recommendedPrice / currentPrice;
+                    const velocityMultiplier = Math.pow(priceRatio, elasticity);
+                    const newVelocity = salesVelocity * velocityMultiplier;
+
+                    // Calculate actual profit change accounting for cost and elasticity
+                    const currentMonthlyProfit = (currentPrice - costPrice) * salesVelocity * 30;
+                    const newMonthlyProfit = (recommendedPrice - costPrice) * newVelocity * 30;
+                    const monthlyProfitIncrease = costPrice > 0
+                      ? (newMonthlyProfit - currentMonthlyProfit)
+                      : (priceChange * salesVelocity * 30); // Fallback if no cost
 
                     return (
                     <div key={rec.id} className={`p-6 bg-gradient-to-br rounded-xl relative transition border-2 ${
@@ -1811,6 +1864,14 @@ function ProductDashboard({ userEmail, onLogout }) {
                       : margin;
                     const salesVelocity = (product.sales_velocity || 0).toFixed(2);
 
+                    const isAboveCost = actualAvgPrice > parseFloat(product.cost_price || 0);
+                    const isMarginHealthy = parseFloat(margin) >= 30;
+                    const hasIssues = !isAboveCost || !isMarginHealthy;
+                    const statusLabel = hasIssues ? 'Needs Review' : 'Optimal';
+                    const statusColor = hasIssues ? 'bg-red-500/20 text-red-300' : 'bg-green-500/20 text-green-300';
+                    const reasoningBorderColor = hasIssues ? 'border-red-500/20' : 'border-green-500/20';
+                    const reasoningTextColor = hasIssues ? 'text-red-200' : 'text-green-200';
+
                     return (
                       <div key={product.id} className="mb-4 p-4 bg-slate-900/30 border border-slate-700/50 rounded-lg">
                         <div className="flex items-start justify-between mb-3">
@@ -1818,7 +1879,7 @@ function ProductDashboard({ userEmail, onLogout }) {
                             <h5 className="text-white font-semibold">{product.title}</h5>
                             <p className="text-xs text-gray-400">Analyzed {new Date(product.last_analyzed_at).toLocaleString()}</p>
                           </div>
-                          <span className="text-xs bg-green-500/20 text-green-300 px-2 py-1 rounded">Optimal</span>
+                          <span className={`text-xs ${statusColor} px-2 py-1 rounded`}>{statusLabel}</span>
                         </div>
 
                         {/* Inputs Used */}
@@ -1827,7 +1888,7 @@ function ProductDashboard({ userEmail, onLogout }) {
                           <div className="grid grid-cols-2 gap-2 text-xs">
                             <div>
                               <span className="text-gray-500">Actual Avg Price (30d):</span>
-                              <span className="text-white ml-2 font-semibold">${actualAvgPrice.toFixed(2)}</span>
+                              <span className={`ml-2 font-semibold ${!isAboveCost ? 'text-red-400' : 'text-white'}`}>${actualAvgPrice.toFixed(2)}</span>
                             </div>
                             <div>
                               <span className="text-gray-500">Cost Price:</span>
@@ -1835,7 +1896,7 @@ function ProductDashboard({ userEmail, onLogout }) {
                             </div>
                             <div>
                               <span className="text-gray-500">Margin:</span>
-                              <span className="text-white ml-2 font-semibold">{margin}%</span>
+                              <span className={`ml-2 font-semibold ${!isMarginHealthy ? 'text-red-400' : 'text-white'}`}>{margin}%</span>
                             </div>
                             <div>
                               <span className="text-gray-500">Current Shopify Price:</span>
@@ -1857,34 +1918,61 @@ function ProductDashboard({ userEmail, onLogout }) {
                         </div>
 
                         {/* AI Decision Reasoning */}
-                        <div className="mb-3 p-3 bg-slate-800/50 border border-green-500/20 rounded">
+                        <div className={`mb-3 p-3 bg-slate-800/50 border ${reasoningBorderColor} rounded`}>
                           <p className="text-xs text-gray-400 font-semibold mb-1">💡 AI Reasoning:</p>
-                          <p className="text-xs text-green-200 leading-relaxed">
-                            Based on actual average selling price ${actualAvgPrice.toFixed(2)} (current Shopify price ${currentStorePrice.toFixed(2)}),
-                            margin is {margin}% (target = 30%). Sales velocity of {salesVelocity} units/day with {product.total_sales_30d || 0} total sales indicates
-                            healthy demand. No safety issues detected (not below cost, margin adequate). No obvious mispricing found.
+                          <p className={`text-xs ${reasoningTextColor} leading-relaxed`}>
+                            {hasIssues ? (
+                              <>
+                                ⚠️ <strong>Issues detected:</strong>
+                                {!isAboveCost && ` Selling below cost (avg price $${actualAvgPrice.toFixed(2)} < cost $${parseFloat(product.cost_price || 0).toFixed(2)}).`}
+                                {!isMarginHealthy && ` Margin ${margin}% is below 30% target.`}
+                                {' '}Run a new analysis to get updated recommendations. Data may be stale - click Refresh to update from Shopify.
+                              </>
+                            ) : (
+                              <>
+                                Based on actual average selling price ${actualAvgPrice.toFixed(2)} (current Shopify price ${currentStorePrice.toFixed(2)}),
+                                margin is {margin}% (target = 30%). Sales velocity of {salesVelocity} units/day with {product.total_sales_30d || 0} total sales indicates
+                                healthy demand. No safety issues detected.
+                              </>
+                            )}
                           </p>
                         </div>
 
                         {/* Safety Checks */}
                         <div>
-                          <p className="text-xs text-gray-400 font-semibold mb-2">🛡️ Safety Checks Passed:</p>
+                          <p className="text-xs text-gray-400 font-semibold mb-2">🛡️ Safety Checks:</p>
                           <div className="space-y-1 text-xs text-gray-300">
                             <div className="flex items-center space-x-2">
-                              <span className="text-green-400">✓</span>
+                              {actualAvgPrice > parseFloat(product.cost_price || 0) ? (
+                                <span className="text-green-400">✓</span>
+                              ) : (
+                                <span className="text-red-400">✗</span>
+                              )}
                               <span>Not selling below cost ({actualAvgPrice > parseFloat(product.cost_price || 0) ? 'PASS' : 'FAIL'})</span>
                             </div>
                             <div className="flex items-center space-x-2">
-                              <span className="text-green-400">✓</span>
+                              {parseFloat(margin) >= 30 ? (
+                                <span className="text-green-400">✓</span>
+                              ) : (
+                                <span className="text-red-400">✗</span>
+                              )}
                               <span>Margin above 30% minimum ({margin}% {parseFloat(margin) >= 30 ? '≥' : '<'} 30%)</span>
                             </div>
                             <div className="flex items-center space-x-2">
-                              <span className="text-green-400">✓</span>
-                              <span>Data reliability sufficient (has sales history)</span>
+                              {(product.total_sales_30d || 0) > 0 ? (
+                                <span className="text-green-400">✓</span>
+                              ) : (
+                                <span className="text-yellow-400">⚠</span>
+                              )}
+                              <span>Data reliability {(product.total_sales_30d || 0) > 0 ? 'sufficient' : 'limited'} ({product.total_sales_30d || 0} sales)</span>
                             </div>
                             <div className="flex items-center space-x-2">
-                              <span className="text-green-400">✓</span>
-                              <span>No pricing errors detected (markup reasonable)</span>
+                              {parseFloat(margin) > 0 && parseFloat(margin) < 200 ? (
+                                <span className="text-green-400">✓</span>
+                              ) : (
+                                <span className="text-red-400">✗</span>
+                              )}
+                              <span>Markup {parseFloat(margin) > 0 && parseFloat(margin) < 200 ? 'reasonable' : 'needs review'}</span>
                             </div>
                           </div>
                         </div>

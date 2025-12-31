@@ -83,7 +83,6 @@ router.get('/', authenticateToken, async (req, res) => {
 router.post(
   '/:id/accept',
   authenticateToken,
-  validate(schemas.id, 'params'),
   async (req, res) => {
   try {
     const { id } = req.params;
@@ -220,10 +219,10 @@ async function rejectRecommendationHandler(req, res) {
 }
 
 // POST /api/recommendations/:id/reject - Reject recommendation
-router.post('/:id/reject', authenticateToken, validate(schemas.id, 'params'), rejectRecommendationHandler);
+router.post('/:id/reject', authenticateToken, rejectRecommendationHandler);
 
 // GET /api/recommendations/:id/reject - Fallback for form submissions
-router.get('/:id/reject', authenticateToken, validate(schemas.id, 'params'), rejectRecommendationHandler);
+router.get('/:id/reject', authenticateToken, rejectRecommendationHandler);
 
 // POST /api/recommendations/:id/apply - Apply recommendation (update Shopify price)
 router.post(

@@ -267,6 +267,121 @@ router.post('/sync', authenticateToken, async (req, res) => {
   }
 });
 
+// POST /api/products/refresh - Refresh products from Shopify and return updated list
+router.post('/refresh', authenticateToken, async (req, res) => {
+  try {
+    console.log('🔄 Refreshing products from Shopify...');
+
+    const { shop, accessToken } = await getShopifyCredentials(req);
+
+    // Fetch products from Shopify
+    const response = await axios.get(
+      `https://${shop}/admin/api/2024-01/products.json?limit=250`,
+      { headers: { 'X-Shopify-Access-Token': accessToken } }
+    );
+
+    // Fetch orders from last 30 days
+    const thirtyDaysAgo = new Date();
+    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+    const orders = await fetchAllOrdersPaginated(shop, accessToken, thirtyDaysAgo);
+
+    // Calculate sales per variant
+    const variantSales = {};
+    const variantRevenue = {};
+    orders.forEach(order => {
+      order.line_items?.forEach(item => {
+        const variantId = item.variant_id?.toString();
+        if (variantId) {
+          const quantity = item.quantity || 0;
+          const revenue = parseFloat(item.price) * quantity;
+          variantSales[variantId] = (variantSales[variantId] || 0) + quantity;
+          variantRevenue[variantId] = (variantRevenue[variantId] || 0) + revenue;
+        }
+      });
+    });
+
+    console.log(`📦 Processing ${response.data.products.length} products, ${orders.length} orders`);
+
+    // Get shop data
+    const { data: shopData } = await supabaseService
+      .from('shops')
+      .select('shop_domain, app_id')
+      .eq('user_id', req.user.userId)
+      .eq('is_active', true)
+      .single();
+
+    const shopDomain = shopData?.shop_domain || shop;
+    const appId = shopData?.app_id || null;
+
+    // Update products
+    for (const product of response.data.products) {
+      const variant = product.variants[0];
+      const variantId = variant.id.toString();
+      const totalSales = variantSales[variantId] || 0;
+      const totalRevenue = variantRevenue[variantId] || 0;
+      const salesVelocity = totalSales / 30;
+
+      // Try UPDATE first
+      const { data: updateResult } = await supabaseService
+        .from('products')
+        .update({
+          title: product.title,
+          price: variant.price,
+          inventory: variant.inventory_quantity || 0,
+          image_url: product.image?.src || null,
+          total_sales_30d: totalSales,
+          revenue_30d: totalRevenue,
+          sales_velocity: salesVelocity,
+          updated_at: new Date().toISOString()
+        })
+        .eq('user_id', req.user.userId)
+        .eq('shopify_variant_id', variantId)
+        .select();
+
+      if (!updateResult || updateResult.length === 0) {
+        // Product doesn't exist, INSERT new one
+        await supabaseService
+          .from('products')
+          .insert({
+            user_id: req.user.userId,
+            shop_domain: shopDomain,
+            app_id: appId,
+            shopify_product_id: product.id.toString(),
+            shopify_variant_id: variantId,
+            title: product.title,
+            price: variant.price,
+            inventory: variant.inventory_quantity || 0,
+            image_url: product.image?.src || null,
+            total_sales_30d: totalSales,
+            revenue_30d: totalRevenue,
+            sales_velocity: salesVelocity,
+            updated_at: new Date().toISOString(),
+            cost_price: null,
+            selected_for_analysis: true
+          });
+      }
+    }
+
+    // Fetch and return updated products
+    const { data: products, error } = await supabaseService
+      .from('products')
+      .select('*')
+      .eq('user_id', req.user.userId)
+      .order('created_at', { ascending: false });
+
+    if (error) {
+      throw error;
+    }
+
+    console.log(`✅ Refresh complete: ${products.length} products updated`);
+    res.json({ success: true, products });
+
+  } catch (error) {
+    console.error('❌ Product refresh error:', error);
+    res.status(500).json({ error: 'Failed to refresh products', message: error.message });
+  }
+});
+
 // POST /api/products/:id/cost-price
 router.post(
   '/:id/cost-price',
