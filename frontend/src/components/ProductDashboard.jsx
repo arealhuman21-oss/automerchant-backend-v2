@@ -745,13 +745,20 @@ function ProductDashboard({ userEmail, onLogout }) {
         p.id === productId ? { ...p, price: newPrice } : p
       ));
 
-      setSuccessMessage('✅ Price updated successfully on Shopify!');
-      setTimeout(() => setSuccessMessage(null), 3000);
+      setSuccessMessage('✅ Price updated on Shopify! Refreshing data...');
 
-      // Only reload stats in background, not full dashboard
-      api.call('/api/stats').then(data => setStats(data)).catch(err => {
-        console.warn('Failed to reload stats:', err);
-      });
+      // Auto-refresh data after 2 seconds to update stats
+      setTimeout(async () => {
+        try {
+          await refreshProducts();
+          setSuccessMessage('✅ Price updated and data refreshed!');
+          setTimeout(() => setSuccessMessage(null), 2000);
+        } catch (err) {
+          console.warn('Auto-refresh failed:', err);
+          setSuccessMessage(null);
+        }
+      }, 2000);
+
     } catch (err) {
       setError(err.message);
       // Reload on error to ensure consistency
@@ -1554,7 +1561,17 @@ function ProductDashboard({ userEmail, onLogout }) {
                   </button>
                 </div>
                 <div className="space-y-4">
-                  {recommendations.map((rec) => {
+                  {recommendations
+                    .filter((rec) => {
+                      // Filter out stale recommendations where price is already at recommended
+                      const product = products.find(p => p.id === rec.product_id);
+                      if (!product) return false;
+                      const currentPrice = parseFloat(product.price);
+                      const recommendedPrice = parseFloat(rec.recommended_price);
+                      const priceChange = Math.abs(recommendedPrice - currentPrice);
+                      return priceChange >= 0.01; // Only show if change is at least 1 cent
+                    })
+                    .map((rec) => {
                     const isExpanded = expandedRecommendation === rec.id;
                     const product = products.find(p => p.id === rec.product_id);
                     if (!product) return null; // Skip if product not found
@@ -2061,8 +2078,8 @@ function ProductDashboard({ userEmail, onLogout }) {
                       <tr className="border-b border-slate-700">
                         <th className="text-left py-3 px-4 text-gray-400 font-semibold">Order #</th>
                         <th className="text-left py-3 px-4 text-gray-400 font-semibold">Customer</th>
+                        <th className="text-left py-3 px-4 text-gray-400 font-semibold">Products</th>
                         <th className="text-left py-3 px-4 text-gray-400 font-semibold">Total</th>
-                        <th className="text-left py-3 px-4 text-gray-400 font-semibold">Items</th>
                         <th className="text-left py-3 px-4 text-gray-400 font-semibold">Date</th>
                         <th className="text-left py-3 px-4 text-gray-400 font-semibold">Status</th>
                       </tr>
@@ -2072,8 +2089,12 @@ function ProductDashboard({ userEmail, onLogout }) {
                         <tr key={order.id} className="border-b border-slate-800 hover:bg-slate-700/20 transition">
                           <td className="py-3 px-4 text-white font-medium">#{order.order_number}</td>
                           <td className="py-3 px-4 text-gray-300">{order.customer_name || 'Guest'}</td>
+                          <td className="py-3 px-4 text-gray-300 max-w-xs">
+                            <div className="truncate" title={order.product_summary || `${order.line_items_count} items`}>
+                              {order.product_summary || `${order.line_items_count} items`}
+                            </div>
+                          </td>
                           <td className="py-3 px-4 text-white font-bold">${parseFloat(order.total_price).toFixed(2)}</td>
-                          <td className="py-3 px-4 text-gray-300">{order.line_items_count} items</td>
                           <td className="py-3 px-4 text-gray-400 text-sm">
                             {new Date(order.created_at).toLocaleDateString()}
                           </td>

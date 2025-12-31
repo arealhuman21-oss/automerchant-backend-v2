@@ -198,6 +198,43 @@ app.get('/health', (req, res) => {
   res.json({ status: 'ok' });
 });
 
+// Cron endpoint for auto-analysis (called by cron-job.org every 30 minutes)
+app.get('/api/cron/auto-analysis', async (req, res) => {
+  console.log('⏰ [CRON] Auto-analysis endpoint called');
+
+  // Verify CRON_SECRET from Authorization header
+  const authHeader = req.headers.authorization || '';
+  const providedSecret = authHeader.replace('Bearer ', '').trim();
+  const expectedSecret = (process.env.CRON_SECRET || '').trim();
+
+  if (!expectedSecret) {
+    console.error('❌ [CRON] CRON_SECRET not configured in environment');
+    return res.status(500).json({ error: 'CRON_SECRET not configured' });
+  }
+
+  if (providedSecret !== expectedSecret) {
+    console.error('❌ [CRON] Invalid CRON_SECRET provided');
+    return res.status(401).json({ error: 'Unauthorized - invalid CRON_SECRET' });
+  }
+
+  try {
+    console.log('✅ [CRON] Auth verified, running auto-analysis...');
+    const result = await handleAutoAnalysisCron();
+    console.log('✅ [CRON] Auto-analysis complete:', result);
+    res.json({
+      success: true,
+      message: 'Auto-analysis completed',
+      ...result
+    });
+  } catch (error) {
+    console.error('❌ [CRON] Auto-analysis error:', error);
+    res.status(500).json({
+      error: 'Auto-analysis failed',
+      message: error.message
+    });
+  }
+});
+
 app.use(cookieParser());
 
 

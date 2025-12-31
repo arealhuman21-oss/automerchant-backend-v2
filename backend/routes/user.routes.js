@@ -167,7 +167,7 @@ router.get('/orders', authenticateToken, async (req, res) => {
       }
     }
 
-    // Map to frontend-expected format
+    // Map to frontend-expected format with product details
     const orders = allOrders.map(order => ({
       id: order.id,
       order_number: order.order_number,
@@ -177,7 +177,17 @@ router.get('/orders', authenticateToken, async (req, res) => {
       total_price: order.total_price,
       line_items_count: order.line_items?.length || 0,
       created_at: order.created_at,
-      financial_status: order.financial_status
+      financial_status: order.financial_status,
+      // Add product names from line items
+      products: order.line_items?.map(item => ({
+        name: item.name || item.title || 'Unknown Product',
+        quantity: item.quantity || 1,
+        price: item.price
+      })) || [],
+      // Quick summary of products
+      product_summary: order.line_items?.length > 0
+        ? order.line_items.map(item => `${item.name || item.title} (x${item.quantity || 1})`).join(', ')
+        : 'No items'
     }));
 
     // Sort by date descending (most recent first)
