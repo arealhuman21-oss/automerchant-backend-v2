@@ -737,13 +737,24 @@ async function analyzeProductV3(
   // If product is declining rapidly, we may need to act faster
   const urgencyBoost = trendCategory === 'STALLING' || trendCategory === 'DECLINING';
 
-  // NEW SAFETY CHECK: Abort if cost price is invalid
-  if (costPrice <= 0) {
+  // CRITICAL: If cost price is missing, estimate it and give best-effort recommendation
+  // We use industry-standard 40% margin to back-calculate likely cost
+  let costPriceEstimated = false;
+  let estimatedCost = costPrice;
+
+  if (costPrice <= 0 && currentPrice > 0) {
+    // Estimate cost assuming industry-standard 40% margin
+    // If current price is $100, estimated cost = $60
+    estimatedCost = currentPrice * 0.60;
+    costPriceEstimated = true;
+    console.log(`   ⚠️ Cost price missing - estimating $${estimatedCost.toFixed(2)} (60% of current price $${currentPrice.toFixed(2)})`);
+  } else if (costPrice <= 0) {
+    // Truly no data - can't even estimate
     return {
       shouldChangePrice: false,
-      reasoning: `ACTION REQUIRED: Set a valid cost price for this product to enable analysis. The current cost is missing or invalid.`,
+      reasoning: `⚠️ MISSING DATA: Cost price is required for price optimization.\n\nPlease set the cost price for this product to get recommendations. Without knowing your cost, we cannot calculate profit margins or suggest optimal pricing.`,
       urgency: 'HIGH',
-      confidence: 100, // We are 100% confident they need to set the cost.
+      confidence: 100,
       v3Metadata: {
         algorithm: 'V3',
         trigger: 'SAFETY_INVALID_COST',
@@ -780,15 +791,16 @@ async function analyzeProductV3(
   // STEP 3: SAFETY CHECKS
   // ============================================
 
-  // FIX #4: Critical - At or below cost
-  console.log(`   🔴 Checking: currentPrice(${currentPrice}) <= costPrice(${costPrice}) ? ${currentPrice <= costPrice}`);
-  if (costPrice > 0 && currentPrice <= costPrice) {
+  // FIX #4: Critical - At or below cost (use estimatedCost)
+  const effectiveCost = estimatedCost;
+  console.log(`   🔴 Checking: currentPrice(${currentPrice}) <= effectiveCost(${effectiveCost}) ? ${currentPrice <= effectiveCost}`);
+  if (effectiveCost > 0 && currentPrice <= effectiveCost) {
     console.log(`   🚨🚨🚨 BELOW COST DETECTED! Triggering urgent recommendation...`);
-    const safePrice = Math.max(costPrice * 1.3, costPrice / (1 - 0.30));
-    const lossPerSale = costPrice - currentPrice;
+    const safePrice = Math.max(effectiveCost * 1.3, effectiveCost / (1 - 0.30));
+    const lossPerSale = effectiveCost - currentPrice;
     const dailyLoss = lossPerSale * velocity30d;
     const monthlyLoss = dailyLoss * 30;
-    const projectedProfit = (safePrice - costPrice) * velocity30d * 30;
+    const projectedProfit = (safePrice - effectiveCost) * velocity30d * 30;
 
     let reasoning = `🚨 URGENT: You're currently LOSING $${lossPerSale.toFixed(2)} on every sale.\n\n`;
     reasoning += `📊 Sales Analysis:\n`;
@@ -796,17 +808,21 @@ async function analyzeProductV3(
     reasoning += `• Current loss: $${monthlyLoss.toFixed(2)}/month at this price\n`;
     reasoning += `• Revenue: $${revenue30d.toFixed(2)} last 30 days, but costs exceed revenue\n\n`;
     reasoning += `💰 With New Price ($${safePrice.toFixed(2)}):\n`;
-    reasoning += `• Profit per sale: $${(safePrice - costPrice).toFixed(2)} (30% margin)\n`;
+    reasoning += `• Profit per sale: $${(safePrice - effectiveCost).toFixed(2)} (30% margin)\n`;
     reasoning += `• Projected profit: +$${projectedProfit.toFixed(2)}/month\n`;
     reasoning += `• Turnaround: $${(monthlyLoss + projectedProfit).toFixed(2)}/month swing\n\n`;
     reasoning += `⚠️ Every day at the current price costs you money. This price increase protects your margins while remaining competitive.`;
+
+    if (costPriceEstimated) {
+      reasoning += `\n\n📌 NOTE: Cost price estimated at $${effectiveCost.toFixed(2)} (60% of current price). Set actual cost price for more accurate recommendations.`;
+    }
 
     return {
       shouldChangePrice: true,
       recommendedPrice: safePrice,
       reasoning,
       urgency: 'CRITICAL',
-      confidence: 100,
+      confidence: costPriceEstimated ? 60 : 100,  // Lower confidence when cost is estimated
       priceChange: safePrice - currentPrice,
       changePercent: ((safePrice - currentPrice) / currentPrice) * 100,
       v3Metadata: {
@@ -843,19 +859,25 @@ async function analyzeProductV3(
   const hasReasonableData = sales30d >= 10;
 
   // CRITICAL: Below cost check (works for all data levels)
-  if (costPrice > 0 && currentPrice <= costPrice) {
-    const safePrice = Math.max(costPrice * 1.3, costPrice / (1 - 0.30));
-    const lossPerSale = costPrice - currentPrice;
+  if (effectiveCost > 0 && currentPrice <= effectiveCost) {
+    const safePrice = Math.max(effectiveCost * 1.3, effectiveCost / (1 - 0.30));
+    const lossPerSale = effectiveCost - currentPrice;
     const dailyLoss = lossPerSale * velocity30d;
     const monthlyLoss = dailyLoss * 30;
-    const projectedProfit = (safePrice - costPrice) * velocity30d * 30;
+    const projectedProfit = (safePrice - effectiveCost) * velocity30d * 30;
+
+    let reasoning = `🚨 CRITICAL: Selling BELOW COST!\n\nYou're losing $${lossPerSale.toFixed(2)} on every sale. ${sales30d > 0 ? `With ${sales30d} sales, you've lost $${monthlyLoss.toFixed(2)} this month.` : ''}\n\n💰 Recommended Price: $${safePrice.toFixed(2)} (30% margin)\nThis protects your margins and ensures profitability.\n\n⚠️ Every sale at current price loses money. Fix this immediately.`;
+
+    if (costPriceEstimated) {
+      reasoning += `\n\n📌 NOTE: Cost price estimated at $${effectiveCost.toFixed(2)} (60% of current price). Set actual cost price for more accurate recommendations.`;
+    }
 
     return {
       shouldChangePrice: true,
       recommendedPrice: safePrice,
-      reasoning: `🚨 CRITICAL: Selling BELOW COST!\n\nYou're losing $${lossPerSale.toFixed(2)} on every sale. ${sales30d > 0 ? `With ${sales30d} sales, you've lost $${monthlyLoss.toFixed(2)} this month.` : ''}\n\n💰 Recommended Price: $${safePrice.toFixed(2)} (30% margin)\nThis protects your margins and ensures profitability.\n\n⚠️ Every sale at current price loses money. Fix this immediately.`,
+      reasoning,
       urgency: 'CRITICAL',
-      confidence: 100,
+      confidence: costPriceEstimated ? 60 : 100,
       v3Metadata: {
         algorithm: 'V3',
         trigger: 'BELOW_COST',
@@ -868,10 +890,10 @@ async function analyzeProductV3(
 
   // LOW DATA MODE: Use margin-based optimization (still give recommendations!)
   if (lowDataMode) {
-    const currentMarginValue = costPrice > 0 ? ((currentPrice - costPrice) / currentPrice) * 100 : 0;
+    const currentMarginValue = effectiveCost > 0 ? ((currentPrice - effectiveCost) / currentPrice) * 100 : 0;
     const targetMargin = parseFloat(userSettings.target_margin) || 0.40;
     const targetMarginPercent = targetMargin * 100;
-    const targetPrice = costPrice > 0 ? costPrice / (1 - targetMargin) : currentPrice;
+    const targetPrice = effectiveCost > 0 ? effectiveCost / (1 - targetMargin) : currentPrice;
     const priceDiff = targetPrice - currentPrice;
     const priceDiffPercent = (priceDiff / currentPrice) * 100;
 
@@ -892,15 +914,19 @@ async function analyzeProductV3(
       reasoning += `• Confidence will improve as you get more sales\n\n`;
       reasoning += `💡 WHY THIS PRICE:\n`;
       reasoning += direction === 'INCREASE'
-        ? `• Your current margin (${currentMarginValue.toFixed(0)}%) is below target (${targetMarginPercent.toFixed(0)}%)\n• This price ensures healthy profitability\n• Based on your cost price of $${costPrice.toFixed(2)}`
-        : `• Competitive positioning while maintaining ${targetMarginPercent.toFixed(0)}% margin\n• Better value perception for customers\n• Still profitable at $${costPrice.toFixed(2)} cost`;
+        ? `• Your current margin (${currentMarginValue.toFixed(0)}%) is below target (${targetMarginPercent.toFixed(0)}%)\n• This price ensures healthy profitability\n• Based on your cost price of $${effectiveCost.toFixed(2)}`
+        : `• Competitive positioning while maintaining ${targetMarginPercent.toFixed(0)}% margin\n• Better value perception for customers\n• Still profitable at $${effectiveCost.toFixed(2)} cost`;
+
+      if (costPriceEstimated) {
+        reasoning += `\n\n📌 NOTE: Cost price estimated at $${effectiveCost.toFixed(2)} (60% of current price). Set actual cost price for more accurate recommendations.`;
+      }
 
       return {
         shouldChangePrice: true,
         recommendedPrice: targetPrice,
         reasoning,
         urgency: currentMarginValue < 20 ? 'HIGH' : 'MEDIUM',
-        confidence: 35, // Lower confidence with limited data
+        confidence: costPriceEstimated ? 25 : 35, // Even lower confidence when cost is estimated
         priceChange: priceDiff,
         changePercent: priceDiffPercent,
         v3Metadata: {
@@ -932,7 +958,7 @@ async function analyzeProductV3(
   // STEP 4: COMPUTE CONTEXT METRICS
   // ============================================
 
-  const currentMargin = costPrice > 0 ? ((currentPrice - costPrice) / currentPrice) * 100 : 0;
+  const currentMargin = effectiveCost > 0 ? ((currentPrice - effectiveCost) / currentPrice) * 100 : 0;
   const dosMetrics = computeProbabilisticDOS(inventory, sales30d, sales7d);
   const dosRegime = getDOSRegime(dosMetrics.dos, dosMetrics.inventoryTrusted);
 
@@ -950,7 +976,7 @@ async function analyzeProductV3(
   // CRITICAL: Still check margin even with high inventory
   // If margin is dangerously low, we MUST recommend a price increase
   if (skipDOSLogic && currentMargin < 20) {
-    const targetPrice = costPrice / (1 - 0.30); // Target 30% margin
+    const targetPrice = effectiveCost / (1 - 0.30); // Target 30% margin
     const profitIncrease = (targetPrice - currentPrice) * velocity30d * 30;
 
     return {
@@ -985,14 +1011,14 @@ async function analyzeProductV3(
   // Grid around current price
   for (let k = -3; k <= 3; k++) {
     const price = currentPrice * (1 + k * step);
-    if (price >= costPrice / (1 - 0.25)) { // Hard margin floor: 25%
+    if (price >= effectiveCost / (1 - 0.25)) { // Hard margin floor: 25%
       candidates.push(price);
     }
   }
 
   // Add margin-based prices
-  const targetMarginPrice = costPrice / (1 - targetMargin);
-  const floorPrice = costPrice / (1 - 0.25);
+  const targetMarginPrice = effectiveCost / (1 - targetMargin);
+  const floorPrice = effectiveCost / (1 - 0.25);
 
   if (targetMarginPrice >= floorPrice) candidates.push(targetMarginPrice);
   candidates.push(floorPrice);
@@ -1037,7 +1063,7 @@ async function analyzeProductV3(
     for (const e of elasticitySamples) {
       const priceRatio = (candidatePrice / currentPrice);
       const demandForecast = velocity30d * Math.pow(priceRatio, e);
-      const profit = (candidatePrice - costPrice) * demandForecast;
+      const profit = (candidatePrice - effectiveCost) * demandForecast;
       profitSamples.push(profit);
     }
 
@@ -1057,7 +1083,7 @@ async function analyzeProductV3(
     // Lookahead value
     const state = {
       price: currentPrice,
-      cost: costPrice,
+      cost: effectiveCost,
       inventory,
       velocity: velocity30d,
       elasticityPosterior
@@ -1116,7 +1142,7 @@ async function analyzeProductV3(
     for (const e of elasticityLearner.sample(100)) {
       const priceRatio = stagedPrice / currentPrice;
       const demandForecast = velocity30d * Math.pow(priceRatio, e);
-      const profit = (stagedPrice - costPrice) * demandForecast;
+      const profit = (stagedPrice - effectiveCost) * demandForecast;
       stagedProfitSamples.push(profit);
     }
 
@@ -1257,7 +1283,7 @@ async function analyzeProductV3(
   reasoning += `💰 PROFIT IMPACT:\n`;
   reasoning += `• Expected increase: +$${profitLift.toFixed(2)}/day (+$${monthlyProfitLift.toFixed(2)}/month)\n`;
   reasoning += `• Current margin: ${currentMargin.toFixed(0)}%\n`;
-  reasoning += `• New margin: ${((bestCandidate.price - costPrice) / bestCandidate.price * 100).toFixed(0)}%\n\n`;
+  reasoning += `• New margin: ${((bestCandidate.price - effectiveCost) / bestCandidate.price * 100).toFixed(0)}%\n\n`;
 
   // Sales context
   reasoning += `📊 BASED ON YOUR DATA:\n`;
@@ -1317,8 +1343,8 @@ async function analyzeProductV3(
   if (elasticityPosterior.sigma > 0.5) {
     whatWouldChange.push(`More price experiments to reduce elasticity uncertainty (currently σ=${elasticityPosterior.sigma.toFixed(2)})`);
   }
-  if (costPrice === 0) {
-    whatWouldChange.push('Setting cost price would enable margin-based optimization');
+  if (costPriceEstimated) {
+    whatWouldChange.push('Setting actual cost price (currently estimated) would significantly improve recommendation accuracy');
   }
   if (sales30d < 20) {
     whatWouldChange.push(`More sales history (currently ${sales30d} units in 30 days)`);

@@ -1222,6 +1222,21 @@ function ProductDashboard({ userEmail, onLogout }) {
               <div className="text-3xl">🧠</div>
               <h3 className="text-2xl font-bold text-white">AutoMerchant AI - Always Learning</h3>
             </div>
+
+            {/* UPDATES Section */}
+            <div className="mb-4 p-4 bg-green-500/10 border-l-4 border-green-500 rounded-lg">
+              <div className="flex items-center space-x-2 mb-2">
+                <div className="text-xl">✨</div>
+                <h4 className="font-bold text-green-300">UPDATES - Jan 1, 2026</h4>
+              </div>
+              <ul className="text-sm text-green-200 space-y-1">
+                <li>• <strong>Fixed critical bug</strong> causing negative price recommendations (4000% margin error)</li>
+                <li>• <strong>Enhanced low-data mode:</strong> Now estimates cost price (60% of current) when missing, still gives best recommendations</li>
+                <li>• <strong>Improved confidence scoring:</strong> Clear distinction between estimated vs actual cost data (25-35% vs 70-95%)</li>
+                <li>• <strong>Smarter margin targeting:</strong> All algorithms now use correct decimal format (0.40 = 40%)</li>
+              </ul>
+            </div>
+
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <div className="p-4 bg-white/5 rounded-lg border border-purple-500/30">
                 <div className="flex items-center space-x-2 mb-2">

@@ -458,7 +458,7 @@ async function runAnalysisForUser(userId) {
   // console.log(`📊 Analyzing ${products.length} selected products for user ${userId}`);
 
   const allProducts = products;
-  const userSettings = { target_margin: 40 };
+  const userSettings = { target_margin: 0.40 };  // CRITICAL FIX: Must be decimal (0.40 = 40%), not integer
 
   // Get price decrease history (last 30 days)
   const thirtyDaysAgo = new Date();

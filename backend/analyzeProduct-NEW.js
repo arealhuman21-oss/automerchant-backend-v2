@@ -120,7 +120,7 @@ async function analyzeProduct(product, allProducts, userSettings, recentOrderDat
   // CONFIGURATION
   const MIN_MARGIN_PERCENT = 30;
   const MAX_MARGIN_PERCENT = 70;
-  const TARGET_MARGIN = parseFloat(userSettings.target_margin) || 40;
+  const TARGET_MARGIN = parseFloat(userSettings.target_margin) || 0.40;  // CRITICAL FIX: Must be decimal
   const MAX_MARKUP_RATIO = 5.0;
   const SUSPICIOUS_MARKUP = 10.0;
   const MAX_INCREASE_PERCENT = 0.20; // 20%
