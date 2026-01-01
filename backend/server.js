@@ -40,6 +40,7 @@ const analysisRoutes = require('./routes/analysis.routes');
 const recommendationsRoutes = require('./routes/recommendations.routes');
 const adminRoutes = require('./routes/admin.routes');
 const userRoutes = require('./routes/user.routes');
+const debugRoutes = require('./routes/debug.routes');
 
 // Import analysis service (for cron job)
 const analysisService = require('./services/analysis.service');
