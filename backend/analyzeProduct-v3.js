@@ -700,6 +700,21 @@ async function analyzeProductV3(
 
   console.log(`   Parsed costPrice: ${costPrice}, currentPrice: ${currentPrice}`);
   console.log(`   🚨 BELOW COST CHECK: ${currentPrice} <= ${costPrice} = ${currentPrice <= costPrice}`);
+
+  // CRITICAL: Validate current price
+  if (!currentPrice || currentPrice <= 0 || isNaN(currentPrice)) {
+    return {
+      shouldChangePrice: false,
+      reasoning: `⚠️ INVALID PRICE DATA: Current price ($${product.price}) is invalid or zero. Please check your Shopify product pricing.`,
+      urgency: 'HIGH',
+      confidence: 100,
+      v3Metadata: {
+        algorithm: 'V3',
+        trigger: 'SAFETY_INVALID_PRICE',
+      }
+    };
+  }
+
   const inventory = parseInt(product.inventory) || 0;
   const sales30d = parseInt(product.total_sales_30d) || 0;
   const revenue30d = parseFloat(product.revenue_30d) || 0;
@@ -818,15 +833,76 @@ async function analyzeProductV3(
     };
   }
 
-  // Insufficient data
-  if (sales30d < 3 && costPrice === 0) {
+  // ============================================
+  // CRITICAL FIX: MINIMUM SALES THRESHOLD
+  // Price optimization requires data - prevent bad recommendations on low-volume products
+  // ============================================
+
+  const MIN_SALES_FOR_OPTIMIZATION = 10;
+  const MIN_VELOCITY = 0.3; // ~10 sales/month
+
+  // Check if we have enough sales data REGARDLESS of cost price
+  if (sales30d < MIN_SALES_FOR_OPTIMIZATION) {
+    // Special case: If already below cost with some sales, still warn
+    if (costPrice > 0 && currentPrice <= costPrice && sales30d >= 3) {
+      const safePrice = Math.max(costPrice * 1.3, costPrice / (1 - 0.30));
+      return {
+        shouldChangePrice: true,
+        recommendedPrice: safePrice,
+        reasoning: `🚨 CRITICAL: Selling below cost ($${currentPrice.toFixed(2)} < $${costPrice.toFixed(2)} cost)!\n\nYou're losing money on every sale. Raise to $${safePrice.toFixed(2)} immediately to protect margins.\n\n⚠️ Note: Only ${sales30d} sales in 30 days - focus on marketing to increase volume after fixing price.`,
+        urgency: 'CRITICAL',
+        confidence: 100,
+        v3Metadata: {
+          algorithm: 'V3',
+          trigger: 'BELOW_COST_LOW_VOLUME',
+          sales30d
+        }
+      };
+    }
+
+    // Not enough sales to optimize price
+    const currentMarginForDisplay = costPrice > 0 ? ((currentPrice - costPrice) / currentPrice) * 100 : 0;
+
+    let reasoning = `📊 NOT ENOUGH SALES DATA\n\n`;
+    reasoning += `Your product has only ${sales30d} sales in 30 days. We need at least ${MIN_SALES_FOR_OPTIMIZATION} sales to make reliable pricing recommendations.\n\n`;
+
+    // Diagnose if price is even the problem
+    if (currentMarginForDisplay >= 35) {
+      reasoning += `✅ YOUR PRICING LOOKS FINE (${currentMarginForDisplay.toFixed(0)}% margin)\n\n`;
+      reasoning += `The issue isn't price - you need more visibility and traffic.\n\n`;
+      reasoning += `🎯 What to do instead:\n`;
+      reasoning += `• Increase traffic (ads, SEO, social media)\n`;
+      reasoning += `• Improve product photos and descriptions\n`;
+      reasoning += `• Build social proof (reviews, testimonials)\n`;
+      reasoning += `• Run promotions or giveaways\n\n`;
+      reasoning += `💡 Price optimization works best AFTER you have consistent sales. Come back when you're selling ${MIN_SALES_FOR_OPTIMIZATION}+ units/month!`;
+    } else if (currentMarginForDisplay < 20 && currentMarginForDisplay > 0) {
+      reasoning += `⚠️ Your margin is low (${currentMarginForDisplay.toFixed(0)}%), but with only ${sales30d} sales, we can't reliably optimize yet.\n\n`;
+      reasoning += `🎯 Focus on:\n`;
+      reasoning += `• Getting more sales through marketing first\n`;
+      reasoning += `• Consider if your cost is competitive\n`;
+      reasoning += `• Build volume before optimizing price\n\n`;
+      reasoning += `💡 We'll help you maximize profit once you have ${MIN_SALES_FOR_OPTIMIZATION}+ sales/month.`;
+    } else {
+      reasoning += `🎯 What to do instead:\n`;
+      reasoning += `• Focus on marketing and traffic generation\n`;
+      reasoning += `• Improve product discovery (SEO, ads)\n`;
+      reasoning += `• Build trust signals (reviews, guarantees)\n`;
+      reasoning += `• Consider bundling or promotions\n\n`;
+      reasoning += `💡 Once you're selling ${MIN_SALES_FOR_OPTIMIZATION}+ units/month consistently, our AI will help you maximize profit through price optimization.`;
+    }
+
     return {
       shouldChangePrice: false,
-      reasoning: `⚠️ INSUFFICIENT DATA: Only ${sales30d} sales in 30 days and no cost price set. Cannot optimize safely. Need cost price and more sales history.`,
-      confidence: 20,
+      reasoning,
+      urgency: 'LOW',
+      confidence: 15,
       v3Metadata: {
         algorithm: 'V3',
-        trigger: 'INSUFFICIENT_DATA'
+        trigger: 'INSUFFICIENT_SALES_VOLUME',
+        sales30d,
+        minRequired: MIN_SALES_FOR_OPTIMIZATION,
+        currentMargin: currentMarginForDisplay
       }
     };
   }
@@ -1152,13 +1228,55 @@ async function analyzeProductV3(
   const direction = priceChange > 0 ? 'INCREASE' : 'DECREASE';
   const emoji = priceChange > 0 ? '📈' : '📉';
 
-  let reasoning = `${emoji} ${direction} (V3): `;
-  reasoning += `$${currentPrice.toFixed(2)} → $${bestCandidate.price.toFixed(2)} (${changePercent > 0 ? '+' : ''}${changePercent.toFixed(1)}%). `;
-  reasoning += `Expected profit lift: +$${profitLift.toFixed(2)}/day (+${(profitLift / Math.max(currentCandidate.expectedProfit, 0.01) * 100).toFixed(1)}%). `;
-  reasoning += `DOS: ${dosMetrics.dos.toFixed(0)}d (${dosRegime.regime}). `;
-  reasoning += `Trend: ${trendCategory} (${velocityTrend > 1 ? '+' : ''}${((velocityTrend - 1) * 100).toFixed(0)}% vs 30d avg). `;
-  reasoning += `Elasticity: ${elasticityPosterior.mean.toFixed(2)}±${elasticityPosterior.sigma.toFixed(2)}. `;
-  reasoning += `Downside protection: $${Math.abs(bestCandidate.cvar).toFixed(2)}/day worst-case.`;
+  // Build clearer, merchant-friendly reasoning
+  let reasoning = `${emoji} ${direction} PRICE: $${currentPrice.toFixed(2)} → $${bestCandidate.price.toFixed(2)} (${changePercent > 0 ? '+' : ''}${changePercent.toFixed(1)}%)\n\n`;
+
+  // Main value proposition
+  const monthlyProfitLift = profitLift * 30;
+  reasoning += `💰 PROFIT IMPACT:\n`;
+  reasoning += `• Expected increase: +$${profitLift.toFixed(2)}/day (+$${monthlyProfitLift.toFixed(2)}/month)\n`;
+  reasoning += `• Current margin: ${currentMargin.toFixed(0)}%\n`;
+  reasoning += `• New margin: ${((bestCandidate.price - costPrice) / bestCandidate.price * 100).toFixed(0)}%\n\n`;
+
+  // Sales context
+  reasoning += `📊 BASED ON YOUR DATA:\n`;
+  reasoning += `• ${sales30d} sales in last 30 days (${velocity30d.toFixed(1)}/day average)\n`;
+
+  // Data quality warning for borderline cases
+  if (sales30d >= 10 && sales30d < 30) {
+    reasoning += `• ⚠️ Limited data - recommendation is moderately confident. Results improve with more sales history.\n`;
+  } else if (sales30d >= 30) {
+    reasoning += `• ✅ Good sales volume - high confidence in recommendation\n`;
+  }
+
+  reasoning += `• Inventory: ${inventory} units (${dosMetrics.dos.toFixed(0)} days of supply)\n`;
+
+  if (trendCategory === 'GROWING') {
+    reasoning += `• 📈 Sales trending UP - good time to optimize\n`;
+  } else if (trendCategory === 'DECLINING' || trendCategory === 'STALLING') {
+    reasoning += `• 📉 Sales trending DOWN - address visibility/marketing too\n`;
+  }
+
+  reasoning += `\n💡 WHY THIS PRICE:\n`;
+  if (direction === 'INCREASE') {
+    reasoning += `• Your margin is ${currentMargin < 30 ? 'below' : 'at'} target (current: ${currentMargin.toFixed(0)}%, target: 40%)\n`;
+    reasoning += `• Demand appears ${elasticityPosterior.mean > -1.5 ? 'inelastic' : 'moderately elastic'} - customers will likely accept this increase\n`;
+    reasoning += `• Risk-adjusted analysis suggests this maximizes profit\n`;
+  } else {
+    if (dosMetrics.dos > 90) {
+      reasoning += `• High inventory (${dosMetrics.dos.toFixed(0)} days) - price cut helps move stock\n`;
+      reasoning += `• Lower price expected to increase sales velocity\n`;
+      reasoning += `• Better to sell at lower margin than hold excess inventory\n`;
+    } else {
+      reasoning += `• Slight price reduction can increase sales volume\n`;
+      reasoning += `• Expected volume increase offsets lower margin\n`;
+      reasoning += `• Competitive positioning improvement\n`;
+    }
+  }
+
+  reasoning += `\n🛡️ DOWNSIDE PROTECTION:\n`;
+  reasoning += `• Worst-case scenario: $${Math.abs(bestCandidate.cvar).toFixed(2)}/day (built into analysis)\n`;
+  reasoning += `• ${changePercent > 0 ? 'Maximum' : 'Price'} change limited to ${Math.abs(changePercent).toFixed(0)}% for safety`;
 
   // FIX #9: Improved urgency classification with trend detection
   let urgency = 'MEDIUM';

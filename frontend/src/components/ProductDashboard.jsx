@@ -384,6 +384,13 @@ function ProductDashboard({ userEmail, onLogout }) {
   const [productSearchQuery, setProductSearchQuery] = useState('');
   const [expandedRecommendation, setExpandedRecommendation] = useState(null);
 
+  // Update notification - version controlled
+  const UPDATE_VERSION = 'v2.0-jan2026'; // Change this when you have new updates
+  const [showUpdateBanner, setShowUpdateBanner] = useState(() => {
+    const dismissed = localStorage.getItem(`updateDismissed_${UPDATE_VERSION}`);
+    return !dismissed;
+  });
+
   useEffect(() => {
     initializeDashboard();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -714,13 +721,10 @@ function ProductDashboard({ userEmail, onLogout }) {
         setTimeout(() => setSuccessMessage(null), 3000);
         console.log(`✅ Refreshed ${response.products.length} products`);
       }
-      // Also reload recommendations and stats
-      const [recsData, statsData] = await Promise.all([
-        api.call('/api/recommendations'),
-        api.call('/api/stats')
-      ]);
-      setRecommendations(recsData.recommendations || []);
+      // Only reload stats (NOT recommendations - those only appear after running analysis)
+      const statsData = await api.call('/api/stats');
       setStats(statsData);
+      // NOTE: Recommendations are NOT reloaded on refresh - user must run analysis to see new recommendations
     } catch (err) {
       console.error('Refresh error:', err);
       setError('Failed to refresh products. Try again.');
@@ -1214,6 +1218,78 @@ function ProductDashboard({ userEmail, onLogout }) {
           </div>
         )}
 
+        {/* Update Banner - Only for connected users */}
+        {showUpdateBanner && shopifyConnected && (
+          <div className="mb-6 p-6 bg-gradient-to-r from-purple-600/20 to-pink-600/20 border-2 border-purple-500/50 rounded-xl relative">
+            <button
+              onClick={() => {
+                setShowUpdateBanner(false);
+                localStorage.setItem(`updateDismissed_${UPDATE_VERSION}`, 'true');
+              }}
+              className="absolute top-4 right-4 p-2 hover:bg-white/10 rounded-lg transition"
+              type="button"
+            >
+              <X className="w-5 h-5 text-purple-200" />
+            </button>
+            <div className="pr-10">
+              <div className="flex items-center space-x-3 mb-3">
+                <div className="text-3xl">✨</div>
+                <h3 className="text-2xl font-bold text-white">Major Algorithm Improvements!</h3>
+              </div>
+              <div className="space-y-3 text-purple-100">
+                <p className="text-lg font-semibold">We just made AutoMerchant MUCH smarter:</p>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
+                  <div className="p-4 bg-white/5 rounded-lg">
+                    <div className="flex items-start space-x-3">
+                      <div className="text-2xl">🎯</div>
+                      <div>
+                        <p className="font-bold text-white mb-1">Smarter Data Requirements</p>
+                        <p className="text-sm text-purple-200">No more bad recommendations on low-volume products. We now require 10+ sales before optimizing.</p>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="p-4 bg-white/5 rounded-lg">
+                    <div className="flex items-start space-x-3">
+                      <div className="text-2xl">📊</div>
+                      <div>
+                        <p className="font-bold text-white mb-1">Traffic vs Price Diagnosis</p>
+                        <p className="text-sm text-purple-200">AI now tells you if your issue is traffic (not price) and guides you accordingly.</p>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="p-4 bg-white/5 rounded-lg">
+                    <div className="flex items-start space-x-3">
+                      <div className="text-2xl">💬</div>
+                      <div>
+                        <p className="font-bold text-white mb-1">Clearer Explanations</p>
+                        <p className="text-sm text-purple-200">Recommendations now show profit impact, data quality, and reasoning in plain English.</p>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="p-4 bg-white/5 rounded-lg">
+                    <div className="flex items-start space-x-3">
+                      <div className="text-2xl">🛡️</div>
+                      <div>
+                        <p className="font-bold text-white mb-1">Better Safety Checks</p>
+                        <p className="text-sm text-purple-200">No more suggesting price cuts when you need marketing. Focuses on what actually matters.</p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="mt-4 p-4 bg-green-500/20 border border-green-500/40 rounded-lg">
+                  <p className="text-green-200 font-semibold">🎉 What this means for you:</p>
+                  <p className="text-sm text-green-100 mt-1">You'll get more accurate, trustworthy recommendations. If you have low-volume products, the AI will now guide you to focus on marketing first - which is exactly what you need!</p>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Shopify Not Connected Warning */}
         {!shopifyConnected && activeTab === 'dashboard' && (
           <div className="mb-8 p-6 bg-blue-500/10 border border-blue-500/30 rounded-xl flex items-start space-x-4">
@@ -1562,22 +1638,18 @@ function ProductDashboard({ userEmail, onLogout }) {
                 </div>
                 <div className="space-y-4">
                   {recommendations
-                    .filter((rec) => {
-                      // Filter out stale recommendations where price is already at recommended
-                      const product = products.find(p => p.id === rec.product_id);
-                      if (!product) return false;
-                      const currentPrice = parseFloat(product.price);
-                      const recommendedPrice = parseFloat(rec.recommended_price);
-                      const priceChange = Math.abs(recommendedPrice - currentPrice);
-                      return priceChange >= 0.01; // Only show if change is at least 1 cent
-                    })
                     .map((rec) => {
                     const isExpanded = expandedRecommendation === rec.id;
                     const product = products.find(p => p.id === rec.product_id);
                     if (!product) return null; // Skip if product not found
-                    const currentPrice = parseFloat(product.price);
-                    const recommendedPrice = parseFloat(rec.recommended_price);
+
+                    const currentPrice = parseFloat(product.price) || 0;
+                    const recommendedPrice = parseFloat(rec.recommended_price) || currentPrice;
                     const priceChange = recommendedPrice - currentPrice;
+
+                    // Determine if this is an informational recommendation (no price change recommended)
+                    const isInformational = !rec.recommended_price || Math.abs(priceChange) < 0.01;
+
                     // CRITICAL FIX: Handle edge case where price change is 0 or negligible
                     const isNegligibleChange = Math.abs(priceChange) < 0.01;
                     const isIncrease = priceChange > 0.01; // Must be at least 1 cent increase
@@ -1694,7 +1766,7 @@ function ProductDashboard({ userEmail, onLogout }) {
                       {/* Reasoning */}
                       <div className="bg-purple-950/30 border border-purple-500/30 rounded-lg p-4 mb-4">
                         <p className="text-sm text-purple-300 font-semibold mb-2">💡 Why this recommendation:</p>
-                        <p className="text-gray-200 leading-relaxed">{rec.reasoning}</p>
+                        <p className="text-gray-200 leading-relaxed whitespace-pre-line">{rec.reasoning}</p>
                       </div>
 
                       {/* Expandable Details */}
@@ -1813,22 +1885,37 @@ function ProductDashboard({ userEmail, onLogout }) {
 
                       {/* Action Buttons */}
                       <div className="flex items-center space-x-3">
-                        <button
-                          onClick={(e) => rejectRecommendation(rec.id, rec.product_id, e)}
-                          className="px-6 py-3 bg-slate-700 text-white rounded-lg font-semibold hover:bg-slate-600 transition flex items-center space-x-2"
-                          type="button"
-                        >
-                          <X className="w-4 h-4" />
-                          <span>Reject</span>
-                        </button>
-                        <button
-                          onClick={(e) => { e.preventDefault(); applyRecommendation(rec.id, rec.product_id, parseFloat(rec.recommended_price)); }}
-                          className="flex-1 px-6 py-3 bg-gradient-to-r from-green-600 to-emerald-600 text-white rounded-lg font-bold hover:from-green-700 hover:to-emerald-700 transition flex items-center justify-center space-x-2 shadow-lg shadow-green-500/20"
-                          type="button"
-                        >
-                          <Check className="w-5 h-5" />
-                          <span>Apply This Price to Shopify</span>
-                        </button>
+                        {isInformational ? (
+                          // For informational recommendations (no price change), just show dismiss button
+                          <button
+                            onClick={(e) => rejectRecommendation(rec.id, rec.product_id, e)}
+                            className="w-full px-6 py-3 bg-purple-600 hover:bg-purple-700 text-white rounded-lg font-semibold transition flex items-center justify-center space-x-2"
+                            type="button"
+                          >
+                            <Check className="w-5 h-5" />
+                            <span>Got It - Thanks for the Guidance!</span>
+                          </button>
+                        ) : (
+                          // For actionable recommendations, show reject + apply
+                          <>
+                            <button
+                              onClick={(e) => rejectRecommendation(rec.id, rec.product_id, e)}
+                              className="px-6 py-3 bg-slate-700 text-white rounded-lg font-semibold hover:bg-slate-600 transition flex items-center space-x-2"
+                              type="button"
+                            >
+                              <X className="w-4 h-4" />
+                              <span>Reject</span>
+                            </button>
+                            <button
+                              onClick={(e) => { e.preventDefault(); applyRecommendation(rec.id, rec.product_id, parseFloat(rec.recommended_price)); }}
+                              className="flex-1 px-6 py-3 bg-gradient-to-r from-green-600 to-emerald-600 text-white rounded-lg font-bold hover:from-green-700 hover:to-emerald-700 transition flex items-center justify-center space-x-2 shadow-lg shadow-green-500/20"
+                              type="button"
+                            >
+                              <Check className="w-5 h-5" />
+                              <span>Apply This Price to Shopify</span>
+                            </button>
+                          </>
+                        )}
                       </div>
                     </div>
                     );
@@ -1994,13 +2081,23 @@ function ProductDashboard({ userEmail, onLogout }) {
                           </div>
                         </div>
 
-                        {/* What AI Considered */}
+                        {/* What AI Considered - Dynamic based on product status */}
                         <div className="mt-3 pt-3 border-t border-slate-700">
                           <p className="text-xs text-gray-400 mb-1">⚖️ Alternatives AI Considered:</p>
                           <ul className="text-xs text-gray-500 space-y-1">
-                            <li>• Increase price → Would improve margin but risk reducing sales</li>
-                            <li>• Decrease price → Not needed, sales velocity is adequate</li>
-                            <li>• Keep current → <span className="text-green-300 font-semibold">Best option (chosen)</span></li>
+                            {hasIssues ? (
+                              <>
+                                <li>• Increase price → <span className="text-yellow-300 font-semibold">Recommended - run analysis to get specific recommendation</span></li>
+                                <li>• Decrease price → Not advisable with current margin issues</li>
+                                <li>• Keep current → <span className="text-red-300">Not optimal - losing money or margin too low</span></li>
+                              </>
+                            ) : (
+                              <>
+                                <li>• Increase price → Could improve margin but may reduce sales volume</li>
+                                <li>• Decrease price → Not needed, current performance is healthy</li>
+                                <li>• Keep current → <span className="text-green-300 font-semibold">Optimal choice - margins healthy</span></li>
+                              </>
+                            )}
                           </ul>
                         </div>
                       </div>
