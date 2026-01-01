@@ -67,7 +67,8 @@
       "Bash(npm ls:*)",
       "Bash(del \"C:\\\\Users\\\\ben_l\\\\automerchant-local\\\\frontend\\\\package-lock.json\")",
       "Bash(rm:*)",
-      "Bash(pushd:*)"
+      "Bash(pushd:*)",
+      "WebFetch(domain:community.shopify.com)"
     ],
     "deny": [],
     "ask": []

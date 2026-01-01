@@ -4,6 +4,7 @@ const router = express.Router();
 const { authenticateToken } = require('../middleware/auth');
 const { validate, schemas } = require('../middleware/validation');
 const { supabaseService } = require('../config/database');
+const { logActivity, logRecommendationHistory, ACTIONS } = require('../utils/activityLogger');
 
 // Helper function to get Shopify credentials based on AUTH_MODE
 async function getShopifyCredentials(req) {
@@ -206,6 +207,31 @@ async function rejectRecommendationHandler(req, res) {
       return res.status(404).json({ error: 'Recommendation not found' });
     }
 
+    // Log activity and recommendation history
+    await Promise.all([
+      logActivity({
+        userId,
+        action: ACTIONS.RECOMMENDATION_REJECTED,
+        details: {
+          recommendation_id: id,
+          product_id: updatedRec.product_id,
+          recommended_price: updatedRec.recommended_price
+        },
+        req
+      }),
+      logRecommendationHistory({
+        userId,
+        productId: updatedRec.product_id,
+        recommendationId: parseInt(id),
+        action: 'rejected',
+        oldPrice: null,
+        recommendedPrice: updatedRec.recommended_price,
+        reasoning: updatedRec.reasoning,
+        urgency: updatedRec.urgency,
+        confidence: updatedRec.confidence
+      })
+    ]);
+
     res.json({
       success: true,
       message: 'Recommendation rejected',
@@ -319,6 +345,35 @@ router.post(
       .eq('user_id', userId);
 
     console.log('✅ Database updated with new price');
+
+    // Log activity and recommendation history
+    await Promise.all([
+      logActivity({
+        userId,
+        action: ACTIONS.RECOMMENDATION_ACCEPTED,
+        details: {
+          recommendation_id: id,
+          product_id: product.id,
+          product_title: product.title,
+          old_price: oldPrice,
+          new_price: newPrice,
+          price_change_pct: ((newPrice - oldPrice) / oldPrice * 100).toFixed(1)
+        },
+        req
+      }),
+      logRecommendationHistory({
+        userId,
+        productId: product.id,
+        recommendationId: parseInt(id),
+        action: 'accepted',
+        oldPrice,
+        recommendedPrice: newPrice,
+        newPrice,
+        reasoning: recommendation.reasoning,
+        urgency: recommendation.urgency,
+        confidence: recommendation.confidence
+      })
+    ]);
 
     res.json({
       success: true,

@@ -1,5 +1,6 @@
 const analysisService = require('../services/analysis.service');
 const { supabaseService } = require('../config/database');
+const { logActivity, ACTIONS } = require('../utils/activityLogger');
 
 /**
  * GET /api/analysis/status
@@ -91,6 +92,18 @@ async function runManualAnalysis(req, res) {
       cost_price: p.cost_price,
       belowCost: parseFloat(p.price) <= parseFloat(p.cost_price || 0)
     }));
+
+    // Log activity
+    await logActivity({
+      userId,
+      action: ACTIONS.RUN_ANALYSIS,
+      details: {
+        productsAnalyzed: results.productsAnalyzed || 0,
+        recommendationsCreated: results.recommendationsCreated || 0,
+        manualUsed: limitCheck.used + 1,
+        manualRemaining: limitCheck.remaining - 1
+      }
+    });
 
     res.json({
       success: true,

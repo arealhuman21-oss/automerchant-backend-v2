@@ -4,6 +4,7 @@ const router = express.Router();
 const { authenticateToken } = require('../middleware/auth');
 const { validate, schemas } = require('../middleware/validation');
 const { supabaseService } = require('../config/database');
+const { logActivity, ACTIONS } = require('../utils/activityLogger');
 
 // Helper function to get Shopify credentials based on AUTH_MODE
 async function getShopifyCredentials(req) {
@@ -251,6 +252,19 @@ router.post('/sync', authenticateToken, async (req, res) => {
       // console.log('✅ No products to delete');
     }
 
+    // Log activity
+    await logActivity({
+      userId: req.user.userId,
+      action: ACTIONS.SYNC_PRODUCTS,
+      details: {
+        synced: syncedCount,
+        total: response.data.products.length,
+        deleted: productsToDelete.length,
+        shop: shop
+      },
+      req
+    });
+
     res.json({
       success: true,
       synced: syncedCount,
@@ -373,6 +387,17 @@ router.post('/refresh', authenticateToken, async (req, res) => {
       throw error;
     }
 
+    // Log activity
+    await logActivity({
+      userId: req.user.userId,
+      action: ACTIONS.REFRESH_PRODUCTS,
+      details: {
+        productsUpdated: products.length,
+        ordersProcessed: orders.length
+      },
+      req
+    });
+
     console.log(`✅ Refresh complete: ${products.length} products updated`);
     res.json({ success: true, products });
 
@@ -417,6 +442,18 @@ router.post(
 
       console.log(`   ✅ Updated successfully:`, updateResult);
 
+      // Log activity
+      await logActivity({
+        userId: req.user.userId,
+        action: ACTIONS.UPDATE_COST_PRICE,
+        details: {
+          product_id: id,
+          product_title: updateResult.title,
+          new_cost_price: cost_price
+        },
+        req
+      });
+
       res.json({ success: true, message: 'Cost price updated successfully', product: updateResult });
 
     } catch (error) {
@@ -446,6 +483,17 @@ router.post(
       if (error) {
         throw error;
       }
+
+      // Log activity
+      await logActivity({
+        userId: req.user.userId,
+        action: selected ? ACTIONS.SELECT_PRODUCT : ACTIONS.DESELECT_PRODUCT,
+        details: {
+          product_id: id,
+          selected
+        },
+        req
+      });
 
       res.json({ success: true, selected });
     } catch (error) {

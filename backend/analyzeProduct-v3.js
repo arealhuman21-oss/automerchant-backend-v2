@@ -834,77 +834,98 @@ async function analyzeProductV3(
   }
 
   // ============================================
-  // CRITICAL FIX: MINIMUM SALES THRESHOLD
-  // Price optimization requires data - prevent bad recommendations on low-volume products
+  // SMART DATA-AWARE OPTIMIZATION
+  // Low data = margin-based optimization with lower confidence
+  // High data = full sophisticated algorithm with high confidence
   // ============================================
 
-  const MIN_SALES_FOR_OPTIMIZATION = 10;
-  const MIN_VELOCITY = 0.3; // ~10 sales/month
+  const lowDataMode = sales30d < 10;
+  const hasReasonableData = sales30d >= 10;
 
-  // Check if we have enough sales data REGARDLESS of cost price
-  if (sales30d < MIN_SALES_FOR_OPTIMIZATION) {
-    // Special case: If already below cost with some sales, still warn
-    if (costPrice > 0 && currentPrice <= costPrice && sales30d >= 3) {
-      const safePrice = Math.max(costPrice * 1.3, costPrice / (1 - 0.30));
+  // CRITICAL: Below cost check (works for all data levels)
+  if (costPrice > 0 && currentPrice <= costPrice) {
+    const safePrice = Math.max(costPrice * 1.3, costPrice / (1 - 0.30));
+    const lossPerSale = costPrice - currentPrice;
+    const dailyLoss = lossPerSale * velocity30d;
+    const monthlyLoss = dailyLoss * 30;
+    const projectedProfit = (safePrice - costPrice) * velocity30d * 30;
+
+    return {
+      shouldChangePrice: true,
+      recommendedPrice: safePrice,
+      reasoning: `🚨 CRITICAL: Selling BELOW COST!\n\nYou're losing $${lossPerSale.toFixed(2)} on every sale. ${sales30d > 0 ? `With ${sales30d} sales, you've lost $${monthlyLoss.toFixed(2)} this month.` : ''}\n\n💰 Recommended Price: $${safePrice.toFixed(2)} (30% margin)\nThis protects your margins and ensures profitability.\n\n⚠️ Every sale at current price loses money. Fix this immediately.`,
+      urgency: 'CRITICAL',
+      confidence: 100,
+      v3Metadata: {
+        algorithm: 'V3',
+        trigger: 'BELOW_COST',
+        sales30d,
+        monthlyLoss,
+        projectedProfit
+      }
+    };
+  }
+
+  // LOW DATA MODE: Use margin-based optimization (still give recommendations!)
+  if (lowDataMode) {
+    const currentMarginValue = costPrice > 0 ? ((currentPrice - costPrice) / currentPrice) * 100 : 0;
+    const targetMargin = parseFloat(userSettings.target_margin) || 0.40;
+    const targetMarginPercent = targetMargin * 100;
+    const targetPrice = costPrice > 0 ? costPrice / (1 - targetMargin) : currentPrice;
+    const priceDiff = targetPrice - currentPrice;
+    const priceDiffPercent = (priceDiff / currentPrice) * 100;
+
+    // Only recommend if margin is significantly off (>5% from target)
+    if (Math.abs(currentMarginValue - targetMarginPercent) > 5) {
+      const direction = priceDiff > 0 ? 'INCREASE' : 'DECREASE';
+      const emoji = priceDiff > 0 ? '📈' : '📉';
+      const monthlyProfitImpact = priceDiff * velocity30d * 30;
+
+      let reasoning = `${emoji} ${direction} PRICE: $${currentPrice.toFixed(2)} → $${targetPrice.toFixed(2)} (${priceDiffPercent > 0 ? '+' : ''}${priceDiffPercent.toFixed(1)}%)\n\n`;
+      reasoning += `💰 MARGIN OPTIMIZATION:\n`;
+      reasoning += `• Current margin: ${currentMarginValue.toFixed(0)}%\n`;
+      reasoning += `• Target margin: ${targetMarginPercent.toFixed(0)}%\n`;
+      reasoning += `• Estimated monthly profit impact: ${monthlyProfitImpact >= 0 ? '+' : ''}$${monthlyProfitImpact.toFixed(2)}\n\n`;
+      reasoning += `📊 DATA CONTEXT:\n`;
+      reasoning += `• ${sales30d} sales in last 30 days\n`;
+      reasoning += `• Limited data - using margin-based optimization\n`;
+      reasoning += `• Confidence will improve as you get more sales\n\n`;
+      reasoning += `💡 WHY THIS PRICE:\n`;
+      reasoning += direction === 'INCREASE'
+        ? `• Your current margin (${currentMarginValue.toFixed(0)}%) is below target (${targetMarginPercent.toFixed(0)}%)\n• This price ensures healthy profitability\n• Based on your cost price of $${costPrice.toFixed(2)}`
+        : `• Competitive positioning while maintaining ${targetMarginPercent.toFixed(0)}% margin\n• Better value perception for customers\n• Still profitable at $${costPrice.toFixed(2)} cost`;
+
       return {
         shouldChangePrice: true,
-        recommendedPrice: safePrice,
-        reasoning: `🚨 CRITICAL: Selling below cost ($${currentPrice.toFixed(2)} < $${costPrice.toFixed(2)} cost)!\n\nYou're losing money on every sale. Raise to $${safePrice.toFixed(2)} immediately to protect margins.\n\n⚠️ Note: Only ${sales30d} sales in 30 days - focus on marketing to increase volume after fixing price.`,
-        urgency: 'CRITICAL',
-        confidence: 100,
+        recommendedPrice: targetPrice,
+        reasoning,
+        urgency: currentMarginValue < 20 ? 'HIGH' : 'MEDIUM',
+        confidence: 35, // Lower confidence with limited data
+        priceChange: priceDiff,
+        changePercent: priceDiffPercent,
         v3Metadata: {
-          algorithm: 'V3',
-          trigger: 'BELOW_COST_LOW_VOLUME',
-          sales30d
+          algorithm: 'V3_MARGIN_MODE',
+          trigger: 'LOW_DATA_MARGIN_OPTIMIZATION',
+          sales30d,
+          currentMargin: currentMarginValue,
+          targetMargin: targetMarginPercent
+        }
+      };
+    } else {
+      // Margin is good, hold
+      return {
+        shouldChangePrice: false,
+        reasoning: `✅ OPTIMAL MARGIN: Current margin is ${currentMarginValue.toFixed(0)}% (target: ${targetMarginPercent.toFixed(0)}%)\n\nYour pricing looks good! ${sales30d} sales in 30 days. Recommendations will become more sophisticated as you get more sales data.`,
+        urgency: 'LOW',
+        confidence: 40,
+        v3Metadata: {
+          algorithm: 'V3_MARGIN_MODE',
+          trigger: 'OPTIMAL_MARGIN_LOW_DATA',
+          sales30d,
+          currentMargin: currentMarginValue
         }
       };
     }
-
-    // Not enough sales to optimize price
-    const currentMarginForDisplay = costPrice > 0 ? ((currentPrice - costPrice) / currentPrice) * 100 : 0;
-
-    let reasoning = `📊 NOT ENOUGH SALES DATA\n\n`;
-    reasoning += `Your product has only ${sales30d} sales in 30 days. We need at least ${MIN_SALES_FOR_OPTIMIZATION} sales to make reliable pricing recommendations.\n\n`;
-
-    // Diagnose if price is even the problem
-    if (currentMarginForDisplay >= 35) {
-      reasoning += `✅ YOUR PRICING LOOKS FINE (${currentMarginForDisplay.toFixed(0)}% margin)\n\n`;
-      reasoning += `The issue isn't price - you need more visibility and traffic.\n\n`;
-      reasoning += `🎯 What to do instead:\n`;
-      reasoning += `• Increase traffic (ads, SEO, social media)\n`;
-      reasoning += `• Improve product photos and descriptions\n`;
-      reasoning += `• Build social proof (reviews, testimonials)\n`;
-      reasoning += `• Run promotions or giveaways\n\n`;
-      reasoning += `💡 Price optimization works best AFTER you have consistent sales. Come back when you're selling ${MIN_SALES_FOR_OPTIMIZATION}+ units/month!`;
-    } else if (currentMarginForDisplay < 20 && currentMarginForDisplay > 0) {
-      reasoning += `⚠️ Your margin is low (${currentMarginForDisplay.toFixed(0)}%), but with only ${sales30d} sales, we can't reliably optimize yet.\n\n`;
-      reasoning += `🎯 Focus on:\n`;
-      reasoning += `• Getting more sales through marketing first\n`;
-      reasoning += `• Consider if your cost is competitive\n`;
-      reasoning += `• Build volume before optimizing price\n\n`;
-      reasoning += `💡 We'll help you maximize profit once you have ${MIN_SALES_FOR_OPTIMIZATION}+ sales/month.`;
-    } else {
-      reasoning += `🎯 What to do instead:\n`;
-      reasoning += `• Focus on marketing and traffic generation\n`;
-      reasoning += `• Improve product discovery (SEO, ads)\n`;
-      reasoning += `• Build trust signals (reviews, guarantees)\n`;
-      reasoning += `• Consider bundling or promotions\n\n`;
-      reasoning += `💡 Once you're selling ${MIN_SALES_FOR_OPTIMIZATION}+ units/month consistently, our AI will help you maximize profit through price optimization.`;
-    }
-
-    return {
-      shouldChangePrice: false,
-      reasoning,
-      urgency: 'LOW',
-      confidence: 15,
-      v3Metadata: {
-        algorithm: 'V3',
-        trigger: 'INSUFFICIENT_SALES_VOLUME',
-        sales30d,
-        minRequired: MIN_SALES_FOR_OPTIMIZATION,
-        currentMargin: currentMarginForDisplay
-      }
-    };
   }
 
   // ============================================

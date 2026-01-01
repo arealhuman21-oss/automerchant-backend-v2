@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const { authenticateAdmin } = require('../middleware/auth');
 const { supabaseService } = require('../config/database');
+const { logActivity, ACTIONS } = require('../utils/activityLogger');
 
 // GET /api/admin/db-check - Check database tables (no auth for diagnostics)
 router.get('/db-check', async (req, res) => {
@@ -198,6 +199,17 @@ router.post('/approve-user', authenticateAdmin, async (req, res) => {
         .update({ suspended: false })
         .eq('id', userId);
     }
+
+    // Log activity
+    await logActivity({
+      userId: userId,
+      action: ACTIONS.USER_APPROVED,
+      details: {
+        approved_by_admin: req.admin.id,
+        user_email: updatedUser.email
+      },
+      req
+    });
 
     res.json({
       success: true,

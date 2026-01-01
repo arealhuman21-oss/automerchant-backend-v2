@@ -384,12 +384,9 @@ function ProductDashboard({ userEmail, onLogout }) {
   const [productSearchQuery, setProductSearchQuery] = useState('');
   const [expandedRecommendation, setExpandedRecommendation] = useState(null);
 
-  // Update notification - version controlled
-  const UPDATE_VERSION = 'v2.0-jan2026'; // Change this when you have new updates
-  const [showUpdateBanner, setShowUpdateBanner] = useState(() => {
-    const dismissed = localStorage.getItem(`updateDismissed_${UPDATE_VERSION}`);
-    return !dismissed;
-  });
+  // Update notification - PERMANENT banner (always shows)
+  const UPDATE_VERSION = 'v2.1-superior'; // Latest version
+  const [showUpdateBanner] = useState(true); // Always show, no dismiss
 
   useEffect(() => {
     initializeDashboard();
@@ -1218,74 +1215,48 @@ function ProductDashboard({ userEmail, onLogout }) {
           </div>
         )}
 
-        {/* Update Banner - Only for connected users */}
+        {/* AI Intelligence Banner - PERMANENT (no dismiss) */}
         {showUpdateBanner && shopifyConnected && (
-          <div className="mb-6 p-6 bg-gradient-to-r from-purple-600/20 to-pink-600/20 border-2 border-purple-500/50 rounded-xl relative">
-            <button
-              onClick={() => {
-                setShowUpdateBanner(false);
-                localStorage.setItem(`updateDismissed_${UPDATE_VERSION}`, 'true');
-              }}
-              className="absolute top-4 right-4 p-2 hover:bg-white/10 rounded-lg transition"
-              type="button"
-            >
-              <X className="w-5 h-5 text-purple-200" />
-            </button>
-            <div className="pr-10">
-              <div className="flex items-center space-x-3 mb-3">
-                <div className="text-3xl">✨</div>
-                <h3 className="text-2xl font-bold text-white">Major Algorithm Improvements!</h3>
-              </div>
-              <div className="space-y-3 text-purple-100">
-                <p className="text-lg font-semibold">We just made AutoMerchant MUCH smarter:</p>
-
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
-                  <div className="p-4 bg-white/5 rounded-lg">
-                    <div className="flex items-start space-x-3">
-                      <div className="text-2xl">🎯</div>
-                      <div>
-                        <p className="font-bold text-white mb-1">Smarter Data Requirements</p>
-                        <p className="text-sm text-purple-200">No more bad recommendations on low-volume products. We now require 10+ sales before optimizing.</p>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="p-4 bg-white/5 rounded-lg">
-                    <div className="flex items-start space-x-3">
-                      <div className="text-2xl">📊</div>
-                      <div>
-                        <p className="font-bold text-white mb-1">Traffic vs Price Diagnosis</p>
-                        <p className="text-sm text-purple-200">AI now tells you if your issue is traffic (not price) and guides you accordingly.</p>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="p-4 bg-white/5 rounded-lg">
-                    <div className="flex items-start space-x-3">
-                      <div className="text-2xl">💬</div>
-                      <div>
-                        <p className="font-bold text-white mb-1">Clearer Explanations</p>
-                        <p className="text-sm text-purple-200">Recommendations now show profit impact, data quality, and reasoning in plain English.</p>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="p-4 bg-white/5 rounded-lg">
-                    <div className="flex items-start space-x-3">
-                      <div className="text-2xl">🛡️</div>
-                      <div>
-                        <p className="font-bold text-white mb-1">Better Safety Checks</p>
-                        <p className="text-sm text-purple-200">No more suggesting price cuts when you need marketing. Focuses on what actually matters.</p>
-                      </div>
-                    </div>
-                  </div>
+          <div className="mb-6 p-6 bg-gradient-to-r from-purple-600/20 to-pink-600/20 border-2 border-purple-500/50 rounded-xl">
+            <div className="flex items-center space-x-3 mb-4">
+              <div className="text-3xl">🧠</div>
+              <h3 className="text-2xl font-bold text-white">AutoMerchant AI - Always Learning</h3>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="p-4 bg-white/5 rounded-lg border border-purple-500/30">
+                <div className="flex items-center space-x-2 mb-2">
+                  <div className="text-2xl">🎯</div>
+                  <p className="font-bold text-white">Smart Confidence</p>
                 </div>
-
-                <div className="mt-4 p-4 bg-green-500/20 border border-green-500/40 rounded-lg">
-                  <p className="text-green-200 font-semibold">🎉 What this means for you:</p>
-                  <p className="text-sm text-green-100 mt-1">You'll get more accurate, trustworthy recommendations. If you have low-volume products, the AI will now guide you to focus on marketing first - which is exactly what you need!</p>
-                </div>
+                <p className="text-sm text-purple-200">
+                  All products get recommendations. Low data = margin-based (35% confidence). High data = full ML (70-95% confidence).
+                </p>
               </div>
+
+              <div className="p-4 bg-white/5 rounded-lg border border-purple-500/30">
+                <div className="flex items-center space-x-2 mb-2">
+                  <div className="text-2xl">💰</div>
+                  <p className="font-bold text-white">Profit-First</p>
+                </div>
+                <p className="text-sm text-purple-200">
+                  Every recommendation shows exact monthly profit impact. Clear reasoning. No guesswork.
+                </p>
+              </div>
+
+              <div className="p-4 bg-white/5 rounded-lg border border-purple-500/30">
+                <div className="flex items-center space-x-2 mb-2">
+                  <div className="text-2xl">🛡️</div>
+                  <p className="font-bold text-white">Risk Protection</p>
+                </div>
+                <p className="text-sm text-purple-200">
+                  CVaR downside protection. Regret minimization. Never recommends below cost. Your margins are safe.
+                </p>
+              </div>
+            </div>
+            <div className="mt-4 p-3 bg-green-500/20 border border-green-500/40 rounded-lg">
+              <p className="text-green-200 text-sm text-center">
+                <strong>Graduate-level ML</strong> working for you 24/7. Bayesian learning, elasticity optimization, multi-objective Pareto frontiers.
+              </p>
             </div>
           </div>
         )}
@@ -1690,7 +1661,13 @@ function ProductDashboard({ userEmail, onLogout }) {
                           />
                         )}
                         <div className="flex-1 pr-12">
-                          <div className="flex items-center gap-2 mb-2">
+                          <div className="flex items-center gap-2 mb-2 flex-wrap">
+                            {/* Quick Win Badge - High profit + High confidence */}
+                            {monthlyProfitIncrease > 50 && rec.confidence >= 60 && (
+                              <span className="px-3 py-1 rounded-full text-xs font-bold bg-gradient-to-r from-yellow-500 to-orange-500 text-black animate-pulse">
+                                ⚡ QUICK WIN
+                              </span>
+                            )}
                             <span className={`px-3 py-1 rounded-full text-xs font-bold ${
                               rec.urgency === 'CRITICAL' ? 'bg-red-500 text-white' :
                               rec.urgency === 'URGENT' ? 'bg-orange-500 text-white' :

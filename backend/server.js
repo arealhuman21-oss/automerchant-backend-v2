@@ -255,6 +255,39 @@ app.use('/api', userRoutes);
 // Shopify app is configured to redirect to /api/shopify/callback
 app.use('/api', authRoutes);
 
+// ============================================
+// HANDLE SHOPIFY CALLBACK AT ROOT URL
+// Some Shopify apps redirect to App URL (/) instead of callback URL
+// This catches those and processes them properly
+// ============================================
+app.get('/', async (req, res) => {
+  const { shop, hmac, host, timestamp, code } = req.query;
+
+  // If this looks like a Shopify callback (has shop + hmac), forward to callback handler
+  if (shop && hmac) {
+    console.log('');
+    console.log('🔐 ═══════════════════════════════════════════════════════');
+    console.log('🔐 SHOPIFY CALLBACK AT ROOT - FORWARDING TO HANDLER');
+    console.log('🔐 ═══════════════════════════════════════════════════════');
+    console.log('🔐 Shop:', shop);
+    console.log('🔐 Has code?:', !!code);
+    console.log('🔐 All params:', JSON.stringify(req.query, null, 2));
+    console.log('🔐 ═══════════════════════════════════════════════════════');
+
+    // Forward to the callback route by building the URL
+    const callbackUrl = `/api/shopify/callback?${new URLSearchParams(req.query).toString()}`;
+    return res.redirect(callbackUrl);
+  }
+
+  // Normal root request - return health check or redirect to frontend
+  res.json({
+    status: 'ok',
+    service: 'AutoMerchant Backend',
+    version: '2.0',
+    timestamp: new Date().toISOString()
+  });
+});
+
 
 
 

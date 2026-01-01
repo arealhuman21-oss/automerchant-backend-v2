@@ -223,24 +223,42 @@ router.get('/stats', authenticateToken, async (req, res) => {
       .select('*')
       .eq('user_id', userId);
 
+    // Get learned elasticity values for all products
+    const { data: elasticityData } = await supabaseService
+      .from('elasticity_learners')
+      .select('product_id, mu, sigma, observation_count, confidence')
+      .eq('user_id', userId);
+
+    // Create a map for quick elasticity lookup
+    const elasticityMap = {};
+    if (elasticityData) {
+      elasticityData.forEach(e => {
+        elasticityMap[e.product_id] = {
+          mu: parseFloat(e.mu) || -1.2,
+          sigma: parseFloat(e.sigma) || 0.9,
+          observations: e.observation_count || 0,
+          confidence: parseFloat(e.confidence) || 0
+        };
+      });
+    }
+
     // Get orders from last 30 days for revenue calculation
     const { data: orders } = await supabaseService
       .from('products')
       .select('total_sales_30d, revenue_30d')
       .eq('user_id', userId);
 
-    // Get price changes from this month for historical profit
-    const startOfMonth = new Date();
-    startOfMonth.setDate(1);
-    startOfMonth.setHours(0, 0, 0, 0);
+    // Get price changes from LAST 30 DAYS (rolling window, not calendar month)
+    const thirtyDaysAgo = new Date();
+    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
 
     const { data: priceChanges } = await supabaseService
       .from('price_changes')
       .select('old_price, new_price, profit_impact, product_id, created_at')
       .eq('user_id', userId)
-      .gte('created_at', startOfMonth.toISOString());
+      .gte('created_at', thirtyDaysAgo.toISOString());
 
-    // Calculate historical profit from applied price changes this month
+    // Calculate historical profit from applied price changes (last 30 days)
     let historicalProfit = 0;
     if (priceChanges && priceChanges.length > 0) {
       priceChanges.forEach(change => {
@@ -258,7 +276,7 @@ router.get('/stats', authenticateToken, async (req, res) => {
     }
 
     // Calculate total potential profit from pending recommendations
-    // IMPROVED: Account for elasticity and actual profit margins
+    // IMPROVED: Use LEARNED elasticity per product instead of hardcoded -1.2
     let totalPotentialProfit = 0;
     if (recommendations && recommendations.length > 0) {
       recommendations.forEach(rec => {
@@ -269,8 +287,10 @@ router.get('/stats', authenticateToken, async (req, res) => {
           const costPrice = parseFloat(product.cost_price) || 0;
           const currentVelocity = parseFloat(product.sales_velocity);
 
-          // Use elasticity to estimate new velocity (default -1.2 elasticity)
-          const elasticity = -1.2;
+          // Use LEARNED elasticity if available, otherwise default to -1.2
+          const learnedElasticity = elasticityMap[product.id];
+          const elasticity = learnedElasticity ? learnedElasticity.mu : -1.2;
+
           const priceRatio = recommendedPrice / currentPrice;
           const velocityMultiplier = Math.pow(priceRatio, elasticity);
           const newVelocity = currentVelocity * velocityMultiplier;
@@ -280,7 +300,6 @@ router.get('/stats', authenticateToken, async (req, res) => {
           const newMonthlyProfit = (recommendedPrice - costPrice) * newVelocity * 30;
           const profitChange = newMonthlyProfit - currentMonthlyProfit;
 
-          // Use the improved elasticity-aware calculation
           // Only add if it's actually profitable (positive change)
           if (profitChange > 0) {
             totalPotentialProfit += profitChange;
@@ -298,6 +317,9 @@ router.get('/stats', authenticateToken, async (req, res) => {
     const totalRevenue = orders?.reduce((sum, p) => sum + (parseFloat(p.revenue_30d) || 0), 0) || 0;
     const totalOrders = orders?.reduce((sum, p) => sum + (parseInt(p.total_sales_30d) || 0), 0) || 0;
 
+    // Count products with learned elasticity data
+    const productsWithElasticity = Object.keys(elasticityMap).length;
+
     res.json({
       totalProducts: products?.length || 0,
       totalRecommendations: recommendations?.length || 0,
@@ -306,8 +328,9 @@ router.get('/stats', authenticateToken, async (req, res) => {
       totalOrders,
       avgOrderValue: totalOrders > 0 ? totalRevenue / totalOrders : 0,
       productsAnalyzed: products?.filter(p => p.last_analyzed_at).length || 0,
-      historicalProfit: Math.max(0, historicalProfit), // Profit from applied changes this month
-      appliedChangesCount: priceChanges?.length || 0
+      historicalProfit: Math.max(0, historicalProfit), // Profit from applied changes (30 days)
+      appliedChangesCount: priceChanges?.length || 0,
+      productsWithLearnedElasticity: productsWithElasticity // New: track learning progress
     });
   } catch (error) {
     console.error('Stats error:', error);
