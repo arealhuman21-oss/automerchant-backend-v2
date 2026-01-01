@@ -251,6 +251,7 @@ app.use('/api/analysis', analysisRoutes);
 app.use('/api/recommendations', recommendationsRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api', userRoutes);
+app.use('/api/debug', debugRoutes);
 
 // CRITICAL FIX: Mount auth routes at /api as well to support Shopify redirect URL
 // Shopify app is configured to redirect to /api/shopify/callback
