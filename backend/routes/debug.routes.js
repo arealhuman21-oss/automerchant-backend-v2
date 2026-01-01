@@ -3,6 +3,40 @@ const router = express.Router();
 const { authenticateToken } = require('../middleware/auth');
 const { supabaseService } = require('../config/database');
 
+// DEBUG: Link orphaned shop to user
+router.post('/link-orphaned-shop', authenticateToken, async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    const { shopDomain } = req.body;
+
+    console.log(`🔗 Linking shop ${shopDomain} to user ${userId}...`);
+
+    // Update the shop's user_id
+    const { data, error } = await supabaseService
+      .from('shops')
+      .update({ user_id: userId })
+      .eq('shop_domain', shopDomain)
+      .eq('is_active', true)
+      .select();
+
+    if (error) {
+      throw error;
+    }
+
+    console.log('✅ Shop linked successfully:', data);
+
+    res.json({
+      success: true,
+      message: `Shop ${shopDomain} linked to user ${userId}`,
+      shop: data[0]
+    });
+
+  } catch (error) {
+    console.error('Link shop error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // DEBUG: Check user's Shopify connection
 router.get('/check-connection', authenticateToken, async (req, res) => {
   try {
