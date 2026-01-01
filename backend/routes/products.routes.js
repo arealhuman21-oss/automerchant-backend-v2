@@ -284,9 +284,10 @@ router.post('/sync', authenticateToken, async (req, res) => {
 // POST /api/products/refresh - Refresh products from Shopify and return updated list
 router.post('/refresh', authenticateToken, async (req, res) => {
   try {
-    console.log('🔄 Refreshing products from Shopify...');
+    console.log('🔄 Refreshing products from Shopify for user:', req.user.userId);
 
     const { shop, accessToken } = await getShopifyCredentials(req);
+    console.log('✅ Got Shopify credentials for shop:', shop);
 
     // Fetch products from Shopify
     const response = await axios.get(
@@ -403,7 +404,21 @@ router.post('/refresh', authenticateToken, async (req, res) => {
 
   } catch (error) {
     console.error('❌ Product refresh error:', error);
-    res.status(500).json({ error: 'Failed to refresh products', message: error.message });
+    console.error('Error stack:', error.stack);
+
+    // Better error messages for common issues
+    if (error.message.includes('No active Shopify connection')) {
+      return res.status(400).json({
+        error: 'Shopify not connected',
+        message: 'Please connect your Shopify store first.'
+      });
+    }
+
+    res.status(500).json({
+      error: 'Failed to refresh products',
+      message: error.message,
+      details: error.stack
+    });
   }
 });
 
