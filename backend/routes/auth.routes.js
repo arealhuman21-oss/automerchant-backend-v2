@@ -432,6 +432,45 @@ router.post('/check-approval', async (req, res) => {
     }
 
     if (user.approved) {
+      // CRITICAL FIX: Auto-link any orphaned shops to this user
+      // This fixes the security refactor bug where shops were created with NULL user_id
+      try {
+        const { data: orphanedShops } = await supabaseService
+          .from('shops')
+          .select('shop_domain, id')
+          .is('user_id', null)
+          .eq('is_active', true);
+
+        if (orphanedShops && orphanedShops.length > 0) {
+          console.log(`🔗 Found ${orphanedShops.length} orphaned shops, linking to user ${user.id}...`);
+
+          // Link all orphaned shops to this user
+          for (const shop of orphanedShops) {
+            const { error: linkError } = await supabaseService
+              .from('shops')
+              .update({ user_id: user.id })
+              .eq('id', shop.id);
+
+            if (linkError) {
+              console.error(`Failed to link shop ${shop.shop_domain}:`, linkError);
+            } else {
+              console.log(`✅ Auto-linked shop ${shop.shop_domain} to user ${user.email}`);
+
+              // Also update users table for backwards compatibility
+              if (!user.shopify_shop) {
+                await supabaseService
+                  .from('users')
+                  .update({ shopify_shop: shop.shop_domain })
+                  .eq('id', user.id);
+              }
+            }
+          }
+        }
+      } catch (linkErr) {
+        console.error('Error auto-linking orphaned shops:', linkErr);
+        // Don't fail login if auto-linking fails
+      }
+
       // Generate JWT token for approved users
       const jwt = require('jsonwebtoken');
       const token = jwt.sign(
