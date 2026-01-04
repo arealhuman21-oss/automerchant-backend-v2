@@ -66,7 +66,6 @@ router.post('/check-approval', async (req, res) => {
           .eq('is_active', true);
 
         if (orphanedShops && orphanedShops.length > 0) {
-          console.log(`🔗 Found ${orphanedShops.length} orphaned shops, linking to user ${user.id}...`);
 
           // Link all orphaned shops to this user
           for (const shop of orphanedShops) {
@@ -78,7 +77,6 @@ router.post('/check-approval', async (req, res) => {
             if (linkError) {
               console.error(`Failed to link shop ${shop.shop_domain}:`, linkError);
             } else {
-              console.log(`✅ Auto-linked shop ${shop.shop_domain} to user ${user.email}`);
 
               // Also update users table for backwards compatibility
               if (!user.shopify_shop) {
@@ -232,7 +230,6 @@ router.get('/orders', authenticateToken, async (req, res) => {
     // Sort by date descending (most recent first)
     orders.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
 
-    console.log(`📦 Fetched ${orders.length} orders from last 30 days`);
     res.json({ orders });
 
   } catch (error) {

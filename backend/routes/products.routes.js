@@ -66,11 +66,9 @@ async function fetchAllOrdersPaginated(shop, accessToken, thirtyDaysAgo) {
   let url = `https://${shop}/admin/api/2024-01/orders.json?status=any&created_at_min=${thirtyDaysAgo.toISOString()}&limit=250`;
   let pageCount = 0;
 
-  // console.log('🔄 Fetching all orders with pagination...');
 
   while (url) {
     pageCount++;
-    // console.log(`   Page ${pageCount}: Fetching ${url}`);
 
     const response = await axios.get(url, {
       headers: { 'X-Shopify-Access-Token': accessToken }
@@ -78,7 +76,6 @@ async function fetchAllOrdersPaginated(shop, accessToken, thirtyDaysAgo) {
 
     const pageOrders = response.data.orders || [];
     allOrders = allOrders.concat(pageOrders);
-    // console.log(`   ✅ Page ${pageCount}: Got ${pageOrders.length} orders (Total so far: ${allOrders.length})`);
 
     // Parse Link header for next page (Shopify pagination)
     const linkHeader = response.headers['link'];
@@ -91,12 +88,10 @@ async function fetchAllOrdersPaginated(shop, accessToken, thirtyDaysAgo) {
 
     // Safety limit: prevent infinite loops
     if (pageCount > 100) {
-      console.warn('⚠️ Reached 100 pages, stopping pagination');
       break;
     }
   }
 
-  // console.log(`📦 TOTAL ORDERS FETCHED: ${allOrders.length} orders across ${pageCount} page(s)`);
   return allOrders;
 }
 
@@ -121,7 +116,6 @@ router.post('/sync', authenticateToken, async (req, res) => {
     const variantSales = {};
     const variantRevenue = {};
 
-    // console.log(`📦 Processing ${orders.length} orders from last 30 days`);
 
     orders.forEach(order => {
       order.line_items?.forEach(item => {
@@ -131,12 +125,10 @@ router.post('/sync', authenticateToken, async (req, res) => {
           const revenue = parseFloat(item.price) * quantity;
           variantSales[variantId] = (variantSales[variantId] || 0) + quantity;
           variantRevenue[variantId] = (variantRevenue[variantId] || 0) + revenue;
-          // console.log(`  ✅ Variant ${variantId}: +${quantity} units, +$${revenue.toFixed(2)}`);
         }
       });
     });
 
-    // console.log(`📊 Sales aggregated for ${Object.keys(variantSales).length} variants:`, variantSales);
 
     // Get shop and app_id from database
     const { data: shopData } = await supabaseService
@@ -150,7 +142,6 @@ router.post('/sync', authenticateToken, async (req, res) => {
     const appId = shopData?.app_id || null;
 
     let syncedCount = 0;
-    // console.log(`\n🔄 Syncing ${response.data.products.length} products...`);
 
     for (const product of response.data.products) {
       const variant = product.variants[0];
@@ -159,11 +150,6 @@ router.post('/sync', authenticateToken, async (req, res) => {
       const totalRevenue = variantRevenue[variantId] || 0;
       const salesVelocity = totalSales / 30;
 
-      // console.log(`\n📦 ${product.title}`);
-      // console.log(`   Variant ID: ${variantId}`);
-      // console.log(`   Sales (30d): ${totalSales} units`);
-      // console.log(`   Revenue (30d): $${totalRevenue.toFixed(2)}`);
-      // console.log(`   Velocity: ${salesVelocity.toFixed(3)} units/day`);
 
       // CRITICAL FIX: Only UPDATE Shopify data, never touch cost_price!
       // Try UPDATE first (for existing products)
@@ -216,10 +202,8 @@ router.post('/sync', authenticateToken, async (req, res) => {
       }
     }
 
-    // console.log(`\n✅ Sync complete: ${syncedCount}/${response.data.products.length} products`);
 
     // DELETE products that no longer exist in Shopify
-    // console.log('\n🗑️ Checking for deleted products...');
 
     // Get all Shopify variant IDs from this sync
     const shopifyVariantIds = response.data.products.map(p => p.variants[0].id.toString());
@@ -235,8 +219,6 @@ router.post('/sync', authenticateToken, async (req, res) => {
     );
 
     if (productsToDelete.length > 0) {
-      // console.log(`🗑️ Found ${productsToDelete.length} products to delete:`);
-      // productsToDelete.forEach(p => console.log(`   - ${p.title} (Variant: ${p.shopify_variant_id})`));
 
       const { error: deleteError } = await supabaseService
         .from('products')
@@ -246,10 +228,8 @@ router.post('/sync', authenticateToken, async (req, res) => {
       if (deleteError) {
         console.error('❌ Error deleting products:', deleteError);
       } else {
-        // console.log(`✅ Deleted ${productsToDelete.length} products from database`);
       }
     } else {
-      // console.log('✅ No products to delete');
     }
 
     // Log activity
@@ -284,10 +264,8 @@ router.post('/sync', authenticateToken, async (req, res) => {
 // POST /api/products/refresh - Refresh products from Shopify and return updated list
 router.post('/refresh', authenticateToken, async (req, res) => {
   try {
-    console.log('🔄 Refreshing products from Shopify for user:', req.user.userId);
 
     const { shop, accessToken } = await getShopifyCredentials(req);
-    console.log('✅ Got Shopify credentials for shop:', shop);
 
     // Fetch products from Shopify
     const response = await axios.get(
@@ -315,7 +293,6 @@ router.post('/refresh', authenticateToken, async (req, res) => {
       });
     });
 
-    console.log(`📦 Processing ${response.data.products.length} products, ${orders.length} orders`);
 
     // Get shop data
     const { data: shopData } = await supabaseService
@@ -399,7 +376,6 @@ router.post('/refresh', authenticateToken, async (req, res) => {
       req
     });
 
-    console.log(`✅ Refresh complete: ${products.length} products updated`);
     res.json({ success: true, products });
 
   } catch (error) {
@@ -433,10 +409,6 @@ router.post(
       const { id } = req.params;
       const { cost_price } = req.body;
 
-      console.log(`💰 Cost price update request:`);
-      console.log(`   Product ID: ${id}`);
-      console.log(`   User ID: ${req.user.userId}`);
-      console.log(`   cost_price received: ${cost_price} (type: ${typeof cost_price})`);
 
       // Update the product with the new cost price
       const { data: updateResult, error } = await supabaseService
@@ -455,7 +427,6 @@ router.post(
         return res.status(500).json({ error: 'Failed to update cost price' });
       }
 
-      console.log(`   ✅ Updated successfully:`, updateResult);
 
       // Log activity
       await logActivity({

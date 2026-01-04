@@ -68,7 +68,11 @@
       "Bash(del \"C:\\\\Users\\\\ben_l\\\\automerchant-local\\\\frontend\\\\package-lock.json\")",
       "Bash(rm:*)",
       "Bash(pushd:*)",
-      "WebFetch(domain:community.shopify.com)"
+      "WebFetch(domain:community.shopify.com)",
+      "Bash(wc:*)",
+      "WebFetch(domain:www.reddit.com)",
+      "WebFetch(domain:gummysearch.com)",
+      "Bash(xargs sed:*)"
     ],
     "deny": [],
     "ask": []

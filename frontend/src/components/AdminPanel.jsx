@@ -58,7 +58,6 @@ function AdminPanel({ userEmail, onLogout }) {
     // CRITICAL FIX: Check localStorage first (same as ProductDashboard)
     const localToken = localStorage.getItem('authToken');
     if (localToken) {
-      console.log('✅ Using localStorage authToken for admin auth');
       return localToken;
     }
 
@@ -72,22 +71,18 @@ function AdminPanel({ userEmail, onLogout }) {
 
         const { data: { session } } = await Promise.race([sessionPromise, timeoutPromise]);
         if (session?.access_token) {
-          console.log('✅ Using Supabase session token');
           return session.access_token;
         }
       } catch (error) {
-        console.warn('⚠️ Supabase session unavailable, falling back to JWT token.', error.message);
       }
     }
 
-    console.log('🔑 Using fallback JWT token for admin auth');
     const fallbackEmail = userEmail || DEFAULT_ADMIN_EMAIL;
     return buildFallbackToken(fallbackEmail);
   };
 
   const authorizedFetch = async (url, options = {}) => {
     const token = await getAuthToken();
-    console.log('🔑 Got auth token:', token ? `${token.substring(0, 20)}...` : 'null');
 
     if (!token) {
       throw new Error('Unable to authenticate admin request');
@@ -98,8 +93,6 @@ function AdminPanel({ userEmail, onLogout }) {
       Authorization: `Bearer ${token}`
     };
 
-    console.log('📡 Making request to:', url);
-    console.log('📋 Headers:', { ...headers, Authorization: headers.Authorization ? 'Bearer ...' : 'none' });
 
     return fetch(url, { ...options, headers });
   };
@@ -135,11 +128,9 @@ function AdminPanel({ userEmail, onLogout }) {
     e.preventDefault();
     e.stopPropagation();
 
-    console.log('📝 Adding new app:', newApp);
 
     // Use ref for immediate, synchronous lock
     if (submitLockRef.current) {
-      console.log('⚠️ Already submitting, ignoring duplicate request');
       return;
     }
 
@@ -167,10 +158,6 @@ function AdminPanel({ userEmail, onLogout }) {
         throw new Error('Shop domain must be in format: yourstore.myshopify.com');
       }
 
-      console.log('📤 Sending payload to backend');
-      console.log('🌐 API URL:', API_URL);
-      console.log('🔗 Full URL:', `${API_URL}/api/admin/apps`);
-      console.log('📦 Payload:', payload);
 
       const response = await Promise.race([
         authorizedFetch(`${API_URL}/api/admin/apps`, {
@@ -185,17 +172,14 @@ function AdminPanel({ userEmail, onLogout }) {
         )
       ]);
 
-      console.log('📥 Got response, status:', response.status);
 
       const data = await response.json();
-      console.log('📥 Response data:', data);
 
       if (!response.ok) {
         console.error('❌ Server error:', data);
         throw new Error(data.error || 'Failed to add app');
       }
 
-      console.log('✅ App created:', data.app);
 
       // Add to local state
       setApps([data.app, ...apps]);
@@ -327,7 +311,6 @@ function AdminPanel({ userEmail, onLogout }) {
 
   const handleAssignApp = async (userId, appId) => {
     try {
-      console.log('🔗 Assigning app:', { userId, appId });
 
       const response = await authorizedFetch(`${API_URL}/api/admin/users/${userId}/assign-app`, {
         method: 'POST',
@@ -337,10 +320,8 @@ function AdminPanel({ userEmail, onLogout }) {
         body: JSON.stringify({ appId: parseInt(appId) })
       });
 
-      console.log('📥 Assign response status:', response.status);
 
       const data = await response.json();
-      console.log('📥 Assign response data:', data);
 
       if (!response.ok) {
         throw new Error(data.error || 'Failed to assign app');

@@ -66,10 +66,7 @@ router.get('/', authenticateToken, async (req, res) => {
       product: rec.products
     }));
 
-    console.log(`📊 GET /api/recommendations for userId ${userId}:`);
-    console.log(`   Found ${formattedRecommendations.length} recommendations`);
     formattedRecommendations.forEach((rec, idx) => {
-      console.log(`   [${idx}] ID: ${rec.id}, Product ID: ${rec.product_id}, Recommended Price: ${rec.recommended_price}, Status: ${rec.status}, Product: ${rec.products ? rec.products.title : 'NULL'}`);
     });
 
     res.json({ recommendations: formattedRecommendations });
@@ -187,7 +184,6 @@ async function rejectRecommendationHandler(req, res) {
     const { id } = req.params;
     const userId = req.user.userId;
 
-    console.log(`📥 Rejecting recommendation ${id} for user ${userId}`);
 
     // First, just update the status (rejected_at might not exist)
     const { data: updatedRec, error } = await supabaseService
@@ -297,7 +293,6 @@ router.post(
       }
     };
 
-    console.log(`🔄 Updating Shopify price for variant ${product.shopify_variant_id}: $${oldPrice} → $${newPrice}`);
 
     const response = await axios.put(
       `https://${shop}/admin/api/2024-01/variants/${product.shopify_variant_id}.json`,
@@ -310,9 +305,13 @@ router.post(
       }
     );
 
-    console.log('✅ Shopify price updated successfully');
 
-    // Record price change in price_changes table
+    // Calculate profit impact for historical tracking
+    const priceDiff = newPrice - oldPrice;
+    const monthlySales = parseFloat(product.total_sales_30d) || parseFloat(product.sales_velocity) * 30 || 0;
+    const profitImpact = priceDiff * monthlySales;
+
+    // Record price change in price_changes table with profit_impact
     await supabaseService
       .from('price_changes')
       .insert({
@@ -321,6 +320,7 @@ router.post(
         old_price: oldPrice,
         new_price: newPrice,
         recommendation_id: id,
+        profit_impact: profitImpact,
         created_at: new Date().toISOString()
       });
 
@@ -344,7 +344,6 @@ router.post(
       .eq('id', product.id)
       .eq('user_id', userId);
 
-    console.log('✅ Database updated with new price');
 
     // Log activity and recommendation history
     await Promise.all([

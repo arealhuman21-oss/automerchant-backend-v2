@@ -8,7 +8,6 @@ const { logActivity, ACTIONS } = require('../utils/activityLogger');
 async function getStatus(req, res) {
   try {
     const userId = req.user.userId;
-    console.log('Getting analysis status for userId:', userId);
     const status = await analysisService.getAnalysisStatus(userId);
     res.json(status);
   } catch (error) {
@@ -40,9 +39,6 @@ async function runManualAnalysis(req, res) {
   try {
     const userId = req.user.userId;
 
-    console.log('🚀🚀🚀 NEW CODE RUNNING - BYPASS ACTIVE 🚀🚀🚀');
-    console.log(`   User ID: ${userId}`);
-    console.log(`   Timestamp: ${new Date().toISOString()}`);
 
     // DEBUG: Log what's in the database BEFORE analysis
     const { data: debugProducts } = await supabaseService
@@ -50,10 +46,7 @@ async function runManualAnalysis(req, res) {
       .select('id, title, price, cost_price, selected_for_analysis')
       .eq('user_id', userId);
 
-    console.log('🔍 DEBUG - Products BEFORE analysis:');
     debugProducts?.forEach(p => {
-      console.log(`   ${p.title}: price=${p.price}, cost_price=${p.cost_price}, selected=${p.selected_for_analysis}`);
-      console.log(`   Below cost check: ${parseFloat(p.price)} <= ${parseFloat(p.cost_price)} = ${parseFloat(p.price) <= parseFloat(p.cost_price)}`);
     });
 
     // Check limit
@@ -81,7 +74,6 @@ async function runManualAnalysis(req, res) {
           created_at: new Date().toISOString()
         });
     } catch (insertError) {
-      console.warn('Failed to record manual analysis:', insertError.message);
       // Don't fail the request, just log
     }
 

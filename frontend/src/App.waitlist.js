@@ -19,9 +19,8 @@ function SuccessPage({ signupNumber, onLogout, userEmail }) {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ email: userEmail })
         });
-        console.log('✅ Manual onboarding preference saved');
       } catch (error) {
-        console.error('❌ Failed to save manual onboarding preference:', error);
+        // Silent fail - non-critical
       }
     };
     saveOnboardingPreference();
@@ -55,13 +54,7 @@ function SuccessPage({ signupNumber, onLogout, userEmail }) {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 flex flex-col items-center justify-center p-4 relative overflow-hidden">
-      {/* Animated Background Elements */}
-      <div className="absolute inset-0 overflow-hidden pointer-events-none">
-        <div className="absolute top-20 left-10 w-72 h-72 bg-purple-500/10 rounded-full blur-3xl animate-pulse"></div>
-        <div className="absolute bottom-20 right-10 w-96 h-96 bg-pink-500/10 rounded-full blur-3xl animate-pulse" style={{animationDelay: '1s'}}></div>
-        <div className="absolute top-1/2 left-1/2 w-80 h-80 bg-blue-500/10 rounded-full blur-3xl animate-pulse" style={{animationDelay: '2s'}}></div>
-      </div>
+    <div className="min-h-screen bg-gradient-to-br from-slate-900 to-slate-800 flex flex-col items-center justify-center p-4 sm:p-6 md:p-8 relative overflow-hidden">
 
       <div className="text-center max-w-3xl relative z-10">
         {/* Logout button in top right corner */}
@@ -73,20 +66,20 @@ function SuccessPage({ signupNumber, onLogout, userEmail }) {
           <span>Log Out</span>
         </button>
 
-        {/* Animated Success Icon */}
-        <div className="inline-block p-8 bg-gradient-to-r from-purple-600 to-pink-600 rounded-3xl mb-8 animate-bounce shadow-2xl shadow-purple-500/50">
-          <Check className="w-20 h-20 text-white" />
+        {/* Success Icon */}
+        <div className="inline-block p-6 sm:p-8 bg-green-600 rounded-2xl mb-6 sm:mb-8">
+          <Check className="w-12 h-12 sm:w-16 sm:h-16 text-white" />
         </div>
 
-        {/* Main Heading with Gradient */}
-        <h1 className="text-6xl font-black text-white mb-6 animate-fade-in-up">
-          <span className="text-transparent bg-clip-text bg-gradient-to-r from-green-400 via-emerald-400 to-green-400 bg-[length:200%_auto] animate-gradient-flow">
-            🎉 Prepare to be AMAZED!
+        {/* Main Heading */}
+        <h1 className="text-3xl sm:text-4xl md:text-5xl font-bold text-white mb-4 sm:mb-6">
+          <span className="text-green-400">
+            🎉 You're on the list!
           </span>
         </h1>
 
-        <p className="text-2xl text-gray-200 mb-8 animate-fade-in-up font-semibold" style={{animationDelay: '0.1s'}}>
-          You're on the list for <span className="text-transparent bg-clip-text bg-gradient-to-r from-purple-400 to-pink-400 font-bold">AutoMerchant</span>
+        <p className="text-lg sm:text-xl text-gray-200 mb-6 sm:mb-8 font-medium">
+          You're signed up for <span className="text-purple-400 font-bold">AutoMerchant</span>
         </p>
 
         {signupNumber && (
@@ -391,60 +384,51 @@ function LandingPage({ onJoinWaitlist, waitlistCount, userAlreadySignedUp }) {
   const [showManualOnboarding, setShowManualOnboarding] = useState(false)
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 relative overflow-hidden">
-      {/* Animated Background */}
-      <div className="absolute inset-0 overflow-hidden pointer-events-none">
-        <div className="absolute top-20 left-10 w-72 h-72 bg-purple-500/10 rounded-full blur-3xl animate-pulse"></div>
-        <div className="absolute bottom-20 right-10 w-96 h-96 bg-pink-500/10 rounded-full blur-3xl animate-pulse" style={{animationDelay: '1s'}}></div>
-        <div className="absolute top-1/2 left-1/2 w-80 h-80 bg-blue-500/10 rounded-full blur-3xl animate-pulse" style={{animationDelay: '2s'}}></div>
-      </div>
-
-      <div className="relative py-12 px-4">
-        <div className="max-w-7xl mx-auto">
+    <div className="min-h-screen bg-gradient-to-br from-slate-900 to-slate-800 relative overflow-hidden">
+      <div className="relative py-8 sm:py-12 px-4 sm:px-6">
+        <div className="max-w-6xl mx-auto">
 
           {/* HERO SECTION */}
-          <div className="text-center mb-16">
-            <div className="inline-block p-4 bg-gradient-to-r from-purple-600/30 to-pink-600/30 rounded-2xl mb-6 border-2 border-purple-500/50 shadow-2xl shadow-purple-500/50">
-              <Zap className="w-16 h-16 text-purple-300" />
+          <div className="text-center mb-12 sm:mb-16">
+            <div className="inline-block p-3 sm:p-4 bg-purple-600 rounded-xl sm:rounded-2xl mb-4 sm:mb-6">
+              <Zap className="w-10 h-10 sm:w-14 sm:h-14 text-white" />
             </div>
 
-            <h1 className="text-6xl md:text-7xl font-black text-white mb-4">
-              <span className="text-transparent bg-clip-text bg-gradient-to-r from-purple-400 via-pink-400 to-purple-400 bg-[length:200%_auto] animate-gradient-flow">
-                AutoMerchant
-              </span>
+            <h1 className="text-4xl sm:text-5xl md:text-6xl font-bold text-white mb-3 sm:mb-4">
+              AutoMerchant
             </h1>
-            <h2 className="text-3xl md:text-4xl font-bold text-purple-200 mb-8">
+            <h2 className="text-xl sm:text-2xl md:text-3xl font-semibold text-gray-200 mb-6 sm:mb-8 px-4">
               AI Pricing That Actually <span className="text-green-400">Explains Itself</span>
             </h2>
 
-            <div className="mb-8 flex flex-wrap items-center justify-center gap-4">
-              <div className="px-4 py-2 bg-gradient-to-r from-green-500/20 to-emerald-500/20 border-2 border-green-500/50 rounded-full hover:scale-110 transition-transform">
-                <p className="text-green-300 font-bold flex items-center gap-2">
-                  <Check className="w-5 h-5" /> 100% Transparent
+            <div className="mb-6 sm:mb-8 flex flex-wrap items-center justify-center gap-3 sm:gap-4 px-4">
+              <div className="px-3 sm:px-4 py-2 bg-green-600/20 border border-green-500/50 rounded-lg">
+                <p className="text-green-300 text-sm sm:text-base font-semibold flex items-center gap-2">
+                  <Check className="w-4 h-4 sm:w-5 sm:h-5" /> 100% Transparent
                 </p>
               </div>
-              <div className="px-4 py-2 bg-gradient-to-r from-blue-500/20 to-cyan-500/20 border-2 border-blue-500/50 rounded-full hover:scale-110 transition-transform">
-                <p className="text-blue-300 font-bold flex items-center gap-2">
-                  <Zap className="w-5 h-5" /> 5min Setup
+              <div className="px-3 sm:px-4 py-2 bg-blue-600/20 border border-blue-500/50 rounded-lg">
+                <p className="text-blue-300 text-sm sm:text-base font-semibold flex items-center gap-2">
+                  <Zap className="w-4 h-4 sm:w-5 sm:h-5" /> 5min Setup
                 </p>
               </div>
-              <div className="px-4 py-2 bg-gradient-to-r from-purple-500/20 to-pink-500/20 border-2 border-purple-500/50 rounded-full hover:scale-110 transition-transform">
-                <p className="text-purple-300 font-bold flex items-center gap-2">
-                  <Check className="w-5 h-5" /> No Complexity
+              <div className="px-3 sm:px-4 py-2 bg-purple-600/20 border border-purple-500/50 rounded-lg">
+                <p className="text-purple-300 text-sm sm:text-base font-semibold flex items-center gap-2">
+                  <Check className="w-4 h-4 sm:w-5 sm:h-5" /> No Complexity
                 </p>
               </div>
             </div>
 
             {/* TOP CTA BUTTON */}
-            <div className="mb-12">
+            <div className="mb-8 sm:mb-12 px-4">
               <button
                 onClick={onJoinWaitlist}
-                className="group px-10 py-4 bg-gradient-to-r from-purple-600 to-pink-600 text-white rounded-xl font-bold text-xl hover:from-purple-700 hover:to-pink-700 transition transform hover:scale-105 shadow-2xl shadow-purple-500/50 flex items-center gap-3 mx-auto"
+                className="w-full sm:w-auto px-6 sm:px-10 py-3 sm:py-4 bg-purple-600 hover:bg-purple-700 text-white rounded-lg sm:rounded-xl font-bold text-base sm:text-lg transition flex items-center justify-center gap-2 sm:gap-3 mx-auto"
               >
-                <Zap className="w-6 h-6" />
-                Get Manually Onboarded (5-10 min)
+                <Zap className="w-5 h-5 sm:w-6 sm:h-6" />
+                <span className="whitespace-nowrap">Get Manually Onboarded (5-10 min)</span>
               </button>
-              <p className="text-gray-400 text-sm mt-3 text-center">
+              <p className="text-gray-400 text-xs sm:text-sm mt-3 text-center">
                 Sign in with Google to get started
               </p>
             </div>
@@ -697,7 +681,6 @@ function App() {
 
     // Also fetch after a delay in case Supabase wasn't ready
     const timer = setTimeout(() => {
-      console.log('🔄 Retrying waitlist count fetch...');
       fetchWaitlistCount();
     }, 1000);
 
@@ -706,7 +689,6 @@ function App() {
     if (!hasOAuthHash) {
       checkIfUserSignedUp();
     } else {
-      console.log('OAuth hash detected, waiting for Supabase to process...');
     }
 
     return () => clearTimeout(timer);
@@ -716,7 +698,6 @@ function App() {
   const checkBackendApprovalStatus = async (email, retryCount = 0) => {
     const MAX_RETRIES = 3;
     try {
-      console.log(`🔍 Checking backend approval for: ${email} (Attempt ${retryCount + 1})`);
       const API_URL = process.env.REACT_APP_API_URL || '';
 
       const response = await fetch(`${API_URL}/api/check-approval`, {
@@ -729,7 +710,6 @@ function App() {
         // FIX: Retry on server errors
         if (response.status >= 500 && retryCount < MAX_RETRIES) {
           const delay = 1000 * Math.pow(2, retryCount);
-          console.log(`⚠️ Server error (${response.status}), retrying in ${delay}ms...`);
           await new Promise(resolve => setTimeout(resolve, delay));
           return checkBackendApprovalStatus(email, retryCount + 1);
         }
@@ -737,18 +717,15 @@ function App() {
       }
 
       const data = await response.json();
-      console.log('📋 Backend approval response:', data);
 
       if (data.approved && data.token) {
         localStorage.setItem('authToken', data.token);
         setUserApproved(true);
         setView('product');
-        console.log('✅ User approved, showing product dashboard');
       } else if (data.suspended) {
         setUserAlreadySignedUp(true);
         setUserApproved(false);
         setView('success'); // Shows suspended message
-        console.log('🚫 User suspended');
       } else {
         setUserAlreadySignedUp(true);
         setUserApproved(false);
@@ -756,7 +733,6 @@ function App() {
         if (data.wantsManualOnboarding) {
           localStorage.setItem('wantsManualOnboarding', 'true');
         }
-        console.log('⏳ User pending approval');
       }
 
       window.history.replaceState({}, document.title, window.location.pathname);
@@ -779,11 +755,9 @@ function App() {
   useEffect(() => {
     if (!supabase) return;
 
-    console.log('Setting up auth listener...');
     let hasProcessed = false;
 
     const { data: authListener } = supabase.auth.onAuthStateChange(async (event, session) => {
-      console.log('🔔 Auth state changed:', event, session?.user?.email);
 
       if (event === 'SIGNED_IN' && session && !hasProcessed) {
         const hasHashToken = window.location.hash.includes('access_token');
@@ -792,7 +766,6 @@ function App() {
         const isOAuthCallback = hasHashToken || hasCodeParam;
 
         if (isOAuthCallback) {
-          console.log('✅ Processing OAuth signup for:', session.user.email);
           hasProcessed = true;
           setIsProcessing(true);
 
@@ -800,7 +773,6 @@ function App() {
             setUserEmail(session.user.email);
 
             if (session.user.email === ADMIN_EMAIL) {
-              console.log('🔑 Admin user detected, showing admin panel');
               setView('success');
               setIsProcessing(false);
               window.history.replaceState({}, document.title, window.location.pathname);
@@ -833,7 +805,6 @@ function App() {
                  throw new Error(insertError.message || 'Failed to add to waitlist');
               }
               const { error: rpcError } = await supabase.rpc('increment_waitlist');
-              if (rpcError) console.warn('⚠️ Counter increment failed (non-fatal):', rpcError);
               const { count } = await supabase.from('waitlist_emails').select('*', { count: 'exact', head: true });
               setSignupNumber(count || 1);
             }
@@ -850,12 +821,9 @@ function App() {
                 .select();
 
               if (userInsertError && userInsertError.code !== '23505') {
-                console.warn('⚠️ Failed to create user record:', userInsertError);
               } else {
-                console.log('✅ User record created in users table');
               }
             } catch (userErr) {
-              console.warn('⚠️ User creation error (non-fatal):', userErr);
             }
             window.history.replaceState({}, document.title, window.location.pathname);
             setView('success');
@@ -870,7 +838,6 @@ function App() {
             setIsProcessing(false);
           }
         } else {
-          console.log('👤 Returning user detected');
           const { data: { user } } = await supabase.auth.getUser();
           if (user?.email) {
             setUserEmail(user.email);
@@ -893,7 +860,6 @@ function App() {
 
               // If not, create them now
               if (!existingUser) {
-                console.log('⚠️ Returning user not in database, creating now...');
                 const { error: userInsertError } = await supabase
                   .from('users')
                   .insert([{
@@ -904,13 +870,10 @@ function App() {
                   .select();
 
                 if (userInsertError && userInsertError.code !== '23505') {
-                  console.warn('⚠️ Failed to create returning user record:', userInsertError);
                 } else {
-                  console.log('✅ Returning user record created');
                 }
               }
             } catch (userErr) {
-              console.warn('⚠️ Returning user creation error (non-fatal):', userErr);
             }
 
             await checkBackendApprovalStatus(user.email);
@@ -920,7 +883,6 @@ function App() {
     });
 
     return () => {
-      console.log('Cleaning up auth listener');
       authListener?.subscription?.unsubscribe();
     };
   }, []);
@@ -940,7 +902,6 @@ function App() {
         localStorage.setItem('waitlistCount', count.toString());
       }
     } catch (err) {
-      console.log('Waitlist count fetch failed, using cached value');
     }
   };
 
@@ -962,7 +923,6 @@ function App() {
         }
       }
     } catch (err) {
-      console.log('User check:', err.message);
     }
   };
 

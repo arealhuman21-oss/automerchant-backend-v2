@@ -95,7 +95,6 @@ export function WaitlistModal({ active, onClose, onDevAccess }) {
 
   const handleAddToWaitlist = async (email) => {
     try {
-      console.log('📝 Adding to waitlist:', email);
 
       // Try to insert into Supabase waitlist table FIRST (for counter)
       try {
@@ -106,26 +105,22 @@ export function WaitlistModal({ active, onClose, onDevAccess }) {
 
         if (insertError) {
           if (insertError.code === '23505') {
-            console.log('User already in Supabase waitlist (duplicate)');
           } else {
             console.error('Waitlist insert error:', insertError);
           }
         } else {
-          console.log('✅ Successfully added to Supabase waitlist');
 
           // Increment counter only if insert was successful
           const { error: updateError } = await supabase.rpc('increment_waitlist');
           if (updateError) {
             console.error('Error incrementing counter:', updateError);
           } else {
-            console.log('✅ Counter incremented');
           }
         }
 
         // Fetch updated count
         await fetchTotalSignups();
       } catch (supabaseErr) {
-        console.warn('Supabase operations failed (non-critical):', supabaseErr);
       }
 
       // Now check backend approval status (creates user in PostgreSQL)

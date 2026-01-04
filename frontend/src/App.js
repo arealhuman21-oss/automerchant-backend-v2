@@ -201,8 +201,6 @@ function SettingsModal({ isOpen, onClose, onConnect, shopifyConnected, colorSche
   const [success, setSuccess] = useState(false);
 
   useEffect(() => {
-    console.log('SettingsModal colorScheme:', colorScheme);
-    console.log('SettingsModal setColorScheme type:', typeof setColorScheme);
   }, [colorScheme, setColorScheme]);
 
   const handleConnect = async () => {
@@ -319,16 +317,13 @@ function SettingsModal({ isOpen, onClose, onConnect, shopifyConnected, colorSche
                 </InlineStack>
                 <Button
                   onClick={() => {
-                    console.log('🌓 Dark mode toggle clicked! Current:', colorScheme);
                     const newScheme = colorScheme === 'light' ? 'dark' : 'light';
-                    console.log('🌓 Switching to:', newScheme);
                     if (typeof setColorScheme === 'function') {
                       setColorScheme(newScheme);
                       // Force localStorage update
                       localStorage.setItem('shopify-color-scheme', newScheme);
                       // Force document attribute update
                       document.documentElement.setAttribute('data-color-scheme', newScheme);
-                      console.log('🌓 Dark mode updated successfully!');
                     } else {
                       console.error('❌ setColorScheme is not a function:', typeof setColorScheme);
                     }
@@ -441,7 +436,6 @@ function App({ colorScheme = 'light', setColorScheme = () => {} }) {
 
     // Handle waitlist redirect (user installed but not approved)
     if (waitlist) {
-      console.log('⏳ User on waitlist, showing waitlist view');
       setView('landing');
       const message = urlParams.get('message') || 'Your account is pending approval.';
       setError(message);
@@ -452,7 +446,6 @@ function App({ colorScheme = 'light', setColorScheme = () => {} }) {
 
     if (oauthSuccess && email) {
       // OAuth completed! Auto-login the user
-      console.log('✅ OAuth success! Auto-logging in user:', email);
 
       // Try to login or create account automatically
       const autoLogin = async () => {

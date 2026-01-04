@@ -10,7 +10,6 @@ const api = {
 
     // Debug: Log if token is missing
     if (!token) {
-      console.error('⚠️ No authToken in localStorage!');
     }
 
     const headers = {
@@ -28,7 +27,6 @@ const api = {
     });
     if (!response.ok) {
       const error = await response.json();
-      console.error(`❌ API Error ${response.status}:`, error);
 
       // If auth error, suggest re-login
       if (response.status === 401 || response.status === 403) {
@@ -1196,6 +1194,19 @@ function ProductDashboard({ userEmail, onLogout }) {
               <span>ROI Calculator</span>
             </div>
           </button>
+          <button
+            onClick={() => setActiveTab('updates')}
+            className={`px-6 py-3 rounded-lg font-semibold transition ${
+              activeTab === 'updates'
+                ? 'bg-purple-600 text-white'
+                : 'bg-slate-800/50 text-gray-400 hover:text-white hover:bg-slate-700/50'
+            }`}
+          >
+            <div className="flex items-center space-x-2">
+              <span className="text-xl">✨</span>
+              <span>UPDATES</span>
+            </div>
+          </button>
         </div>
 
         {/* Error Message */}
@@ -1215,66 +1226,6 @@ function ProductDashboard({ userEmail, onLogout }) {
           </div>
         )}
 
-        {/* AI Intelligence Banner - PERMANENT (no dismiss) */}
-        {showUpdateBanner && shopifyConnected && (
-          <div className="mb-6 p-6 bg-gradient-to-r from-purple-600/20 to-pink-600/20 border-2 border-purple-500/50 rounded-xl">
-            <div className="flex items-center space-x-3 mb-4">
-              <div className="text-3xl">🧠</div>
-              <h3 className="text-2xl font-bold text-white">AutoMerchant AI - Always Learning</h3>
-            </div>
-
-            {/* UPDATES Section */}
-            <div className="mb-4 p-4 bg-green-500/10 border-l-4 border-green-500 rounded-lg">
-              <div className="flex items-center space-x-2 mb-2">
-                <div className="text-xl">✨</div>
-                <h4 className="font-bold text-green-300">UPDATES - Jan 1, 2026</h4>
-              </div>
-              <ul className="text-sm text-green-200 space-y-1">
-                <li>• <strong>Fixed critical bug</strong> causing negative price recommendations (4000% margin error)</li>
-                <li>• <strong>Enhanced low-data mode:</strong> Now estimates cost price (60% of current) when missing, still gives best recommendations</li>
-                <li>• <strong>Improved confidence scoring:</strong> Clear distinction between estimated vs actual cost data (25-35% vs 70-95%)</li>
-                <li>• <strong>Smarter margin targeting:</strong> All algorithms now use correct decimal format (0.40 = 40%)</li>
-              </ul>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <div className="p-4 bg-white/5 rounded-lg border border-purple-500/30">
-                <div className="flex items-center space-x-2 mb-2">
-                  <div className="text-2xl">🎯</div>
-                  <p className="font-bold text-white">Smart Confidence</p>
-                </div>
-                <p className="text-sm text-purple-200">
-                  All products get recommendations. Low data = margin-based (35% confidence). High data = full ML (70-95% confidence).
-                </p>
-              </div>
-
-              <div className="p-4 bg-white/5 rounded-lg border border-purple-500/30">
-                <div className="flex items-center space-x-2 mb-2">
-                  <div className="text-2xl">💰</div>
-                  <p className="font-bold text-white">Profit-First</p>
-                </div>
-                <p className="text-sm text-purple-200">
-                  Every recommendation shows exact monthly profit impact. Clear reasoning. No guesswork.
-                </p>
-              </div>
-
-              <div className="p-4 bg-white/5 rounded-lg border border-purple-500/30">
-                <div className="flex items-center space-x-2 mb-2">
-                  <div className="text-2xl">🛡️</div>
-                  <p className="font-bold text-white">Risk Protection</p>
-                </div>
-                <p className="text-sm text-purple-200">
-                  CVaR downside protection. Regret minimization. Never recommends below cost. Your margins are safe.
-                </p>
-              </div>
-            </div>
-            <div className="mt-4 p-3 bg-green-500/20 border border-green-500/40 rounded-lg">
-              <p className="text-green-200 text-sm text-center">
-                <strong>Graduate-level ML</strong> working for you 24/7. Bayesian learning, elasticity optimization, multi-objective Pareto frontiers.
-              </p>
-            </div>
-          </div>
-        )}
 
         {/* Shopify Not Connected Warning */}
         {!shopifyConnected && activeTab === 'dashboard' && (
@@ -2463,6 +2414,83 @@ function ProductDashboard({ userEmail, onLogout }) {
               </div>
             )}
           </>
+        )}
+
+        {/* UPDATES Tab */}
+        {activeTab === 'updates' && (
+          <div className="space-y-6">
+            <div className="bg-slate-800/50 border border-slate-700 rounded-xl p-8">
+              <div className="flex items-center space-x-3 mb-6">
+                <span className="text-4xl">✨</span>
+                <h2 className="text-3xl font-bold text-white">UPDATES - Jan 1, 2026</h2>
+              </div>
+
+              <ul className="space-y-3 text-gray-300 mb-8">
+                <li className="flex items-start space-x-3">
+                  <span className="text-green-400 mt-1">•</span>
+                  <div>
+                    <strong className="text-white">Fixed critical bug</strong> causing negative price recommendations (4000% margin error)
+                  </div>
+                </li>
+                <li className="flex items-start space-x-3">
+                  <span className="text-green-400 mt-1">•</span>
+                  <div>
+                    <strong className="text-white">Enhanced low-data mode:</strong> Now estimates cost price (60% of current) when missing, still gives best recommendations
+                  </div>
+                </li>
+                <li className="flex items-start space-x-3">
+                  <span className="text-green-400 mt-1">•</span>
+                  <div>
+                    <strong className="text-white">Improved confidence scoring:</strong> Clear distinction between estimated vs actual cost data (25-35% vs 70-95%)
+                  </div>
+                </li>
+                <li className="flex items-start space-x-3">
+                  <span className="text-green-400 mt-1">•</span>
+                  <div>
+                    <strong className="text-white">Smarter margin targeting:</strong> All algorithms now use correct decimal format (0.40 = 40%)
+                  </div>
+                </li>
+              </ul>
+
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
+                <div className="bg-slate-900/50 border border-blue-500/30 rounded-lg p-6">
+                  <div className="flex items-center space-x-2 mb-3">
+                    <span className="text-3xl">🎯</span>
+                    <h3 className="text-xl font-bold text-white">Smart Confidence</h3>
+                  </div>
+                  <p className="text-gray-300">
+                    All products get recommendations. Low data = margin-based (35% confidence). High data = full ML (70-95% confidence).
+                  </p>
+                </div>
+
+                <div className="bg-slate-900/50 border border-green-500/30 rounded-lg p-6">
+                  <div className="flex items-center space-x-2 mb-3">
+                    <span className="text-3xl">💰</span>
+                    <h3 className="text-xl font-bold text-white">Profit-First</h3>
+                  </div>
+                  <p className="text-gray-300">
+                    Every recommendation shows exact monthly profit impact. Clear reasoning. No guesswork.
+                  </p>
+                </div>
+
+                <div className="bg-slate-900/50 border border-purple-500/30 rounded-lg p-6">
+                  <div className="flex items-center space-x-2 mb-3">
+                    <span className="text-3xl">🛡️</span>
+                    <h3 className="text-xl font-bold text-white">Risk Protection</h3>
+                  </div>
+                  <p className="text-gray-300">
+                    CVaR downside protection. Regret minimization. Never recommends below cost. Your margins are safe.
+                  </p>
+                </div>
+              </div>
+
+              <div className="bg-green-900/20 border-2 border-green-500/50 rounded-lg p-5">
+                <p className="text-green-200 text-center">
+                  <strong className="text-green-300">Graduate-level ML</strong> working for you 24/7. Bayesian learning, elasticity optimization, multi-objective Pareto frontiers.
+                </p>
+              </div>
+            </div>
+          </div>
         )}
       </div>
     </div>

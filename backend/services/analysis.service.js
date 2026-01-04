@@ -5,7 +5,6 @@ const { analyzeProductV3 } = require('../analyzeProduct-v3');
 if (!supabaseService) {
   console.error('❌ CRITICAL: supabaseService is not initialized!');
 }
-console.log('📦 Analysis service loaded, supabaseService available:', !!supabaseService);
 const {
   loadRegretBudgets,
   loadElasticityLearners,
@@ -17,7 +16,6 @@ const config = require('../config/environment');
 const axios = require('axios');
 
 async function runAnalysisForUser(userId) {
-  // console.log(`🤖 Running analysis for user ${userId}`);
 
   // ============================================
   // DUAL-MODE AUTH: Get credentials based on AUTH_MODE
@@ -31,7 +29,6 @@ async function runAnalysisForUser(userId) {
     accessToken = config.SHOPIFY_ACCESS_TOKEN;
 
     if (!shop || !accessToken) {
-      // console.log(`⚠️ User ${userId}: MANUAL MODE - SHOP and SHOPIFY_ACCESS_TOKEN not set in .env`);
       return;
     }
   } else {
@@ -43,7 +40,6 @@ async function runAnalysisForUser(userId) {
       .single();
 
     if (userError || !user || !user.shopify_shop) {
-      // console.log(`⚠️ User ${userId}: No shop domain found in users table`);
       return;
     }
 
@@ -55,7 +51,6 @@ async function runAnalysisForUser(userId) {
       .single();
 
     if (shopError || !shopData) {
-      // console.log(`⚠️ User ${userId}: No OAuth token found for shop ${user.shopify_shop}`);
       return;
     }
 
@@ -67,7 +62,6 @@ async function runAnalysisForUser(userId) {
   // CRITICAL FIX: SYNC PRODUCTS BEFORE ANALYSIS
   // This ensures we have FRESH data, not stale data
   // ============================================  
-  // console.log(`🔄 Syncing products from Shopify before analysis...`);
 
   try {
     // Fetch products from Shopify
@@ -84,11 +78,9 @@ async function runAnalysisForUser(userId) {
     let url = `https://${shop}/admin/api/2024-01/orders.json?status=any&created_at_min=${thirtyDaysAgo.toISOString()}&limit=250`;
     let pageCount = 0;
 
-    // console.log('🔄 Fetching all orders with pagination...');
 
     while (url) {
       pageCount++;
-      // console.log(`   Page ${pageCount}: Fetching ${url}`);
 
       const response = await axios.get(url, {
         headers: { 'X-Shopify-Access-Token': accessToken }
@@ -96,7 +88,6 @@ async function runAnalysisForUser(userId) {
 
       const pageOrders = response.data.orders || [];
       allOrders = allOrders.concat(pageOrders);
-      // console.log(`   ✅ Page ${pageCount}: Got ${pageOrders.length} orders (Total so far: ${allOrders.length})`);
 
       // Parse Link header for next page (Shopify pagination)
       const linkHeader = response.headers['link'];
@@ -109,12 +100,10 @@ async function runAnalysisForUser(userId) {
 
       // Safety limit: prevent infinite loops
       if (pageCount > 100) {
-        console.warn('⚠️ Reached 100 pages, stopping pagination');
         break;
       }
     }
 
-    // console.log(`📦 TOTAL ORDERS FETCHED: ${allOrders.length} orders across ${pageCount} page(s)`);
     const orders = allOrders;
 
     // Calculate sales per variant
@@ -150,7 +139,6 @@ async function runAnalysisForUser(userId) {
       const salesVelocity = totalSales / 30;
 
       // DEBUG: Log what Shopify returns
-      console.log(`🛒 Shopify sync - ${product.title}: variant.price = ${variant.price}`);
 
       // CRITICAL FIX: Only UPDATE sales data, don't touch cost_price!
       // Use UPDATE instead of UPSERT to preserve user-set fields
@@ -194,7 +182,6 @@ async function runAnalysisForUser(userId) {
       }
     }
 
-    // console.log(`✅ Products synced: ${productsResponse.data.products.length} products updated with fresh sales data`);
   } catch (syncError) {
     console.error(`⚠️ Product sync failed for user ${userId}, continuing with database data:`, syncError.message);
     // Continue anyway - better to analyze with slightly stale data than skip analysis
@@ -207,14 +194,10 @@ async function runAnalysisForUser(userId) {
     .eq('selected_for_analysis', true);
 
   if (productsError || !products || products.length === 0) {
-    console.log(`⚠️ User ${userId}: No products selected for analysis`);
     return;
   }
 
-  console.log(`📊 Analyzing ${products.length} selected products for user ${userId}`);
-  console.log(`📦 Products loaded from database:`);
   products.forEach(p => {
-    console.log(`   - ${p.title}: price=${p.price}, cost_price=${p.cost_price} (type: ${typeof p.cost_price})`);
   });
 
   const allProducts = products;
@@ -240,7 +223,6 @@ async function runAnalysisForUser(userId) {
     });
   }
 
-  // console.log(`📉 Price decrease history loaded: ${Object.keys(priceDecreaseHistory).length} products have decreases this month`);
 
   const sevenDaysAgo = new Date();
   sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
@@ -282,7 +264,6 @@ async function runAnalysisForUser(userId) {
   // ALWAYS use V3 algorithm (V2 removed)
   // Load V3 state: regret budgets, elasticity learners, price history
   try {
-    // console.log(`📚 Loading V3 state...`);
     regretBudgets = await loadRegretBudgets(supabaseService, userId);
     elasticityLearners = await loadElasticityLearners(supabaseService, userId);
 
@@ -294,7 +275,6 @@ async function runAnalysisForUser(userId) {
       }
     }
 
-    // console.log(`   ✅ Loaded: ${Object.keys(regretBudgets).length} budgets, ${Object.keys(elasticityLearners).length} learners, ${Object.keys(priceHistory).length} products with history`);
   } catch (error) {
     console.error('⚠️ V3 state loading failed (tables may not exist yet):', error.message);
     // Continue with empty state - will still work but without learning history
@@ -305,9 +285,7 @@ async function runAnalysisForUser(userId) {
 
   for (const product of allProducts) {
     try {
-      // console.log(`
 // 🔍 Analyzing product: ${product.title} (ID: ${product.id})`);
-      // console.log(`   Raw data:`, {
       //   cost_price: product.cost_price,
       //   price: product.price,
       //   inventory: product.inventory,
@@ -325,7 +303,6 @@ async function runAnalysisForUser(userId) {
         elasticityLearners
       );
 
-      // console.log(`   Analysis result:`, {
       //   shouldChangePrice: analysis.shouldChangePrice,
       //   recommendedPrice: analysis.recommendedPrice,
       //   urgency: analysis.urgency,
@@ -362,7 +339,6 @@ async function runAnalysisForUser(userId) {
         if (upsertError) {
           console.error('Error upserting recommendation:', upsertError);
         } else {
-          // console.log(`   ✅ Recommendation created: $${product.price} → $${analysis.recommendedPrice}`);
           recommendationsCreated++;
 
           // Save V3 metadata (always use V3)
@@ -371,8 +347,6 @@ async function runAnalysisForUser(userId) {
           }
         }
       } else {
-        // console.log(`   ✓ No price change needed`);
-        // console.log(`   Reasoning: ${analysis.reasoning || analysis.error || 'Unknown'}`);
       }
 
       await supabaseService
@@ -396,7 +370,6 @@ async function runAnalysisForUser(userId) {
     console.error('⚠️ V3 state saving failed:', error.message);
   }
 
-  // console.log(`
 // ✅ Analysis complete for user ${userId}: ${recommendationsCreated} recommendations created`);
   return { recommendationsCreated };
 }
@@ -411,7 +384,6 @@ async function checkManualAnalysisLimit(userId) {
   startOfDay.setHours(0, 0, 0, 0);
   const startOfDayISO = startOfDay.toISOString();
 
-  console.log(`📊 Checking manual analysis limit for userId: ${userId}`);
 
   let manualCount = 0;
   try {
@@ -423,7 +395,6 @@ async function checkManualAnalysisLimit(userId) {
 
     if (result.error) {
       // FALLBACK: If table doesn't exist or query fails, allow analysis anyway
-      console.warn('⚠️ manual_analyses query failed, allowing analysis:', result.error);
       return {
         allowed: true,
         used: 0,
@@ -435,7 +406,6 @@ async function checkManualAnalysisLimit(userId) {
     manualCount = result.count || 0;
   } catch (queryError) {
     // FALLBACK: If exception occurs, allow analysis anyway
-    console.warn('⚠️ manual_analyses exception, allowing analysis:', queryError.message);
     return {
       allowed: true,
       used: 0,
@@ -444,7 +414,6 @@ async function checkManualAnalysisLimit(userId) {
     };
   }
 
-  console.log(`✅ Manual analyses today: ${manualCount}`);
 
   const dailyLimit = 10;
   const allowed = manualCount < dailyLimit;
@@ -464,7 +433,6 @@ async function checkManualAnalysisLimit(userId) {
  */
 async function getAnalysisStatus(userId) {
   const now = new Date().toISOString();
-  console.log(`📊 Getting analysis status for userId: ${userId}`);
 
   // Get user's last analysis
   const { data: userData, error: userError } = await supabaseService
@@ -477,7 +445,6 @@ async function getAnalysisStatus(userId) {
     console.error('❌ Error getting user data:', JSON.stringify(userError, null, 2));
     throw new Error(`User query failed: ${userError.message || userError.code}`);
   }
-  console.log(`✅ User data loaded: lastAnalysis=${userData?.last_analysis}`);
 
 
   // Count manual analyses today
@@ -494,16 +461,13 @@ async function getAnalysisStatus(userId) {
       .gte('created_at', startOfDayISO);
 
     if (countError) {
-      console.warn('⚠️ manual_analyses count failed, using 0:', countError);
       manualCount = 0;
     } else {
       manualCount = count || 0;
     }
   } catch (err) {
-    console.warn('⚠️ manual_analyses query exception, using 0:', err.message);
     manualCount = 0;
   }
-  console.log(`✅ Manual analyses count: ${manualCount}`);
 
   // Get next analysis due time
   const { data: scheduleData } = await supabaseService
@@ -537,7 +501,6 @@ async function getAnalysisStatus(userId) {
       });
 
     nextAnalysisDue = nextCron.toISOString();
-    console.log(`✅ Created analysis schedule for user ${userId}, next due: ${nextAnalysisDue}`);
   }
 
   // Calculate time until next
@@ -596,7 +559,6 @@ function getNextCronTime() {
  * @returns {Object} A summary of the cron job execution.
  */
 async function handleAutoAnalysisCron() {
-  console.log('⏰ [CRON] Starting automatic analysis check...');
   const results = {
     usersProcessed: 0,
     usersSucceeded: 0,
@@ -615,7 +577,6 @@ async function handleAutoAnalysisCron() {
       throw dueError;
     }
 
-    console.log(`📊 [CRON] Found ${dueUsers ? dueUsers.length : 0} users due for analysis`);
 
     if (dueUsers) {
       for (const row of dueUsers) {
@@ -623,7 +584,6 @@ async function handleAutoAnalysisCron() {
         results.usersProcessed++;
 
         try {
-          console.log(`🤖 [CRON] Processing user ${userId}...`);
           await runAnalysisForUser(userId); // Use the existing function
 
           const now = new Date();
@@ -639,7 +599,6 @@ async function handleAutoAnalysisCron() {
             .eq('user_id', userId);
 
           results.usersSucceeded++;
-          console.log(`✅ [CRON] User ${userId}: Analysis completed, next due at ${nextDue.toISOString()}`);
         } catch (error) {
           results.usersFailed++;
           results.errors.push({ userId, error: error.message });
@@ -652,6 +611,5 @@ async function handleAutoAnalysisCron() {
     console.error('❌ [CRON] General background analysis job error:', error);
   }
 
-  console.log(`✅ [CRON] Auto-analysis complete: ${results.usersSucceeded}/${results.usersProcessed} succeeded`);
   return results;
 }

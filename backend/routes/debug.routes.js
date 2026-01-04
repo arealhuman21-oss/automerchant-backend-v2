@@ -9,7 +9,6 @@ router.post('/link-orphaned-shop', authenticateToken, async (req, res) => {
     const userId = req.user.userId;
     const { shopDomain } = req.body;
 
-    console.log(`🔗 Linking shop ${shopDomain} to user ${userId}...`);
 
     // Update the shop's user_id
     const { data, error } = await supabaseService
@@ -23,7 +22,6 @@ router.post('/link-orphaned-shop', authenticateToken, async (req, res) => {
       throw error;
     }
 
-    console.log('✅ Shop linked successfully:', data);
 
     res.json({
       success: true,
@@ -43,7 +41,6 @@ router.get('/check-connection', authenticateToken, async (req, res) => {
     const userId = req.user.userId;
     const userEmail = req.user.email;
 
-    console.log('🔍 DEBUG: Checking connection for:', { userId, userEmail });
 
     // Get user details
     const { data: user, error: userError } = await supabaseService
@@ -52,7 +49,6 @@ router.get('/check-connection', authenticateToken, async (req, res) => {
       .eq('id', userId)
       .single();
 
-    console.log('User:', user, 'Error:', userError);
 
     // Get shops for this user
     const { data: shops, error: shopsError } = await supabaseService
@@ -60,7 +56,6 @@ router.get('/check-connection', authenticateToken, async (req, res) => {
       .select('*')
       .eq('user_id', userId);
 
-    console.log('Shops:', shops, 'Error:', shopsError);
 
     // Get ALL shops (to check for orphans)
     const { data: allShops } = await supabaseService

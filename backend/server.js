@@ -113,33 +113,15 @@ const shopifyAPI = {
 // ============================================
 // SHOPIFY AUTH MODE STARTUP LOGGING
 // ============================================
-console.log('\n🔐 ============================================');
-console.log('   SHOPIFY AUTHENTICATION MODE');
-console.log('============================================');
 
 if (AUTH_MODE === 'manual') {
-  console.log('📍 Mode: MANUAL (Development)');
-  console.log('📋 Config:');
-  console.log(`   - Shop: ${process.env.SHOP || '❌ NOT SET'}`);
-  console.log(`   - Token: ${process.env.SHOPIFY_ACCESS_TOKEN ? '✅ Set (shpat_...)' : '❌ NOT SET'}`);
-  console.log('💡 Using hardcoded credentials from .env file');
 
   if (!process.env.SHOP || !process.env.SHOPIFY_ACCESS_TOKEN) {
-    console.log('\n⚠️  WARNING: SHOP and SHOPIFY_ACCESS_TOKEN must be set in .env');
-    console.log('   Add these lines to backend/.env:');
-    console.log('   SHOP=myteststore.myshopify.com');
-    console.log('   SHOPIFY_ACCESS_TOKEN=shpat_xxxxxxxxxxxxx\n');
   }
 } else if (AUTH_MODE === 'oauth') {
-  console.log('📍 Mode: OAUTH (Production)');
-  console.log('💡 Using dynamic tokens from shops table in database');
-  console.log('📋 Tokens fetched per-request based on shop domain');
 } else {
-  console.log(`❌ INVALID MODE: "${AUTH_MODE}"`);
-  console.log('   Set AUTH_MODE=manual or AUTH_MODE=oauth in .env');
 }
 
-console.log('============================================\n');
 
 // ============================================
 // HELPER FUNCTIONS
@@ -201,7 +183,6 @@ app.get('/health', (req, res) => {
 
 // Cron endpoint for auto-analysis (called by cron-job.org every 30 minutes)
 app.get('/api/cron/auto-analysis', async (req, res) => {
-  console.log('⏰ [CRON] Auto-analysis endpoint called');
 
   // Verify CRON_SECRET from Authorization header
   const authHeader = req.headers.authorization || '';
@@ -219,9 +200,7 @@ app.get('/api/cron/auto-analysis', async (req, res) => {
   }
 
   try {
-    console.log('✅ [CRON] Auth verified, running auto-analysis...');
     const result = await handleAutoAnalysisCron();
-    console.log('✅ [CRON] Auto-analysis complete:', result);
     res.json({
       success: true,
       message: 'Auto-analysis completed',
@@ -267,14 +246,6 @@ app.get('/', async (req, res) => {
 
   // If this looks like a Shopify callback (has shop + hmac), forward to callback handler
   if (shop && hmac) {
-    console.log('');
-    console.log('🔐 ═══════════════════════════════════════════════════════');
-    console.log('🔐 SHOPIFY CALLBACK AT ROOT - FORWARDING TO HANDLER');
-    console.log('🔐 ═══════════════════════════════════════════════════════');
-    console.log('🔐 Shop:', shop);
-    console.log('🔐 Has code?:', !!code);
-    console.log('🔐 All params:', JSON.stringify(req.query, null, 2));
-    console.log('🔐 ═══════════════════════════════════════════════════════');
 
     // Forward to the callback route by building the URL
     const callbackUrl = `/api/shopify/callback?${new URLSearchParams(req.query).toString()}`;
@@ -321,7 +292,6 @@ app.use(errorHandler);
 
 /* DEPRECATED - DO NOT USE
 async function runAnalysisForUser(userId) {
-  // console.log(`🤖 Running analysis for user ${userId}`);
 
   // ============================================
   // DUAL-MODE AUTH: Get credentials based on AUTH_MODE
@@ -335,7 +305,6 @@ async function runAnalysisForUser(userId) {
     accessToken = config.SHOPIFY_ACCESS_TOKEN;
 
     if (!shop || !accessToken) {
-      // console.log(`⚠️ User ${userId}: MANUAL MODE - SHOP and SHOPIFY_ACCESS_TOKEN not set in .env`);
       return;
     }
   } else {
@@ -347,7 +316,6 @@ async function runAnalysisForUser(userId) {
       .single();
 
     if (userError || !user || !user.shopify_shop) {
-      // console.log(`⚠️ User ${userId}: No shop domain found in users table`);
       return;
     }
 
@@ -359,7 +327,6 @@ async function runAnalysisForUser(userId) {
       .single();
 
     if (shopError || !shopData) {
-      // console.log(`⚠️ User ${userId}: No OAuth token found for shop ${user.shopify_shop}`);
       return;
     }
 
@@ -371,7 +338,6 @@ async function runAnalysisForUser(userId) {
   // CRITICAL FIX: SYNC PRODUCTS BEFORE ANALYSIS
   // This ensures we have FRESH data, not stale data
   // ============================================
-  // console.log(`🔄 Syncing products from Shopify before analysis...`);
 
   try {
     // Fetch products from Shopify
@@ -440,7 +406,6 @@ async function runAnalysisForUser(userId) {
         });
     }
 
-    // console.log(`✅ Products synced: ${productsResponse.data.products.length} products updated with fresh sales data`);
   } catch (syncError) {
     console.error(`⚠️ Product sync failed for user ${userId}, continuing with database data:`, syncError.message);
     // Continue anyway - better to analyze with slightly stale data than skip analysis
@@ -453,11 +418,9 @@ async function runAnalysisForUser(userId) {
     .eq('selected_for_analysis', true);
 
   if (productsError || !products || products.length === 0) {
-    // console.log(`⚠️ User ${userId}: No products selected for analysis`);
     return;
   }
 
-  // console.log(`📊 Analyzing ${products.length} selected products for user ${userId}`);
 
   const allProducts = products;
   const userSettings = { target_margin: 0.40 };  // CRITICAL FIX: Must be decimal (0.40 = 40%), not integer
@@ -482,7 +445,6 @@ async function runAnalysisForUser(userId) {
     });
   }
 
-  // console.log(`📉 Price decrease history loaded: ${Object.keys(priceDecreaseHistory).length} products have decreases this month`);
 
   const sevenDaysAgo = new Date();
   sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
@@ -523,7 +485,6 @@ async function runAnalysisForUser(userId) {
 
   if (USE_ALGORITHM_V3) {
     try {
-      // console.log(`📚 Loading V3 state...`);
       regretBudgets = await loadRegretBudgets(supabase, userId);
       elasticityLearners = await loadElasticityLearners(supabase, userId);
 
@@ -535,10 +496,8 @@ async function runAnalysisForUser(userId) {
         }
       }
 
-      // console.log(`   ✅ Loaded: ${Object.keys(regretBudgets).length} budgets, ${Object.keys(elasticityLearners).length} learners, ${Object.keys(priceHistory).length} products with history`);
     } catch (error) {
       console.error('⚠️ V3 state loading failed (tables may not exist yet):', error.message);
-      // console.log('   ERROR: V3 tables missing! Cannot proceed without V3.');
       throw new Error('V3 tables not found - run migrations first');
     }
   }
@@ -547,8 +506,6 @@ async function runAnalysisForUser(userId) {
 
   for (const product of allProducts) {
     try {
-      // console.log(`\n🔍 Analyzing product: ${product.title} (ID: ${product.id})`);
-      // console.log(`   Raw data:`, {
       //   cost_price: product.cost_price,
       //   price: product.price,
       //   inventory: product.inventory,
@@ -566,7 +523,6 @@ async function runAnalysisForUser(userId) {
         elasticityLearners
       );
 
-      // console.log(`   Analysis result:`, {
       //   shouldChangePrice: analysis.shouldChangePrice,
       //   recommendedPrice: analysis.recommendedPrice,
       //   urgency: analysis.urgency,
@@ -597,7 +553,6 @@ async function runAnalysisForUser(userId) {
         if (upsertError) {
           console.error('Error upserting recommendation:', upsertError);
         } else {
-          // console.log(`   ✅ Recommendation created: $${product.price} → $${analysis.recommendedPrice}`);
           recommendationsCreated++;
 
           // Save V3 metadata if using V3
@@ -606,8 +561,6 @@ async function runAnalysisForUser(userId) {
           }
         }
       } else {
-        // console.log(`   ✓ No price change needed`);
-        // console.log(`   Reasoning: ${analysis.reasoning || analysis.error || 'Unknown'}`);
       }
 
       await supabase
@@ -633,7 +586,6 @@ async function runAnalysisForUser(userId) {
     }
   }
 
-  // console.log(`\n✅ Analysis complete for user ${userId}: ${recommendationsCreated} recommendations created`);
   return recommendationsCreated;
 }
 // END DEPRECATED */
@@ -654,6 +606,5 @@ async function runAnalysisForUser(userId) {
 
 if (process.env.NODE_ENV !== 'production') {
   const PORT = process.env.PORT || 5000;
-  app.listen(PORT, () => console.log(`Local server on ${PORT}`));
 }
 module.exports = app;

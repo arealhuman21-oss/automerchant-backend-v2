@@ -35,7 +35,6 @@ router.get('/shopify/install', async (req, res) => {
     // MULTI-APP SUPPORT: Look up credentials from database
     // ============================================
     if (app_id) {
-      // console.log(`🔐 [OAuth Install] Using app_id ${app_id} from database`);
 
       // Use supabaseService for OAuth flows (pre-authentication)
       const { data: app, error } = await supabaseService
@@ -55,11 +54,9 @@ router.get('/shopify/install', async (req, res) => {
       SHOPIFY_API_KEY = app.client_id;
       SHOPIFY_SCOPES = process.env.SHOPIFY_SCOPES || 'read_products,write_products,read_orders,write_inventory';
 
-      // console.log(`   Using app for shop: ${app.shop_domain}`);
 
     } else {
       // Fall back to environment variables for backward compatibility
-      // console.log(`🔐 [OAuth Install] Using credentials from environment variables`);
       SHOPIFY_API_KEY = process.env.SHOPIFY_API_KEY;
       SHOPIFY_SCOPES = process.env.SHOPIFY_SCOPES || 'read_products,write_products,read_orders,write_inventory';
     }
@@ -84,9 +81,6 @@ router.get('/shopify/install', async (req, res) => {
       `redirect_uri=${encodeURIComponent(SHOPIFY_REDIRECT_URI)}&` +
       `state=${stateData}`;
 
-    // console.log(`🔐 [OAuth Install] Redirecting shop ${shopDomain} to Shopify authorization`);
-    // console.log(`   Scopes: ${SHOPIFY_SCOPES}`);
-    // console.log(`   Redirect URI: ${SHOPIFY_REDIRECT_URI}`);
 
     // Redirect merchant to Shopify's grant screen
     res.redirect(authUrl);
@@ -108,30 +102,12 @@ router.get('/shopify/callback', async (req, res) => {
     // ============================================
     // DEBUG: Log ALL query parameters received
     // ============================================
-    console.log('');
-    console.log('🔐 ═══════════════════════════════════════════════════════');
-    console.log('🔐 SHOPIFY CALLBACK RECEIVED');
-    console.log('🔐 ═══════════════════════════════════════════════════════');
-    console.log('🔐 ALL QUERY PARAMS:', JSON.stringify(req.query, null, 2));
-    console.log('🔐 Has code?:', !!code);
-    console.log('🔐 Has shop?:', !!shop, shop);
-    console.log('🔐 Has hmac?:', !!hmac);
-    console.log('🔐 Has state?:', !!state);
-    console.log('🔐 Has host?:', !!host);
-    console.log('🔐 Has timestamp?:', !!timestamp);
-    console.log('🔐 ═══════════════════════════════════════════════════════');
-    console.log('');
 
     // ============================================
     // HANDLE CUSTOM APP INSTALL (NO CODE PARAMETER)
     // ============================================
     // Custom distribution apps send: hmac, shop, host, timestamp (NO code)
     if (!code) {
-      console.log('⚠️  NO CODE PARAMETER - Processing as custom distribution app install');
-      console.log(`   Shop: ${shop}`);
-      console.log(`   Host: ${host}`);
-      console.log(`   Timestamp: ${timestamp}`);
-      console.log(`   Received HMAC: ${hmac}`);
 
       // Verify HMAC for custom app install
       // IMPORTANT: Use ALL query params except 'hmac' itself, sorted alphabetically
@@ -143,17 +119,12 @@ router.get('/shopify/callback', async (req, res) => {
         .map(([key, value]) => `${key}=${value}`)
         .join('&');
 
-      console.log(`   HMAC message string: ${message}`);
-      console.log(`   SHOPIFY_API_SECRET set?: ${!!process.env.SHOPIFY_API_SECRET}`);
-      console.log(`   SHOPIFY_API_SECRET first 4 chars: ${process.env.SHOPIFY_API_SECRET?.substring(0, 4) || 'NOT SET'}`);
 
       const generatedHmac = crypto
         .createHmac('sha256', process.env.SHOPIFY_API_SECRET || '')
         .update(message, 'utf8')
         .digest('hex');
 
-      console.log(`   Generated HMAC: ${generatedHmac}`);
-      console.log(`   HMACs match?: ${generatedHmac === hmac}`);
 
       // Timing-safe comparison to prevent timing attacks
       const hmacBuffer = Buffer.from(hmac || '', 'utf8');
@@ -165,14 +136,12 @@ router.get('/shopify/callback', async (req, res) => {
         console.error(`   Received: ${hmac}`);
         // For debugging, let's NOT block and see if we can proceed
         // return res.status(400).json({ error: 'Invalid HMAC' });
-        console.log('⚠️  BYPASSING HMAC CHECK FOR DEBUG - REMOVE IN PRODUCTION!');
       }
 
       // ============================================
       // CUSTOM DISTRIBUTION APP: Initiate OAuth to get access token
       // Look up app credentials by shop domain from shopify_apps table
       // ============================================
-      console.log(`✅ Shop ${shop} installed - looking up app credentials...`);
 
       // Look up app credentials by shop domain (get most recent if multiple)
       const { data: appDataArray, error: appError } = await supabaseService
@@ -195,7 +164,6 @@ router.get('/shopify/callback', async (req, res) => {
         });
       }
 
-      console.log(`✅ Found app: ${appData.app_name} (ID: ${appData.id})`);
 
       const SHOPIFY_API_KEY = appData.client_id;
       const SHOPIFY_SCOPES = process.env.SHOPIFY_SCOPES || 'read_products,write_products,read_orders,write_inventory';
@@ -212,7 +180,6 @@ router.get('/shopify/callback', async (req, res) => {
         `redirect_uri=${encodeURIComponent(SHOPIFY_REDIRECT_URI)}&` +
         `state=${stateData}`;
 
-      console.log(`🔐 Redirecting to Shopify OAuth: ${authUrl}`);
 
       // Redirect to Shopify to get authorization code
       return res.redirect(authUrl);
@@ -221,10 +188,6 @@ router.get('/shopify/callback', async (req, res) => {
     // ============================================
     // HANDLE STANDARD OAUTH FLOW (WITH CODE)
     // ============================================
-    console.log('🔐 [Standard OAuth] Processing OAuth callback with code');
-    console.log(`   Shop: ${shop}`);
-    console.log(`   Code: ${code.substring(0, 6)}...`);
-    console.log(`   State: ${state}`);
 
     // Extract app_id and user_email from state (if present)
     let app_id = null;
@@ -237,8 +200,6 @@ router.get('/shopify/callback', async (req, res) => {
       }
     }
 
-    console.log(`   App ID from state: ${app_id || 'none'}`);
-    console.log(`   User Email: ${user_email || 'none'}`);
 
     // ============================================
     // LOOK UP APP CREDENTIALS FROM DATABASE
@@ -258,22 +219,18 @@ router.get('/shopify/callback', async (req, res) => {
         return res.status(400).json({ error: 'App credentials not found' });
       }
 
-      console.log(`✅ Using credentials from app: ${appData.app_name}`);
       SHOPIFY_API_KEY = appData.client_id;
       SHOPIFY_API_SECRET = appData.client_secret;
     } else {
       // Fall back to environment variables
-      console.log('⚠️  No app_id in state, using environment variables');
       SHOPIFY_API_KEY = process.env.SHOPIFY_API_KEY;
       SHOPIFY_API_SECRET = process.env.SHOPIFY_API_SECRET;
     }
 
     // Skip HMAC verification for now (we already verified in the initial callback)
     // The OAuth flow is secure because Shopify controls the redirect
-    console.log('⚠️  Skipping HMAC verification for OAuth code exchange');
 
     // Exchange code for access token
-    console.log('🔄 Exchanging code for access token...');
     const tokenResponse = await axios.post(
       `https://${shop}/admin/oauth/access_token`,
       {
@@ -288,8 +245,6 @@ router.get('/shopify/callback', async (req, res) => {
 
     const { access_token, scope } = tokenResponse.data;
 
-    // console.log('✅ Access token received from Shopify');
-    // console.log(`   Scope: ${scope}`);
 
     // ============================================
     // STORE TOKEN IN DATABASE
@@ -307,7 +262,6 @@ router.get('/shopify/callback', async (req, res) => {
 
         if (!userError && userData) {
           user_id = userData.id;
-          // console.log(`✅ Linked shop to user: ${user_email} (ID: ${user_id})`);
 
           // CRITICAL: Also update the users table so existing code works
           const { error: updateError } = await supabaseService
@@ -321,7 +275,6 @@ router.get('/shopify/callback', async (req, res) => {
           if (updateError) {
             console.error('Error updating users table:', updateError);
           } else {
-            // console.log(`✅ Updated users table for user ID ${user_id}`);
           }
         }
       } catch (err) {
@@ -352,7 +305,6 @@ router.get('/shopify/callback', async (req, res) => {
       return res.redirect(`https://automerchant.vercel.app?oauth_error=token_storage_failed&shop=${encodeURIComponent(shop)}`);
     }
 
-    console.log(`✅ Token stored successfully in shops table for shop: ${shop}`);
 
     // Log OAuth completion activity
     await logActivity({
@@ -383,11 +335,9 @@ router.get('/shopify/callback', async (req, res) => {
         if (!checkError && userData && userData.approved) {
           // User is approved - redirect to product with auto-login
           appUrl = `https://automerchant.vercel.app?oauth_success=true&email=${encodeURIComponent(user_email)}`;
-          // console.log(`✅ Approved user ${user_email} - redirecting to product dashboard`);
         } else {
           // User is NOT approved - redirect to waitlist
           appUrl = `https://automerchant.vercel.app?waitlist=true&message=${encodeURIComponent('Thanks for installing! Your account is pending approval.')}`;
-          // console.log(`⏳ Pending user ${user_email} - redirecting to waitlist`);
         }
       } catch (err) {
         console.error('Error checking user approval:', err);
@@ -395,7 +345,6 @@ router.get('/shopify/callback', async (req, res) => {
       }
     }
 
-    // console.log(`🎉 OAuth installation complete! Redirecting to: ${appUrl}`);
 
     res.redirect(appUrl);
 
@@ -442,7 +391,6 @@ router.post('/check-approval', async (req, res) => {
           .eq('is_active', true);
 
         if (orphanedShops && orphanedShops.length > 0) {
-          console.log(`🔗 Found ${orphanedShops.length} orphaned shops, linking to user ${user.id}...`);
 
           // Link all orphaned shops to this user
           for (const shop of orphanedShops) {
@@ -454,7 +402,6 @@ router.post('/check-approval', async (req, res) => {
             if (linkError) {
               console.error(`Failed to link shop ${shop.shop_domain}:`, linkError);
             } else {
-              console.log(`✅ Auto-linked shop ${shop.shop_domain} to user ${user.email}`);
 
               // Also update users table for backwards compatibility
               if (!user.shopify_shop) {
